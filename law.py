@@ -1528,10 +1528,14 @@ Answer:
         # Try to use Ollama if available
         try:
             import requests
+            import os
+            
+            # Get Ollama host from environment variable or use default
+            ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
             
             # Make request to Ollama API
             response = requests.post(
-                "http://localhost:11434/api/generate",
+                f"{ollama_host}/api/generate",
                 json={
                     "model": model_name,
                     "prompt": prompt,

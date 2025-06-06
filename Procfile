@@ -1,1 +1,1 @@
-web: uvicorn api:app --host 0.0.0.0 --port $PORT
+web: gunicorn law_project.wsgi --log-file -

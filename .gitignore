@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.qodo
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.env
+
+# Logs
+*.log
+*.log.*
+logs/
+
+# Vector DB
+vector_db/*.bin
+vector_db/*.pickle
+vector_db/*.sqlite3
+vector_db/*/
+
+# Downloaded files
+downloads/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

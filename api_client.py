@@ -33,9 +33,16 @@ class KenyaLawClient:
             Status response as a dictionary
         """
         try:
-            response = requests.get(f"{self.api_url}/status")
-            response.raise_for_status()
-            return response.json()
+            # Try Django-style endpoints first
+            try:
+                response = requests.get(f"{self.api_url}/api/status/")
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException:
+                # Try FastAPI-style endpoints if Django endpoints fail
+                response = requests.get(f"{self.api_url}/status")
+                response.raise_for_status()
+                return response.json()
         except Exception as e:
             logger.error(f"Error getting status: {str(e)}")
             return {"status": "error", "message": str(e)}
@@ -48,9 +55,16 @@ class KenyaLawClient:
             List of sample questions
         """
         try:
-            response = requests.get(f"{self.api_url}/sample-questions")
-            response.raise_for_status()
-            return response.json()["questions"]
+            # Try Django-style endpoints first
+            try:
+                response = requests.get(f"{self.api_url}/api/sample-questions/")
+                response.raise_for_status()
+                return response.json()["questions"]
+            except requests.RequestException:
+                # Try FastAPI-style endpoints if Django endpoints fail
+                response = requests.get(f"{self.api_url}/sample-questions")
+                response.raise_for_status()
+                return response.json()["questions"]
         except Exception as e:
             logger.error(f"Error getting sample questions: {str(e)}")
             return []
@@ -80,13 +94,24 @@ class KenyaLawClient:
             
             if site_filter:
                 data["site_filter"] = site_filter
+            
+            # Try Django-style endpoints first
+            try:
+                response = requests.post(
+                    f"{self.api_url}/api/chat/", 
+                    json=data
+                )
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException:
+                # Try FastAPI-style endpoints if Django endpoints fail
+                response = requests.post(
+                    f"{self.api_url}/chat", 
+                    json=data
+                )
+                response.raise_for_status()
+                return response.json()
                 
-            response = requests.post(
-                f"{self.api_url}/chat", 
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
         except Exception as e:
             logger.error(f"Error asking question: {str(e)}")
             return {
@@ -119,12 +144,23 @@ class KenyaLawClient:
                 "resume": resume
             }
             
-            response = requests.post(
-                f"{self.api_url}/crawl", 
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
+            # Try Django-style endpoints first
+            try:
+                response = requests.post(
+                    f"{self.api_url}/api/crawl/", 
+                    json=data
+                )
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException:
+                # Try FastAPI-style endpoints if Django endpoints fail
+                response = requests.post(
+                    f"{self.api_url}/crawl", 
+                    json=data
+                )
+                response.raise_for_status()
+                return response.json()
+                
         except Exception as e:
             logger.error(f"Error starting crawl: {str(e)}")
             return {"status": "error", "message": str(e)}

@@ -1357,29 +1357,45 @@ class SimGrag:
             concurrent_requests: Maximum number of concurrent requests
             request_delay: Delay between requests (seconds)
         """
-        # Initialize vectorizer for kenyalaw.org
-        self.vectorizers["kenyalaw.org"] = WebsiteVectorizer(
-            base_url="https://kenyalaw.org",
-            model_name=self.model_name,
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap,
-            vector_db_path=self.vector_db_path,
-            concurrent_requests=concurrent_requests,
-            request_delay=request_delay,
-            collection=self.collections["kenyalaw.org"]  # Use the specific collection
-        )
+        logger.info("Starting vectorizers initialization")
         
-        # Initialize vectorizer for new.kenyalaw.org
-        self.vectorizers["new.kenyalaw.org"] = WebsiteVectorizer(
-            base_url="https://new.kenyalaw.org",
-            model_name=self.model_name,
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap,
-            vector_db_path=self.vector_db_path,
-            concurrent_requests=concurrent_requests,
-            request_delay=request_delay,
-            collection=self.collections["new.kenyalaw.org"]  # Use the specific collection
-        )
+        try:
+            # Initialize vectorizer for kenyalaw.org
+            logger.info("Initializing vectorizer for kenyalaw.org")
+            self.vectorizers["kenyalaw.org"] = WebsiteVectorizer(
+                base_url="https://kenyalaw.org",
+                model_name=self.model_name,
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+                vector_db_path=self.vector_db_path,
+                concurrent_requests=concurrent_requests,
+                request_delay=request_delay,
+                collection=self.collections["kenyalaw.org"]  # Use the specific collection
+            )
+            logger.info("Successfully initialized vectorizer for kenyalaw.org")
+        except Exception as e:
+            logger.error(f"Error initializing kenyalaw.org vectorizer: {str(e)}")
+            # Continue execution even if one vectorizer fails
+        
+        try:
+            # Initialize vectorizer for new.kenyalaw.org
+            logger.info("Initializing vectorizer for new.kenyalaw.org")
+            self.vectorizers["new.kenyalaw.org"] = WebsiteVectorizer(
+                base_url="https://new.kenyalaw.org",
+                model_name=self.model_name,
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+                vector_db_path=self.vector_db_path,
+                concurrent_requests=concurrent_requests,
+                request_delay=request_delay,
+                collection=self.collections["new.kenyalaw.org"]  # Use the specific collection
+            )
+            logger.info("Successfully initialized vectorizer for new.kenyalaw.org")
+        except Exception as e:
+            logger.error(f"Error initializing new.kenyalaw.org vectorizer: {str(e)}")
+            # Continue execution even if one vectorizer fails
+        
+        logger.info("Completed vectorizers initialization")
         
     async def crawl_sites(self, max_pages: int = 500, max_depth: int = 5, resume: bool = True):
         """
@@ -1421,36 +1437,55 @@ class SimGrag:
         results = []
         sites_to_query = [site_filter] if site_filter else self.collections.keys()
         
-        # Create embedding for query
-        query_embedding = self.embedding_model.encode(query_text).tolist()
+        logger.info(f"Querying with text: '{query_text[:50]}...' across sites: {sites_to_query}")
         
-        # Query each collection
-        for site in sites_to_query:
-            if site not in self.collections:
-                logger.warning(f"Collection for {site} not found. Skipping.")
-                continue
-                
-            # Query the collection
-            site_results = self.collections[site].query(
-                query_embeddings=[query_embedding],
-                n_results=top_k,
-                include=["documents", "metadatas", "distances"]
-            )
+        try:
+            # Create embedding for query
+            query_embedding = self.embedding_model.encode(query_text).tolist()
             
-            # Format and add site results
-            for i in range(len(site_results["documents"][0])):
-                results.append({
-                    "text": site_results["documents"][0][i],
-                    "metadata": site_results["metadatas"][0][i],
-                    "distance": site_results["distances"][0][i],
-                    "site": site
-                })
-        
-        # Sort combined results by distance (lower is better)
-        results.sort(key=lambda x: x["distance"])
-        
-        # Limit to top_k overall results
-        return results[:top_k]
+            # Query each collection
+            for site in sites_to_query:
+                if site not in self.collections:
+                    logger.warning(f"Collection for {site} not found. Skipping.")
+                    continue
+                    
+                try:
+                    # Query the collection with error handling
+                    logger.info(f"Querying collection for {site}")
+                    site_results = self.collections[site].query(
+                        query_embeddings=[query_embedding],
+                        n_results=top_k,
+                        include=["documents", "metadatas", "distances"]
+                    )
+                    
+                    # Format and add site results
+                    if site_results["documents"] and len(site_results["documents"]) > 0:
+                        for i in range(len(site_results["documents"][0])):
+                            results.append({
+                                "text": site_results["documents"][0][i],
+                                "metadata": site_results["metadatas"][0][i],
+                                "distance": site_results["distances"][0][i],
+                                "site": site
+                            })
+                        logger.info(f"Found {len(site_results['documents'][0])} results from {site}")
+                    else:
+                        logger.warning(f"No results found in {site} collection")
+                except Exception as e:
+                    logger.error(f"Error querying {site} collection: {str(e)}")
+                    # Continue with other collections
+            
+            # Sort combined results by distance (lower is better)
+            results.sort(key=lambda x: x["distance"])
+            
+            # Limit to top_k overall results
+            limited_results = results[:top_k]
+            logger.info(f"Returning {len(limited_results)} results from query")
+            return limited_results
+            
+        except Exception as e:
+            logger.error(f"Error during vector query: {str(e)}")
+            # Return empty results on error to prevent API failure
+            return []
     
     async def get_response_with_context(self, query: str, top_k: int = None, site_filter: str = None,
                                        model_name: str = "llama3") -> str:
@@ -1466,46 +1501,49 @@ class SimGrag:
         Returns:
             LLM response with context
         """
-        # Use default top_k if not specified
-        if top_k is None:
-            top_k = self.max_context_chunks
-            
-        # Query for relevant context across both sites
-        context_results = self.query(query, top_k=top_k, site_filter=site_filter)
+        logger.info(f"Getting response for query: '{query[:50]}...'")
         
-        # Build context string, respecting the context limit
-        context_text = ""
-        sources = []
-        
-        for result in context_results:
-            # Get source information
-            url = result["metadata"].get("url", "unknown")
-            title = result["metadata"].get("title", "")
-            site = result.get("site", "unknown")
-            
-            # Track sources for attribution
-            if url not in [s[0] for s in sources]:
-                sources.append((url, title))
-            
-            # Format source with title when available
-            source_info = f"Source: {title} ({url})" if title else f"Source: {url}"
-            
-            # Add text with a separator
-            new_context = f"\n\n{source_info}:\n{result['text']}"
-            
-            # Check if adding this would exceed the context limit
-            if len(context_text) + len(new_context) > self.context_limit:
-                # If we're at the limit, stop adding more
-                if context_text:
-                    break
-                    
-                # If the first context is already too large, truncate it
-                new_context = new_context[:self.context_limit]
+        try:
+            # Use default top_k if not specified
+            if top_k is None:
+                top_k = self.max_context_chunks
                 
-            context_text += new_context
-        
-        # Create prompt for Kenya Law
-        prompt = f"""
+            # Query for relevant context across both sites
+            context_results = self.query(query, top_k=top_k, site_filter=site_filter)
+            
+            # Build context string, respecting the context limit
+            context_text = ""
+            sources = []
+            
+            for result in context_results:
+                # Get source information
+                url = result["metadata"].get("url", "unknown")
+                title = result["metadata"].get("title", "")
+                site = result.get("site", "unknown")
+                
+                # Track sources for attribution
+                if url not in [s[0] for s in sources]:
+                    sources.append((url, title))
+                
+                # Format source with title when available
+                source_info = f"Source: {title} ({url})" if title else f"Source: {url}"
+                
+                # Add text with a separator
+                new_context = f"\n\n{source_info}:\n{result['text']}"
+                
+                # Check if adding this would exceed the context limit
+                if len(context_text) + len(new_context) > self.context_limit:
+                    # If we're at the limit, stop adding more
+                    if context_text:
+                        break
+                        
+                    # If the first context is already too large, truncate it
+                    new_context = new_context[:self.context_limit]
+                    
+                context_text += new_context
+            
+            # Create prompt for Kenya Law
+            prompt = f"""
 You are a Kenya Law Assistant providing accurate information based solely on the Kenya Law website content provided. 
 Your role is to assist with queries related to Kenyan laws, statutes, case law, and legal frameworks.
 
@@ -1525,38 +1563,81 @@ User Question: {query}
 
 Answer:
 """
-        # Try to use Ollama if available
-        try:
-            import requests
-            import os
-            
-            # Get Ollama host from environment variable or use default
-            ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-            
-            # Make request to Ollama API
-            response = requests.post(
-                f"{ollama_host}/api/generate",
-                json={
+            # Try to use Ollama if available
+            try:
+                import requests
+                import os
+                import json
+                
+                # Get Ollama host from environment variable or use default
+                ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+                logger.info(f"Sending request to Ollama at: {ollama_host}")
+                
+                # Check if Ollama is available with a quick status check
+                try:
+                    status_response = requests.get(f"{ollama_host}/api/tags", timeout=2)
+                    if status_response.status_code != 200:
+                        logger.error(f"Ollama not available. Status check failed with code: {status_response.status_code}")
+                        return f"Ollama service is not available. Here's the relevant context:\n\n{context_text[:500]}..."
+                    
+                    # Check if the requested model is available
+                    models = [model.get("name") for model in status_response.json().get("models", [])]
+                    if model_name not in models:
+                        logger.warning(f"Model {model_name} not found in Ollama. Available models: {models}")
+                        # Try to use any available model
+                        if models:
+                            model_name = models[0]
+                            logger.info(f"Falling back to available model: {model_name}")
+                        else:
+                            return f"Requested model '{model_name}' not available in Ollama. Here's the relevant context:\n\n{context_text[:500]}..."
+                except Exception as status_err:
+                    logger.error(f"Error checking Ollama status: {str(status_err)}")
+                    # Continue anyway and try the main request
+                
+                # Prepare request payload
+                payload = {
                     "model": model_name,
                     "prompt": prompt,
                     "stream": False,
                     "options": {
                         "temperature": 0.1,  # Lower temperature for more factual responses
                         "top_p": 0.95,
-                        "top_k": 40
+                        "top_k": 40,
+                        "num_ctx": 2048  # Cap context window to limit Ollama memory usage
                     }
                 }
-            )
-            
-            if response.status_code == 200:
-                return response.json()["response"]
-            else:
-                logger.error(f"Error from Ollama API: {response.status_code}, {response.text}")
-                return f"Error accessing Ollama. Here's the relevant context:\n\n{context_text}"
+
+                logger.info(f"Sending request to Ollama with model: {model_name}")
+                
+                # Make request to Ollama API with increased timeout
+                response = requests.post(
+                    f"{ollama_host}/api/generate",
+                    json=payload,
+                    timeout=60  # Increase timeout to 60 seconds
+                )
+                
+                if response.status_code == 200:
+                    try:
+                        result = response.json()
+                        logger.info("Successfully received response from Ollama")
+                        return result["response"]
+                    except json.JSONDecodeError as json_err:
+                        logger.error(f"Error decoding Ollama response: {str(json_err)}")
+                        return f"Error processing Ollama response. Here's the relevant context:\n\n{context_text[:500]}..."
+                else:
+                    logger.error(f"Error from Ollama API: {response.status_code}, {response.text}")
+                    return f"Error accessing Ollama (HTTP {response.status_code}). Here's the relevant context:\n\n{context_text[:500]}..."
+                    
+            except requests.RequestException as req_err:
+                logger.error(f"Request error connecting to Ollama: {str(req_err)}")
+                return f"Could not connect to Ollama service. Here's the relevant context:\n\n{context_text[:500]}..."
+            except Exception as e:
+                logger.error(f"Unexpected error with Ollama: {str(e)}")
+                return f"Error using Ollama LLM. Here's the relevant context:\n\n{context_text[:500]}..."
                 
         except Exception as e:
-            logger.warning(f"Could not connect to Ollama: {str(e)}")
-            return f"No LLM available. Here are the most relevant passages found:\n\n{context_text}"
+            logger.error(f"Error in get_response_with_context: {str(e)}")
+            return f"An error occurred while processing your query: {str(e)}"
 
 class LLMContextProvider:
     """

@@ -36,15 +36,31 @@ Main components:
 
 ### Running the API
 
+#### Option 1: FastAPI Server
+
 ```bash
 # Start the API server
-python api.py --port 8000
+python api.py --host 0.0.0.0 --port 8000
 
 # Enable development mode with auto-reload
-python api.py --port 8000 --reload
+python api.py --host 0.0.0.0 --port 8000 --reload
 ```
 
+#### Option 2: Django Server
+
+```bash
+# Apply migrations
+python manage.py migrate
+
+# Start the Django server
+python manage.py runserver
+```
+
+The Django server provides the same API endpoints with a `/api/` prefix.
+
 ### API Endpoints
+
+#### FastAPI
 
 - `GET /`: Web interface for the chatbot
 - `GET /api`: Check if API is running
@@ -53,6 +69,17 @@ python api.py --port 8000 --reload
 - `POST /chat`: Send a query to the chatbot
 - `POST /crawl`: Start a new crawl job
 
+#### Django
+
+- `GET /`: Web interface for the chatbot
+- `GET /api/`: Check if API is running
+- `GET /api/status/`: Check service status
+- `GET /api/sample-questions/`: Get sample legal questions
+- `POST /api/chat/`: Send a query to the chatbot
+- `POST /api/crawl/`: Start a new crawl job
+
+The API client will automatically try both endpoint patterns.
+
 ## Using the API Client
 
 The project includes a Python client for easy API access:
@@ -60,7 +87,7 @@ The project includes a Python client for easy API access:
 ```python
 from api_client import KenyaLawClient
 
-# Create client
+# Create client - works with both FastAPI and Django
 client = KenyaLawClient(api_url="http://localhost:8000")
 
 # Get API status
@@ -88,23 +115,25 @@ The client also provides a command-line interface:
 
 ```bash
 # Check API status
-python api_client.py status
+python api_client.py --url http://localhost:8000 status
 
 # Get sample questions
-python api_client.py questions
+python api_client.py --url http://localhost:8000 questions
 
 # Ask a question
-python api_client.py ask "What are the key provisions of the Land Registration Act?"
+python api_client.py --url http://localhost:8000 ask "What are the key provisions of the Land Registration Act?"
 
 # Ask with site filter
-python api_client.py ask "What are the key provisions of the Land Registration Act?" --site kenyalaw.org
+python api_client.py --url http://localhost:8000 ask "What are the key provisions of the Land Registration Act?" --site kenyalaw.org
 
 # Start a crawl
-python api_client.py crawl --pages 200 --depth 5
+python api_client.py --url http://localhost:8000 crawl --pages 200 --depth 5
 
 # Interactive mode
-python api_client.py interactive
+python api_client.py --url http://localhost:8000 interactive
 ```
+
+The client is compatible with both FastAPI and Django servers.
 
 ## Using SimGrag for Complex Legal Research
 
@@ -222,8 +251,24 @@ To use with Ollama:
 
 1. Install Ollama from https://ollama.ai/
 2. Pull a model: `ollama pull llama3`
-3. Start Ollama
+3. Start Ollama: `ollama serve`
 4. The API will automatically connect to the Ollama server
+
+You can customize the Ollama URL by setting the `OLLAMA_HOST` environment variable or by creating a `.env` file with the following content:
+
+```
+OLLAMA_HOST=http://localhost:11434
+```
+
+### Troubleshooting
+
+If you encounter connection issues:
+
+1. **Check if Ollama is running**: Run `ps aux | grep ollama` to see if the Ollama process is running
+2. **Check API status**: Use `python test_api.py` to test the API endpoints
+3. **Check API logs**: Look at the output in `django.log` or `fastapi.log`
+4. **Restart servers**: Kill any running server processes and restart them
+5. **Environment variables**: Make sure the `.env` file is in the project root with the correct settings
 
 ## License
 

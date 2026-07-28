@@ -20,7 +20,7 @@ from .serializers import (
     SampleQuestionsSerializer
 )
 
-from .signals import rag
+from . import signals
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -75,12 +75,16 @@ class ChatView(APIView):
     
     async def _get_response(self, query, site_filter, model_name):
         # Get response from SimGrag
-        response = await rag.get_response_with_context(
-            query=query,
-            site_filter=site_filter,
-            model_name=model_name
-        )
-        return response
+        try:
+            response = await signals.rag.get_response_with_context(
+                query=query,
+                site_filter=site_filter,
+                model_name=model_name
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Error getting response with context: {str(e)}")
+            return f"Error: {str(e)}\n\nPlease make sure Ollama is running with the '{model_name}' model."
     
     def post(self, request):
         serializer = ChatRequestSerializer(data=request.data)
@@ -88,9 +92,9 @@ class ChatView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         # Check if SimGrag is initialized
-        if not rag:
+        if not signals.rag:
             return Response(
-                {"error": "Service not yet initialized"}, 
+                {"error": "Service not yet initialized. Please try again later."}, 
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
         
@@ -102,31 +106,41 @@ class ChatView(APIView):
             
             logger.info(f"Processing query: {query}")
             
-            # First get relevant context chunks
-            context_results = rag.query(
-                query_text=query,
-                top_k=5,
-                site_filter=site_filter
-            )
-            
-            # Extract sources from context results
-            sources = []
-            for result in context_results:
-                metadata = result["metadata"]
-                url = metadata.get("url", "Unknown")
-                title = metadata.get("title", "Untitled")
+            try:
+                # First get relevant context chunks
+                context_results = signals.rag.query(
+                    query_text=query,
+                    top_k=5,
+                    site_filter=site_filter
+                )
                 
-                # Avoid duplicate sources
-                source_info = {"url": url, "title": title}
-                if source_info not in sources:
-                    sources.append(source_info)
+                # Extract sources from context results
+                sources = []
+                for result in context_results:
+                    metadata = result["metadata"]
+                    url = metadata.get("url", "Unknown")
+                    title = metadata.get("title", "Untitled")
+                    
+                    # Avoid duplicate sources
+                    source_info = {"url": url, "title": title}
+                    if source_info not in sources:
+                        sources.append(source_info)
+            except Exception as e:
+                logger.error(f"Error querying context: {str(e)}")
+                sources = []
+                context_results = []
             
-            # Get response from SimGrag (use asyncio to run the async function)
-            response = asyncio.run(self._get_response(
-                query=query,
-                site_filter=site_filter,
-                model_name=model_name
-            ))
+            # Create a new event loop for the async function instead of using asyncio.run()
+            # which creates a new loop and closes it (problematic in Django's synchronous view)
+            loop = asyncio.new_event_loop()
+            try:
+                response = loop.run_until_complete(self._get_response(
+                    query=query,
+                    site_filter=site_filter,
+                    model_name=model_name
+                ))
+            finally:
+                loop.close()
             
             # Log and return the response
             logger.info(f"Generated response for query: {query[:50]}...")
@@ -140,7 +154,8 @@ class ChatView(APIView):
         except Exception as e:
             logger.error(f"Error processing query: {str(e)}")
             return Response(
-                {"error": f"Error processing query: {str(e)}"},
+                {"error": f"Error processing query: {str(e)}",
+                 "query": serializer.validated_data.get('query', '')},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -149,21 +164,42 @@ class StatusView(APIView):
     serializer_class = StatusResponseSerializer
     
     def get(self, request):
-        if not rag:
+        # Check if ollama is running
+        try:
+            import requests
+            import os
+            
+            # Get Ollama host from environment variable or use default
+            ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+            
+            # Check if Ollama is running
+            try:
+                response = requests.get(f"{ollama_host}/api/tags", timeout=2)
+                ollama_status = "running" if response.status_code == 200 else "error"
+                models = [model.get("name") for model in response.json().get("models", [])]
+                ollama_models = ", ".join(models) if models else "no models found"
+            except Exception:
+                ollama_status = "not running"
+                ollama_models = "N/A"
+        except Exception as e:
+            ollama_status = f"error checking: {str(e)}"
+            ollama_models = "N/A"
+        
+        if not signals.rag:
             return Response({
                 "status": "initializing",
-                "message": "SimGrag is still initializing"
+                "message": f"SimGrag is still initializing. Ollama status: {ollama_status}, available models: {ollama_models}"
             })
         
         if crawl_task and not crawl_task.done():
             return Response({
                 "status": "crawling",
-                "message": "Website crawling is in progress"
+                "message": f"Website crawling is in progress. Ollama status: {ollama_status}, available models: {ollama_models}"
             })
         
         return Response({
             "status": "ready",
-            "message": "Kenya Law Assistant is ready for queries"
+            "message": f"Kenya Law Assistant is ready for queries. Ollama status: {ollama_status}, available models: {ollama_models}"
         })
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -174,7 +210,7 @@ class CrawlView(APIView):
     async def _do_crawl(self, max_pages, max_depth, resume):
         try:
             logger.info(f"Starting crawl with max_pages={max_pages}, max_depth={max_depth}")
-            await rag.crawl_sites(
+            await signals.rag.crawl_sites(
                 max_pages=max_pages,
                 max_depth=max_depth,
                 resume=resume
@@ -184,14 +220,14 @@ class CrawlView(APIView):
             logger.error(f"Crawl failed: {str(e)}")
     
     def post(self, request):
-        global rag, crawl_task
+        global crawl_task
         
         serializer = CrawlRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         # Check if SimGrag is initialized
-        if not rag:
+        if not signals.rag:
             return Response(
                 {"error": "Service not yet initialized"}, 
                 status=status.HTTP_503_SERVICE_UNAVAILABLE

@@ -1,0 +1,127 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Never run two deploys at once; cancel nothing mid-flight but queue them.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # Decide which parts changed so we only deploy what we need to.
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/deploy.yml'
+            backend:
+              - 'law.py'
+              - 'manage.py'
+              - 'requirements-prod.txt'
+              - 'law_app/**'
+              - 'law_project/**'
+              - 'static/**'
+              - '.github/workflows/deploy.yml'
+
+  deploy-frontend:
+    needs: detect
+    # Deploy on any manual run, or when frontend files changed.
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build
+        working-directory: frontend
+        # VITE_API_BASE_URL comes from frontend/.env.production (committed).
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Deploy static files
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          rsync -az --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            frontend/dist/ "$SSH_USER@$SSH_HOST:/var/www/wakili/"
+          ssh -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" \
+            'chown -R www-data:www-data /var/www/wakili'
+
+  deploy-backend:
+    needs: detect
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Sync code
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        # --delete keeps the server clean; excluded paths (state + secrets)
+        # are protected from deletion by rsync automatically.
+        run: |
+          rsync -az --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='frontend' \
+            --exclude='venv' \
+            --exclude='vector_db' \
+            --exclude='.env' \
+            --exclude='*.log' \
+            --exclude='db.sqlite3' \
+            --exclude='staticfiles' \
+            --exclude='__pycache__' \
+            --exclude='node_modules' \
+            ./ "$SSH_USER@$SSH_HOST:/opt/law/"
+
+      - name: Migrate, collectstatic, restart
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" bash -s <<'EOF'
+          set -e
+          cd /opt/law
+          set -a; . ./.env; set +a
+          venv/bin/pip install -q -r requirements-prod.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          venv/bin/python manage.py migrate --noinput
+          venv/bin/python manage.py collectstatic --noinput
+          systemctl restart law
+          sleep 3
+          systemctl is-active law
+          EOF

@@ -1,0 +1,8 @@
+node_modules
+dist
+*.local
+.DS_Store
+*.tsbuildinfo
+
+# Local dev override (points at raw IP). Production build uses .env.production.
+.env

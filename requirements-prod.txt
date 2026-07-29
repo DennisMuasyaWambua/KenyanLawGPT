@@ -1,0 +1,27 @@
+# Production requirements — CPU-only torch, no CUDA/vllm bloat.
+# Install with:
+#   pip install -r requirements-prod.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+# Web framework (Django path — the Procfile runs gunicorn law_project.wsgi)
+Django==5.2.2
+djangorestframework==3.16.0
+django-cors-headers==4.7.0
+gunicorn==23.0.0
+whitenoise==6.9.0
+python-dotenv==1.1.0
+
+# RAG core
+chromadb==1.0.6
+sentence-transformers==4.1.0
+torch==2.6.0
+
+# Crawler / document extraction
+requests==2.32.3
+beautifulsoup4==4.13.4
+lxml==5.4.0
+PyPDF2==3.0.1
+python-docx==1.1.2
+pandas==2.2.3
+openpyxl==3.1.5
+pdfplumber==0.11.6
+numpy==2.2.5

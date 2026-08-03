@@ -29,6 +29,7 @@ from .drafting import DraftingEngine
 from .embeddings import make_embedder
 from .graph import Graph
 from .ingestion.firm_queue import FirmIngestQueue, IngestJob
+from .ingestion.judge_profile import JudgeProfiler
 from .ingestion.pipeline import IngestionPipeline
 from .ingestion.scheduler import IngestionScheduler
 from .ingestion.tenant_ingest import TenantIngestor
@@ -120,7 +121,9 @@ class RetrievalService(retrieval_pb2_grpc.RetrievalServiceServicer):
                 include_superseded=request.include_superseded,
                 matter_id=request.matter_id or None,
             )
-            answer = await self.orchestrator.answer(request.query, chunks, intent)
+            # answer_with_judge no-ops unless ENABLE_JUDGE_REASONING and the
+            # query names a judge, so the standard path is unchanged otherwise.
+            answer = await self.orchestrator.answer_with_judge(tid, request.query, chunks, intent)
             RPC_COUNTER.labels("Retrieve", "ok").inc()
             return retrieval_pb2.RankedContext(
                 chunks=[chunk_to_proto(c) for c in chunks],
@@ -302,7 +305,12 @@ class App:
         ingestor = TenantIngestor(self.pool, self.graph, embedder, self.cfg)
 
         pipeline = IngestionPipeline(self.pool, self.graph, embedder, self.cfg)
-        self.scheduler = IngestionScheduler(pipeline, self.cfg)
+        # Recompute the public judge profile after each corpus pass (Task 4).
+        post_run = None
+        if self.cfg.enable_judge_reasoning:
+            profiler = JudgeProfiler(self.pool, self.graph, self.cfg)
+            post_run = profiler.recompute
+        self.scheduler = IngestionScheduler(pipeline, self.cfg, post_run=post_run)
         self.firm_queue = FirmIngestQueue(ingestor, self.cfg)
 
         server = grpc.aio.server()

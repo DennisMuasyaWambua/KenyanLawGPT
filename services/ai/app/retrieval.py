@@ -13,6 +13,7 @@ from . import db as dbx
 from .config import Config
 from .embeddings import EmbeddingProvider
 from .graph import Graph, PublicGraphQuery, TenantScopedGraphQuery
+from .judge import JudgeReasoner
 from .llm import CONFIDENTIALITY_PREAMBLE, LLMProvider
 from .logging_setup import log
 
@@ -42,6 +43,7 @@ class RetrievalOrchestrator:
         self.embedder = embedder
         self.llm = llm
         self.cfg = cfg
+        self.judge = JudgeReasoner(pool, graph, cfg)
 
     # -- 1. intent -----------------------------------------------------------
     async def classify_intent(self, query: str) -> str:
@@ -165,8 +167,9 @@ class RetrievalOrchestrator:
         return notes
 
     # -- 4. answer synthesis ---------------------------------------------------
-    async def answer(self, query: str, chunks: list[RankedChunk], intent: str) -> str:
-        if not chunks:
+    async def answer(self, query: str, chunks: list[RankedChunk], intent: str,
+                     judge_context: str = "") -> str:
+        if not chunks and not judge_context:
             return ("No relevant sources found in the corpus yet. If this deployment is fresh, "
                     "run the public-corpus ingestion (it runs automatically at startup) or "
                     "ingest firm documents first.")
@@ -176,11 +179,16 @@ class RetrievalOrchestrator:
             cite = c.citation or c.source_id
             status = f", status={c.status}" if c.status != "current" else ""
             ctx_lines.append(f"[{i}] ({label}{status}) {cite}\n{c.text}")
+        judge_block = ""
+        if judge_context:
+            judge_block = ("\n--- FIRM-INTERNAL HISTORICAL PATTERN (NOT settled law) ---\n"
+                           + judge_context + "\n--- END PATTERN ---\n")
         prompt = (
             f"Question from a Kenyan advocate: {query}\n\n"
             f"Query intent: {intent}\n\n"
-            "--- CONTEXT ---\n" + "\n\n".join(ctx_lines) + "\n--- END CONTEXT ---\n\n"
-            "Answer the question for a Kenyan legal audience. Cite sources inline as [n] "
+            "--- CONTEXT ---\n" + "\n\n".join(ctx_lines) + "\n--- END CONTEXT ---\n"
+            + judge_block +
+            "\nAnswer the question for a Kenyan legal audience. Cite sources inline as [n] "
             "matching the context numbering. If a source is marked superseded/overturned, "
             "say so explicitly rather than presenting it as current law. If the context is "
             "insufficient, say what is missing."
@@ -188,6 +196,47 @@ class RetrievalOrchestrator:
         system = (
             "You are WakiliAI, a legal research assistant for Kenyan law firms. "
             "You are not a substitute for an advocate's own judgment. "
-            + CONFIDENTIALITY_PREAMBLE
+            "Sharply distinguish what the LAW says (from the CONTEXT sources) from "
+            "the FIRM-INTERNAL HISTORICAL PATTERN, if present: the latter is this "
+            "firm's own prior experience before a judge, not settled law and not a "
+            "prediction — never present it as authority. " + CONFIDENTIALITY_PREAMBLE
         )
         return await self.llm.complete(system=system, prompt=prompt, max_tokens=2048)
+
+    async def _judge_context(self, tenant_id: str, query: str,
+                             judge_name: Optional[str] = None) -> str:
+        """Firm-internal + public pattern summary for a judge named in the query
+        (or passed explicitly). Empty string unless ENABLE_JUDGE_REASONING."""
+        if not self.cfg.enable_judge_reasoning:
+            return ""
+        name = judge_name or JudgeReasoner.detect_judge_name(query)
+        if not name:
+            return ""
+        try:
+            return await self.judge.context_block(tenant_id, name)
+        except Exception as exc:
+            log().warning("judge context assembly failed: %s", exc)
+            return ""
+
+    async def answer_with_judge(self, tenant_id: str, query: str,
+                                chunks: list[RankedChunk], intent: str) -> str:
+        """answer(), transparently enriched with judge pattern context when a
+        judge is named in the query and the feature flag is on."""
+        judge_context = await self._judge_context(tenant_id, query)
+        return await self.answer(query, chunks, intent, judge_context)
+
+    async def judge_aware_retrieve(
+        self, tenant_id: str, query: str, judge_name: Optional[str] = None,
+        top_k: int = 12, include_superseded: bool = False,
+        matter_id: Optional[str] = None,
+    ) -> tuple[list[RankedChunk], str, str]:
+        """Hybrid retrieval + judge-aware synthesis. Returns
+        (chunks, intent, answer). The judge history is tenant-scoped for the
+        firm's own matters and public for the shared record; the two are merged
+        only in the labelled prompt, never in a cross-tenant query."""
+        chunks, intent = await self.retrieve(
+            tenant_id, query, top_k=top_k,
+            include_superseded=include_superseded, matter_id=matter_id)
+        judge_context = await self._judge_context(tenant_id, query, judge_name)
+        answer = await self.answer(query, chunks, intent, judge_context)
+        return chunks, intent, answer

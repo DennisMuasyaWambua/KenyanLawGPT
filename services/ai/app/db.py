@@ -113,6 +113,18 @@ async def get_public_document(pool: asyncpg.Pool, doc_id: str) -> Optional[dict[
     return dict(row) if row else None
 
 
+async def public_doc_text(pool: asyncpg.Pool, doc_id: str, max_chunks: int = 6) -> str:
+    """Concatenate a public document's leading chunks (for judge-profile outcome
+    classification). Public data only — no tenant scope involved."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT chunk_text FROM public.public_vectors
+               WHERE doc_id = $1 ORDER BY id LIMIT $2""",
+            doc_id, max_chunks,
+        )
+    return "\n".join(r["chunk_text"] for r in rows)
+
+
 async def find_public_docs_by_title(pool: asyncpg.Pool, needle: str, limit: int = 3) -> list[dict[str, Any]]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(

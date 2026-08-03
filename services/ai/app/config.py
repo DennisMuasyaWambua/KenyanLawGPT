@@ -35,11 +35,19 @@ class Config:
     s3_use_ssl: bool = field(default_factory=lambda: _env_bool("S3_USE_SSL", False))
 
     # LLM — swappable provider (never hardcoded inline in business logic).
-    llm_provider: str = field(default_factory=lambda: _env("LLM_PROVIDER", "auto"))  # auto|anthropic|mock
+    # auto|anthropic|ollama|mock. "auto" prefers Claude (if key), then a
+    # reachable local Ollama, then the deterministic offline mock.
+    llm_provider: str = field(default_factory=lambda: _env("LLM_PROVIDER", "auto"))
     anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     # Claude Opus 4.8 for drafting/reasoning; Haiku for cheap intent classification.
     anthropic_model: str = field(default_factory=lambda: _env("ANTHROPIC_MODEL", "claude-opus-4-8"))
     anthropic_fast_model: str = field(default_factory=lambda: _env("ANTHROPIC_FAST_MODEL", "claude-haiku-4-5"))
+
+    # Local llama3 via Ollama (on-prem / data-residency deployments). Empty base
+    # url or unreachable server => auto falls through to the mock.
+    ollama_base_url: str = field(default_factory=lambda: _env("OLLAMA_BASE_URL", "http://localhost:11434"))
+    ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "llama3"))
+    ollama_fast_model: str = field(default_factory=lambda: _env("OLLAMA_FAST_MODEL", "llama3.2:1b"))
 
     # Embeddings — voyage-law-2 (legal-domain, 1024-dim) when a key is present,
     # otherwise a deterministic hashing embedder so dev/tests run offline.
@@ -64,6 +72,12 @@ class Config:
     ingest_offline_samples: bool = field(default_factory=lambda: _env_bool("INGEST_OFFLINE_SAMPLES", True))
     ingest_daily_seconds: int = field(default_factory=lambda: int(_env("INGEST_DAILY_SECONDS", str(24 * 3600))))
     ingest_weekly_seconds: int = field(default_factory=lambda: int(_env("INGEST_WEEKLY_SECONDS", str(7 * 24 * 3600))))
+
+    # Feature flags — each new capability ships dark and is enabled per pilot
+    # firm incrementally rather than all at once.
+    enable_firm_ingestion: bool = field(default_factory=lambda: _env_bool("ENABLE_FIRM_INGESTION", False))
+    enable_judge_reasoning: bool = field(default_factory=lambda: _env_bool("ENABLE_JUDGE_REASONING", False))
+    enable_auto_update: bool = field(default_factory=lambda: _env_bool("ENABLE_AUTO_UPDATE", False))
 
     env: str = field(default_factory=lambda: _env("APP_ENV", "dev"))
 

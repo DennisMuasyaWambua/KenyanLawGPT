@@ -29,7 +29,11 @@ from typing import Any, Optional, Sequence
 from ..tenancy import validate_tenant_id
 
 ALLOWED_TENANT_LABELS = frozenset(
-    {"Matter", "Document", "Party", "PrecedentNote", "Draft"}
+    # Matter == the firm's own case/matter; Document == an uploaded firm
+    # document (a.k.a. "FirmDocument" in the spec). Submission/Advocate/Outcome
+    # power the judge-reasoning graph (Tasks 3-4); all carry tenant_id.
+    {"Matter", "Document", "Party", "PrecedentNote", "Draft",
+     "Submission", "Advocate", "Outcome"}
 )
 ALLOWED_PUBLIC_LABELS = frozenset(
     {"Statute", "CaseLaw", "Judgment", "Opinion", "Judge", "GazetteNotice",
@@ -38,7 +42,9 @@ ALLOWED_PUBLIC_LABELS = frozenset(
 ALLOWED_RELS = frozenset(
     {"CITES", "INVOLVES", "SIMILAR_TO", "PART_OF", "AUTHORED", "AMENDS",
      "OVERTURNS", "DISTINGUISHES", "INTERPRETS", "LINKED_TO", "REFERS_TO",
-     "HAS_OPINION", "SUPERSEDED_BY"}
+     "HAS_OPINION", "SUPERSEDED_BY",
+     # Judge/outcome reasoning + statutory lifecycle (Tasks 4-5).
+     "FILED_IN", "RESULTED_IN", "DECIDED_BY", "RULED_ON", "REPEALS"}
 )
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")

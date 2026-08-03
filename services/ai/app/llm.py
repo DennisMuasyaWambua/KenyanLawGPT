@@ -67,6 +67,58 @@ class AnthropicProvider:
                 yield text
 
 
+class OllamaProvider:
+    """Local llama3 via Ollama's native HTTP API. Used for on-prem / strict
+    data-residency deployments where prompts must not leave the box. Same
+    interface as AnthropicProvider so business logic is provider-agnostic."""
+
+    def __init__(self, cfg: Config) -> None:
+        import httpx  # already a service dependency
+
+        self._httpx = httpx
+        self._base = cfg.ollama_base_url.rstrip("/")
+        self._model = cfg.ollama_model
+        self._fast_model = cfg.ollama_fast_model
+
+    async def complete(self, system: str, prompt: str, max_tokens: int = 2048, fast: bool = False) -> str:
+        model = self._fast_model if fast else self._model
+        payload = {
+            "model": model,
+            "system": system,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_predict": max_tokens},
+        }
+        async with self._httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(f"{self._base}/api/generate", json=payload)
+            resp.raise_for_status()
+            return resp.json().get("response", "")
+
+    async def stream(self, system: str, prompt: str, max_tokens: int = 8192) -> AsyncIterator[str]:
+        import json as _json
+
+        payload = {
+            "model": self._model,
+            "system": system,
+            "prompt": prompt,
+            "stream": True,
+            "options": {"num_predict": max_tokens},
+        }
+        async with self._httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("POST", f"{self._base}/api/generate", json=payload) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        chunk = _json.loads(line)
+                    except ValueError:
+                        continue
+                    piece = chunk.get("response", "")
+                    if piece:
+                        yield piece
+
+
 class MockProvider:
     """Deterministic offline provider: answers by quoting the highest-ranked
     context, drafts by returning the grounded template. Clearly watermarked."""
@@ -97,11 +149,34 @@ class MockProvider:
             yield text[i : i + 24]
 
 
+def _ollama_reachable(cfg: Config) -> bool:
+    """Best-effort liveness probe so 'auto' only picks Ollama when it answers."""
+    import httpx
+
+    if not cfg.ollama_base_url:
+        return False
+    try:
+        r = httpx.get(f"{cfg.ollama_base_url.rstrip('/')}/api/tags", timeout=1.5)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
 def make_llm(cfg: Config) -> LLMProvider:
-    if cfg.llm_provider == "anthropic" or (cfg.llm_provider == "auto" and cfg.anthropic_api_key):
+    # Explicit selection wins.
+    if cfg.llm_provider == "anthropic":
         return AnthropicProvider(cfg)
-    if cfg.llm_provider == "auto":
-        log().warning("ANTHROPIC_API_KEY not set — running with MockProvider (offline demo mode)")
+    if cfg.llm_provider == "ollama":
+        return OllamaProvider(cfg)
+    if cfg.llm_provider == "mock":
+        return MockProvider()
+    # auto: Claude if a key is present, else a reachable local Ollama, else mock.
+    if cfg.anthropic_api_key:
+        return AnthropicProvider(cfg)
+    if _ollama_reachable(cfg):
+        log().info("auto LLM: using local Ollama at %s (model %s)", cfg.ollama_base_url, cfg.ollama_model)
+        return OllamaProvider(cfg)
+    log().warning("No ANTHROPIC_API_KEY and no reachable Ollama — using MockProvider (offline demo mode)")
     return MockProvider()
 
 

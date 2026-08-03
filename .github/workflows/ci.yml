@@ -1,0 +1,77 @@
+name: CI
+
+# The cross-tenant leakage suite is a release gate: a failure here is a client
+# confidentiality breach, so it runs on every push and PR — never just at launch.
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    name: Unit tests (isolation builder, tenancy, embeddings, gateway)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install AI service deps
+        run: pip install -r services/ai/requirements.txt
+      - name: Python unit tests
+        # Integration suite self-skips unless WAKILI_INTEGRATION=1 (see below job).
+        run: cd services/ai && python -m pytest tests -q
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Gateway tests
+        run: cd services/gateway && go test ./...
+
+  tenant-isolation-integration:
+    name: Cross-tenant leakage suite (release gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Postgres (pgvector) + Neo4j
+        run: docker compose up -d postgres neo4j
+
+      - name: Wait for services healthy
+        run: |
+          for i in $(seq 1 60); do
+            healthy=$(docker compose ps --format '{{.Health}}' postgres neo4j 2>/dev/null | grep -c '^healthy$' || true)
+            if [ "$healthy" = "2" ]; then echo "postgres + neo4j healthy"; break; fi
+            sleep 3
+          done
+          docker compose ps
+
+      - name: Apply public-corpus migrations
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          export PGPASSWORD=postgres
+          for f in infra/migrations/public/*.sql; do
+            echo "applying $f"
+            psql -h localhost -p 55432 -U postgres -d wakili -v ON_ERROR_STOP=1 -f "$f"
+          done
+          # The leakage suite connects as the non-superuser app role.
+          psql -h localhost -p 55432 -U postgres -d wakili -v ON_ERROR_STOP=1 -c \
+            "GRANT ALL ON ALL TABLES IN SCHEMA public TO wakili_app; \
+             GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO wakili_app; \
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO wakili_app;"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install AI service deps
+        run: pip install -r services/ai/requirements.txt
+
+      - name: Run cross-tenant leakage suite
+        run: |
+          cd services/ai && WAKILI_INTEGRATION=1 \
+            DATABASE_URL=postgresql://wakili_app:wakili_app_pw@localhost:55432/wakili \
+            NEO4J_URI=bolt://localhost:7687 NEO4J_PASSWORD=wakili-neo4j \
+            ../../.venv/bin/python -m pytest tests/test_leakage_integration.py -v || \
+            python -m pytest tests/test_leakage_integration.py -v
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

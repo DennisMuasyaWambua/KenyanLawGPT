@@ -23,7 +23,12 @@ class Graph:
             "CREATE INDEX tenant_matter IF NOT EXISTS FOR (n:Matter) ON (n.tenant_id, n.id)",
             "CREATE INDEX tenant_document IF NOT EXISTS FOR (n:Document) ON (n.tenant_id, n.id)",
             "CREATE INDEX tenant_party IF NOT EXISTS FOR (n:Party) ON (n.tenant_id, n.id)",
+            "CREATE INDEX tenant_submission IF NOT EXISTS FOR (n:Submission) ON (n.tenant_id, n.id)",
+            "CREATE INDEX tenant_outcome IF NOT EXISTS FOR (n:Outcome) ON (n.tenant_id, n.id)",
+            "CREATE INDEX tenant_advocate IF NOT EXISTS FOR (n:Advocate) ON (n.tenant_id, n.id)",
             "CREATE INDEX public_doc IF NOT EXISTS FOR (n:Public) ON (n.doc_id)",
+            # Judge lookup by name for judge-aware retrieval (public graph).
+            "CREATE INDEX public_judge_name IF NOT EXISTS FOR (n:Judge) ON (n.name)",
         ]
         async with self._driver.session() as session:
             for stmt in stmts:

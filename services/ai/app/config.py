@@ -34,6 +34,10 @@ class Config:
     s3_bucket: str = field(default_factory=lambda: _env("S3_BUCKET", "wakili-documents"))
     s3_use_ssl: bool = field(default_factory=lambda: _env_bool("S3_USE_SSL", False))
 
+    # Redis — backs the async firm-ingestion job queue. Unreachable => the queue
+    # transparently falls back to an in-process worker (single-instance dev).
+    redis_url: str = field(default_factory=lambda: _env("REDIS_URL", "redis://localhost:6379"))
+
     # LLM — swappable provider (never hardcoded inline in business logic).
     # auto|anthropic|ollama|mock. "auto" prefers Claude (if key), then a
     # reachable local Ollama, then the deterministic offline mock.

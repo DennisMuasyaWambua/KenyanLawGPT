@@ -118,6 +118,8 @@ services:
       ENABLE_JUDGE_REASONING: ${ENABLE_JUDGE_REASONING:-false}
       ENABLE_AUTO_UPDATE: ${ENABLE_AUTO_UPDATE:-false}
     ports: ["127.0.0.1:${GRPC_HOST_PORT:-50051}:50051", "127.0.0.1:${AI_HEALTH_PORT:-8081}:8081"]
+    # Lets LLM_PROVIDER=ollama reach an Ollama running on the host.
+    extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       - ./infra/certs:/certs:ro
     depends_on:

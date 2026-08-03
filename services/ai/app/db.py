@@ -9,11 +9,20 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from datetime import date
 from typing import Any, AsyncIterator, Optional, Sequence
 
 import asyncpg
 
 from .tenancy import schema_for
+
+
+def _as_date(value):
+    """Accept an ISO 'YYYY-MM-DD' string or a date; return a date for a date
+    query param (asyncpg won't coerce a str into a date column)."""
+    if value is None or isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
 
 
 async def init_pool(dsn: str) -> asyncpg.Pool:
@@ -109,7 +118,7 @@ async def search_public_chunks(
                      AND (d.repealed_date IS NULL OR d.repealed_date > $3::date)
                    ORDER BY v.embedding <=> $1::vector
                    LIMIT $2""",
-                vec_literal(query_vec), top_k, as_of,
+                vec_literal(query_vec), top_k, _as_date(as_of),
             )
         else:
             rows = await conn.fetch(
@@ -135,7 +144,7 @@ async def docs_in_force_as_of(pool: asyncpg.Pool, as_of: str) -> list[dict[str, 
                WHERE (effective_date IS NULL OR effective_date <= $1::date)
                  AND (repealed_date IS NULL OR repealed_date > $1::date)
                ORDER BY doc_id""",
-            as_of,
+            _as_date(as_of),
         )
     return [dict(r) for r in rows]
 

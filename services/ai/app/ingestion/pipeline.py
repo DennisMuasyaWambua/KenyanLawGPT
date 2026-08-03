@@ -73,13 +73,6 @@ class PublicCorpusWriter:
              "year": doc.year, "source_url": doc.source_url, "doc_type": doc.doc_type,
              "effective_date": doc.effective_date, "repealed_date": doc.repealed_date},
         )
-
-    async def set_repealed(self, doc_id: str, repealed_on: str) -> None:
-        """Date-stamp a node as no longer in force (graph side)."""
-        await self._graph._run_internal(
-            "MATCH (d:Public {doc_id: $doc_id}) SET d.repealed_date = $on",
-            {"doc_id": doc_id, "on": repealed_on},
-        )
         # Bench composition + per-judge opinions as first-class nodes.
         for judge in doc.authored_by:
             await self._graph._run_internal(
@@ -101,6 +94,13 @@ class PublicCorpusWriter:
                 {"doc_id": doc.doc_id, "op_id": op_id, "kind": op.kind,
                  "judge": op.judge, "title": f"{op.kind.title()} opinion of {op.judge} in {doc.title}"},
             )
+
+    async def set_repealed(self, doc_id: str, repealed_on: str) -> None:
+        """Date-stamp a node as no longer in force (graph side)."""
+        await self._graph._run_internal(
+            "MATCH (d:Public {doc_id: $doc_id}) SET d.repealed_date = $on",
+            {"doc_id": doc_id, "on": repealed_on},
+        )
 
     async def link(self, src_doc_id: str, rel_type: str, dst_doc_id: str) -> None:
         if rel_type not in ("AMENDS", "REPEALS", "OVERTURNS", "DISTINGUISHES", "CITES",

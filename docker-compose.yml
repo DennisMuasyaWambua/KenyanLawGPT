@@ -114,6 +114,10 @@ services:
       REDIS_URL: redis://redis:6379
       LLM_PROVIDER: ${LLM_PROVIDER:-auto}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      # Model choice must be env-overridable: the default llama3 is an 8B model
+      # (~5GB resident) that won't fit alongside the data services on a small box.
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+      OLLAMA_FAST_MODEL: ${OLLAMA_FAST_MODEL:-llama3.2:1b}
       ENABLE_FIRM_INGESTION: ${ENABLE_FIRM_INGESTION:-false}
       ENABLE_JUDGE_REASONING: ${ENABLE_JUDGE_REASONING:-false}
       ENABLE_AUTO_UPDATE: ${ENABLE_AUTO_UPDATE:-false}

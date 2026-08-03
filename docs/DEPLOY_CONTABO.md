@@ -38,6 +38,19 @@ Add host→container Ollama access to the `ai` service in `docker-compose.yml`:
 ```
 (so `OLLAMA_BASE_URL=http://host.docker.internal:11434` reaches the host's Ollama.)
 
+**Pull a right-sized LLM on the host and point `.env` at it.** The host Ollama
+binds to the docker bridge (`172.17.0.1:11434`), and the box has only ~7.9 GB RAM
+shared with Postgres/Neo4j/MinIO/SmartNyumba. The 8B `llama3` needs ~5 GB resident
+and OOMs/thrashes under load; requesting a model that isn't pulled returns HTTP 404
+from `/api/generate`, which the gateway reports as `502 "ai service unavailable"`.
+Use one small model for both synthesis and classification (`.env` sets
+`OLLAMA_MODEL` and `OLLAMA_FAST_MODEL`; `docker-compose.yml` passes both through):
+```bash
+# the ollama CLI isn't on root's PATH; drive the API on the bridge address:
+curl -s http://172.17.0.1:11434/api/pull -d '{"name":"llama3.2:3b"}'
+curl -s http://172.17.0.1:11434/api/tags | grep -o '"name":"[^"]*"'   # verify it's listed
+```
+
 ## 3. mTLS certs (gateway ↔ ai)
 ```bash
 make certs

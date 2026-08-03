@@ -125,7 +125,10 @@ class ReasoningEngine:
         # Pull text for newly discovered public authorities so the answer can
         # cite them (provenance-tagged like everything else).
         extra = await self._chunks_for_docs(list(seen - set(public_anchor_ids)))
-        evidence = (chunks + extra)[:14]
+        # Cap the synthesis context: on CPU-only Ollama deployments a large
+        # prompt + long generation blows past the gateway/proxy timeout. 8 chunks
+        # keeps the doctrinal chain intact while staying inside the latency budget.
+        evidence = (chunks + extra)[:8]
 
         answer = await self._synthesize(query, steps, evidence)
         return steps, evidence, answer
@@ -175,4 +178,6 @@ class ReasoningEngine:
             "the doctrinal chain and about current vs superseded authority. "
             + CONFIDENTIALITY_PREAMBLE
         )
-        return await self.llm.complete(system=system, prompt=prompt, max_tokens=3072)
+        # 1024 is enough for a cited reasoning answer; larger budgets time out on
+        # CPU-only local models (see evidence cap above).
+        return await self.llm.complete(system=system, prompt=prompt, max_tokens=1024)

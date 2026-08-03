@@ -7,10 +7,26 @@ independent of any external service.
 """
 from __future__ import annotations
 
+import re
 from typing import AsyncIterator, Optional, Protocol
 
 from .config import Config
 from .logging_setup import log
+
+# Reasoning models served through Ollama (e.g. DeepSeek-R1) prepend their chain
+# of thought as a <think>...</think> block before the actual answer. The rest of
+# the platform expects a clean, citable answer, so the block is stripped here —
+# in the provider — rather than leaking into synthesized answers or drafts.
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _strip_reasoning(text: str) -> str:
+    if "<think>" not in text and "</think>" in text:
+        # opening tag was cut off (truncated budget / mid-stream): keep the tail
+        text = text.rsplit("</think>", 1)[-1]
+    else:
+        text = _THINK_RE.sub("", text)
+    return text.strip()
 
 # System instruction attached to every call that sees tenant-private context:
 # confidential material must never leak into cross-tenant caches, logs, or
@@ -92,7 +108,7 @@ class OllamaProvider:
         async with self._httpx.AsyncClient(timeout=300) as client:
             resp = await client.post(f"{self._base}/api/generate", json=payload)
             resp.raise_for_status()
-            return resp.json().get("response", "")
+            return _strip_reasoning(resp.json().get("response", ""))
 
     async def stream(self, system: str, prompt: str, max_tokens: int = 8192) -> AsyncIterator[str]:
         import json as _json
@@ -104,6 +120,10 @@ class OllamaProvider:
             "stream": True,
             "options": {"num_predict": max_tokens},
         }
+        # Reasoning models stream their <think>...</think> block first; suppress
+        # it token-by-token (tags may split across chunks) so only the answer is
+        # streamed to the client. "gate": deciding -> thinking -> passthrough.
+        buf, gate = "", "deciding"
         async with self._httpx.AsyncClient(timeout=None) as client:
             async with client.stream("POST", f"{self._base}/api/generate", json=payload) as resp:
                 resp.raise_for_status()
@@ -115,8 +135,28 @@ class OllamaProvider:
                     except ValueError:
                         continue
                     piece = chunk.get("response", "")
-                    if piece:
+                    if not piece:
+                        continue
+                    if gate == "passthrough":
                         yield piece
+                        continue
+                    buf += piece
+                    if gate == "deciding":
+                        if "<think>" in buf.lstrip()[:8]:
+                            gate = "thinking"
+                        elif len(buf) >= 8:  # no think block opening — flush and pass through
+                            gate, out, buf = "passthrough", buf, ""
+                            yield out
+                        continue
+                    if gate == "thinking":
+                        end = buf.find("</think>")
+                        if end != -1:
+                            rest = buf[end + len("</think>"):].lstrip()
+                            gate, buf = "passthrough", ""
+                            if rest:
+                                yield rest
+        if gate == "deciding" and buf:  # short response, never decided — emit it
+            yield buf
 
 
 class MockProvider:

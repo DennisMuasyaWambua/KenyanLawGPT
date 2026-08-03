@@ -19,7 +19,7 @@ x-gateway-env: &gateway-env
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
   S3_BUCKET: wakili-documents
-  CORS_ORIGINS: http://localhost:3000
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
   AT_USERNAME: ${AT_USERNAME:-}
   AT_API_KEY: ${AT_API_KEY:-}
   DARAJA_CONSUMER_KEY: ${DARAJA_CONSUMER_KEY:-}

@@ -1,0 +1,177 @@
+name: wakiliai
+
+x-gateway-env: &gateway-env
+  APP_ENV: dev
+  PORT: "8080"
+  DATABASE_URL: postgres://wakili_app:wakili_app_pw@postgres:5432/wakili?sslmode=disable
+  ADMIN_DATABASE_URL: postgres://postgres:postgres@postgres:5432/wakili?sslmode=disable
+  MIGRATIONS_DIR: /migrations
+  REDIS_ADDR: redis:6379
+  JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
+  AI_GRPC_ADDR: ai:50051
+  AI_GRPC_SERVER_NAME: ai
+  MTLS_CA_CERT: /certs/ca.crt
+  MTLS_CLIENT_CERT: /certs/gateway.crt
+  MTLS_CLIENT_KEY: /certs/gateway.key
+  S3_ENDPOINT: minio:9000
+  # Presigned URLs are minted for the host the BROWSER uses:
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-localhost:59000}
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+  S3_BUCKET: wakili-documents
+  CORS_ORIGINS: http://localhost:3000
+  AT_USERNAME: ${AT_USERNAME:-}
+  AT_API_KEY: ${AT_API_KEY:-}
+  DARAJA_CONSUMER_KEY: ${DARAJA_CONSUMER_KEY:-}
+  DARAJA_CONSUMER_SECRET: ${DARAJA_CONSUMER_SECRET:-}
+  DARAJA_PASSKEY: ${DARAJA_PASSKEY:-}
+  DARAJA_CALLBACK_URL: ${DARAJA_CALLBACK_URL:-http://localhost:8080/webhooks/daraja/callback}
+  JUDICIARY_BASE_URL: ${JUDICIARY_BASE_URL:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: wakili
+      POSTGRES_PASSWORD: postgres
+    # Host ports shifted (55xxx/59xxx) to avoid colliding with locally
+    # installed postgres/redis/minio; in-network ports are unchanged.
+    ports: ["55432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wakili"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  neo4j:
+    image: neo4j:5-community
+    environment:
+      NEO4J_AUTH: neo4j/wakili-neo4j
+    ports: ["7474:7474", "7687:7687"]
+    volumes:
+      - neo4jdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports: ["56379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports: ["59000:9000", "59001:9001"]
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || curl -sf http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  ai:
+    build: ./services/ai
+    environment:
+      APP_ENV: dev
+      DATABASE_URL: postgresql://wakili_app:wakili_app_pw@postgres:5432/wakili
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: wakili-neo4j
+      S3_ENDPOINT: minio:9000
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_BUCKET: wakili-documents
+      GRPC_PORT: "50051"
+      HEALTH_PORT: "8081"
+      MTLS_CA_CERT: /certs/ca.crt
+      MTLS_SERVER_CERT: /certs/ai.crt
+      MTLS_SERVER_KEY: /certs/ai.key
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      PUBLIC_INGEST_ON_START: "true"
+      INGEST_OFFLINE_SAMPLES: ${INGEST_OFFLINE_SAMPLES:-true}
+    ports: ["50051:50051", "8081:8081"]
+    volumes:
+      - ./infra/certs:/certs:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      neo4j: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8081/healthz')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  gateway:
+    build: ./services/gateway
+    environment: *gateway-env
+    ports: ["8080:8080"]
+    volumes:
+      - ./infra/certs:/certs:ro
+      - ./infra/migrations:/migrations:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+      ai: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    ports: ["3000:3000"]
+    depends_on:
+      gateway: { condition: service_started }
+
+  # One-shot jobs (also runnable via `make migrate` / `make seed`).
+  migrate:
+    build: ./services/gateway
+    entrypoint: ["/app/migrate"]
+    environment: *gateway-env
+    volumes:
+      - ./infra/migrations:/migrations:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  seed:
+    build: ./services/gateway
+    entrypoint: ["/app/seed"]
+    environment: *gateway-env
+    profiles: ["tools"]
+    volumes:
+      - ./infra/certs:/certs:ro
+      - ./infra/migrations:/migrations:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      ai: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  neo4jdata:
+  miniodata:

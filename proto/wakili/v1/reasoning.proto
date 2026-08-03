@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package wakili.v1;
+
+option go_package = "github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1";
+
+import "wakili/v1/common.proto";
+
+message ReasoningRequest {
+  TenantContext tenant = 1;
+  string query = 2;
+  int32 max_hops = 3;            // graph traversal depth, default 3
+  string matter_id = 4;          // anchor the reasoning on a matter node
+  bool include_superseded = 5;
+  string trace_id = 6;
+}
+
+message ReasoningStep {
+  int32 hop = 1;
+  string description = 2;          // human-readable summary of the traversal step
+  repeated string node_ids = 3;
+  repeated string edge_types = 4;  // e.g. CITES, OVERTURNS, AUTHORED
+}
+
+message ReasoningTrace {
+  repeated ReasoningStep steps = 1;
+  repeated ContextChunk context = 2; // provenance-tagged evidence
+  string answer = 3;
+  string trace_id = 4;
+}
+
+service ReasoningService {
+  // Multi-hop graph reasoning across the public law graph and the tenant's
+  // private graph (e.g. "cases citing this statute, decided by this court in
+  // the last 5 years, linked to matters similar to the current one").
+  rpc Reason(ReasoningRequest) returns (ReasoningTrace);
+}

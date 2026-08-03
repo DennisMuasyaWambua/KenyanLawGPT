@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package wakili.v1;
+
+option go_package = "github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1";
+
+import "wakili/v1/common.proto";
+
+message IngestRequest {
+  TenantContext tenant = 1;
+  string document_id = 2;  // tenant-schema documents.id
+  string object_key = 3;   // object-storage key (bucket prefix is tenant-scoped)
+  string filename = 4;
+  string mime_type = 5;
+  string matter_id = 6;    // optional matter linkage for the graph
+  string trace_id = 7;
+}
+
+enum IngestStage {
+  INGEST_STAGE_UNSPECIFIED = 0;
+  INGEST_STAGE_FETCHING = 1;
+  INGEST_STAGE_PARSING = 2;
+  INGEST_STAGE_CHUNKING = 3;
+  INGEST_STAGE_EMBEDDING = 4;
+  INGEST_STAGE_GRAPHING = 5;
+  INGEST_STAGE_DONE = 6;
+  INGEST_STAGE_FAILED = 7;
+}
+
+message IngestStatus {
+  IngestStage stage = 1;
+  string message = 2;
+  int32 progress_pct = 3;
+  bool done = 4;
+  string error = 5;
+}
+
+// KDPA right-to-erasure support: the gateway erases Postgres rows and object
+// storage; this RPC cascades the erasure into the tenant's graph namespace
+// and vector rows for the given data subject.
+message EraseSubjectRequest {
+  TenantContext tenant = 1;
+  string subject_type = 2;          // "client" | "user"
+  string subject_id = 3;
+  repeated string document_ids = 4; // tenant documents linked to the subject
+}
+
+message EraseSubjectReport {
+  int32 graph_nodes_deleted = 1;
+  int32 vector_rows_deleted = 2;
+}
+
+service IngestionService {
+  // Tenant-private document ingestion. Server-streams progress. The shared
+  // public corpus is ingested by an internal batch pipeline, NOT via gRPC.
+  rpc IngestDocument(IngestRequest) returns (stream IngestStatus);
+  rpc EraseSubject(EraseSubjectRequest) returns (EraseSubjectReport);
+}

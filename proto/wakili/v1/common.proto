@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package wakili.v1;
+
+option go_package = "github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1";
+
+// TenantContext travels with every request. It is set by the Go gateway from
+// the *authenticated* JWT tenant claim (never from a request body) and is
+// re-validated server-side in the Python AI service against the
+// `x-tenant-id` gRPC metadata injected by the gateway's client interceptor.
+message TenantContext {
+  string tenant_id = 1;          // UUID of the tenant (law firm)
+  string plan_tier = 2;          // e.g. "starter" | "chambers" | "senior-counsel"
+  bool data_residency_ke = 3;    // KDPA data-residency flag
+}
+
+enum SourceType {
+  SOURCE_TYPE_UNSPECIFIED = 0;
+  SOURCE_TYPE_PUBLIC = 1;         // shared Kenyan public legal corpus
+  SOURCE_TYPE_TENANT_PRIVATE = 2; // this tenant's own documents/graph only
+}
+
+// Lifecycle status of a legal source; the retrieval layer prefers CURRENT
+// nodes unless include_superseded is set.
+enum DocStatus {
+  DOC_STATUS_UNSPECIFIED = 0;
+  DOC_STATUS_CURRENT = 1;
+  DOC_STATUS_AMENDED = 2;
+  DOC_STATUS_SUPERSEDED = 3;
+  DOC_STATUS_OVERTURNED = 4;
+  DOC_STATUS_DISTINGUISHED = 5;
+}
+
+// Provenance is attached to every retrieved chunk / citation so the UI can
+// show whether an answer fragment came from public law or from
+// tenant-confidential material.
+message Provenance {
+  SourceType source_type = 1;
+  string source_id = 2;   // public doc_id or tenant document UUID
+  string citation = 3;    // e.g. "[2019] eKLR" or "Employment Act, No. 11 of 2007, s.45"
+  string source_url = 4;
+  DocStatus status = 5;
+  string court = 6;
+  int32 year = 7;
+}
+
+message ContextChunk {
+  string chunk_id = 1;
+  string text = 2;
+  double score = 3;
+  Provenance provenance = 4;
+  map<string, string> metadata = 5;
+}
+
+enum QueryIntent {
+  QUERY_INTENT_UNSPECIFIED = 0;
+  QUERY_INTENT_STATUTE_LOOKUP = 1;
+  QUERY_INTENT_CASE_LAW_RESEARCH = 2;
+  QUERY_INTENT_MATTER_REASONING = 3;
+  QUERY_INTENT_DRAFTING = 4;
+}

@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package wakili.v1;
+
+option go_package = "github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1";
+
+import "wakili/v1/common.proto";
+
+message TenantScopedQuery {
+  TenantContext tenant = 1;
+  string query = 2;
+  QueryIntent intent_hint = 3;   // optional caller hint; service still classifies
+  int32 top_k = 4;               // default 12
+  bool include_superseded = 5;   // surface amended/overturned law for historical questions
+  string matter_id = 6;          // optional: bias retrieval toward a matter's subgraph
+  string trace_id = 7;           // correlation id propagated from the frontend
+}
+
+message RankedContext {
+  repeated ContextChunk chunks = 1; // merged + re-ranked, provenance-tagged
+  QueryIntent classified_intent = 2;
+  string answer = 3;                // synthesized, cited answer
+  string trace_id = 4;
+}
+
+service RetrievalService {
+  // Hybrid pgvector + knowledge-graph retrieval over the shared public corpus
+  // and the calling tenant's private partition only.
+  rpc Retrieve(TenantScopedQuery) returns (RankedContext);
+}

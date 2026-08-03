@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package wakili.v1;
+
+option go_package = "github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1";
+
+import "wakili/v1/common.proto";
+
+enum DraftDocType {
+  DRAFT_DOC_TYPE_UNSPECIFIED = 0;
+  DRAFT_DOC_TYPE_PLEADING = 1;
+  DRAFT_DOC_TYPE_AFFIDAVIT = 2;
+  DRAFT_DOC_TYPE_CONTRACT = 3;
+  DRAFT_DOC_TYPE_CORRESPONDENCE = 4;
+  DRAFT_DOC_TYPE_DEMAND_LETTER = 5;
+}
+
+message DraftRequest {
+  TenantContext tenant = 1;
+  DraftDocType doc_type = 2;
+  string instructions = 3;   // user instructions for the draft
+  string matter_id = 4;      // optional matter to ground party names/facts
+  string template_id = 5;    // optional clause-library / template id
+  string context_query = 6;  // optional retrieval query to ground the draft in law
+  string trace_id = 7;
+}
+
+message DraftChunk {
+  string text = 1;                  // token-by-token draft text
+  bool is_final = 2;                // true on the terminating chunk
+  repeated Provenance citations = 3; // populated on the final chunk
+  string draft_id = 4;              // populated on the final chunk
+}
+
+service DraftingService {
+  // Server-streaming: tokens flow Python -> Go -> SSE -> Next.js.
+  rpc DraftDocument(DraftRequest) returns (stream DraftChunk);
+}

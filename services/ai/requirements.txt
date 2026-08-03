@@ -1,0 +1,15 @@
+grpcio>=1.60
+grpcio-tools>=1.60
+protobuf>=4.25
+asyncpg>=0.29
+neo4j>=5.20
+httpx>=0.27
+beautifulsoup4>=4.12
+lxml>=5.2
+anthropic>=0.40
+minio>=7.2
+aiohttp>=3.9
+prometheus-client>=0.20
+pypdf>=4.2
+pytest>=8.0
+pytest-asyncio>=0.23

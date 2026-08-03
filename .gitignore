@@ -1,0 +1,13 @@
+.env
+.venv/
+node_modules/
+.next/
+__pycache__/
+*.pyc
+infra/certs/*.crt
+infra/certs/*.key
+infra/certs/*.srl
+services/gateway/gateway
+services/gateway/migrate
+services/gateway/seed
+.pytest_cache/

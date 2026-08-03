@@ -7,6 +7,7 @@ import { api, clearSession, currentUser, getTenant } from "@/lib/api";
 const STAFF_NAV = [
   { href: "/dashboard", label: "Dashboard", icon: "▦" },
   { href: "/matters", label: "Matters", icon: "⚖" },
+  { href: "/documents", label: "Documents", icon: "🗎" },
   { href: "/research", label: "AI Research", icon: "🔍" },
   { href: "/drafting", label: "Drafting", icon: "✎" },
   { href: "/inbox", label: "Communications", icon: "✉" },

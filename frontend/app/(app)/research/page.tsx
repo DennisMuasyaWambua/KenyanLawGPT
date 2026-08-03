@@ -3,13 +3,18 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import CitationCard, { Chunk } from "@/components/CitationCard";
+import { Chunk } from "@/components/CitationCard";
+import CitationChain from "@/components/CitationChain";
+import JudgeInsightPanel, { JudgePattern } from "@/components/JudgeInsightPanel";
 
 type Result = {
   answer: string;
   intent: string;
   chunks: Chunk[];
   steps?: { hop: number; description: string; edge_types: string[] }[];
+  // Present when ENABLE_JUDGE_REASONING and the query named a judge (the
+  // gateway surfaces the JudgeReasoner pattern alongside the answer).
+  judge_pattern?: JudgePattern;
 };
 
 export default function ResearchPage() {
@@ -88,11 +93,14 @@ export default function ResearchPage() {
                 ))}
               </div>
             )}
+            {item.r.judge_pattern && (
+              <div className="mb-3">
+                <JudgeInsightPanel pattern={item.r.judge_pattern} />
+              </div>
+            )}
             <div className="card whitespace-pre-line text-sm leading-relaxed">{item.r.answer}</div>
-            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {item.r.chunks.map((c, j) => (
-                <CitationCard key={c.chunk_id + j} chunk={c} index={j + 1} />
-              ))}
+            <div className="mt-3">
+              <CitationChain chunks={item.r.chunks} />
             </div>
           </div>
         ))}

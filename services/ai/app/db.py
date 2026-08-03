@@ -90,21 +90,72 @@ async def search_tenant_chunks(
 # --- shared public corpus ---
 
 async def search_public_chunks(
-    pool: asyncpg.Pool, query_vec: Sequence[float], top_k: int, include_superseded: bool
+    pool: asyncpg.Pool, query_vec: Sequence[float], top_k: int, include_superseded: bool,
+    as_of: Optional[str] = None,
 ) -> list[dict[str, Any]]:
+    """Vector search over the public corpus. When ``as_of`` (ISO date) is given,
+    return the version of each instrument that was IN FORCE on that date —
+    effective on/before it and not yet repealed — so historical questions
+    ('what did the law say in 2019') see period-accurate law, not today's."""
+    async with pool.acquire() as conn:
+        if as_of:
+            rows = await conn.fetch(
+                """SELECT v.id::text AS chunk_id, v.doc_id, v.chunk_text, v.metadata::text AS metadata,
+                          1 - (v.embedding <=> $1::vector) AS score,
+                          d.title, d.doc_type, d.source_url, d.court, d.citation, d.year, d.status
+                   FROM public.public_vectors v
+                   JOIN public.public_documents d ON d.doc_id = v.doc_id
+                   WHERE (d.effective_date IS NULL OR d.effective_date <= $3::date)
+                     AND (d.repealed_date IS NULL OR d.repealed_date > $3::date)
+                   ORDER BY v.embedding <=> $1::vector
+                   LIMIT $2""",
+                vec_literal(query_vec), top_k, as_of,
+            )
+        else:
+            rows = await conn.fetch(
+                """SELECT v.id::text AS chunk_id, v.doc_id, v.chunk_text, v.metadata::text AS metadata,
+                          1 - (v.embedding <=> $1::vector) AS score,
+                          d.title, d.doc_type, d.source_url, d.court, d.citation, d.year, d.status
+                   FROM public.public_vectors v
+                   JOIN public.public_documents d ON d.doc_id = v.doc_id
+                   WHERE ($3 OR d.status = 'current')
+                   ORDER BY v.embedding <=> $1::vector
+                   LIMIT $2""",
+                vec_literal(query_vec), top_k, include_superseded,
+            )
+    return [dict(r) for r in rows]
+
+
+async def docs_in_force_as_of(pool: asyncpg.Pool, as_of: str) -> list[dict[str, Any]]:
+    """Metadata-only helper: which public documents were in force on ``as_of``."""
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT v.id::text AS chunk_id, v.doc_id, v.chunk_text, v.metadata::text AS metadata,
-                      1 - (v.embedding <=> $1::vector) AS score,
-                      d.title, d.doc_type, d.source_url, d.court, d.citation, d.year, d.status
-               FROM public.public_vectors v
-               JOIN public.public_documents d ON d.doc_id = v.doc_id
-               WHERE ($3 OR d.status = 'current')
-               ORDER BY v.embedding <=> $1::vector
-               LIMIT $2""",
-            vec_literal(query_vec), top_k, include_superseded,
+            """SELECT doc_id, title, status, version, effective_date, repealed_date
+               FROM public.public_documents
+               WHERE (effective_date IS NULL OR effective_date <= $1::date)
+                 AND (repealed_date IS NULL OR repealed_date > $1::date)
+               ORDER BY doc_id""",
+            as_of,
         )
     return [dict(r) for r in rows]
+
+
+async def get_watermark(pool: asyncpg.Pool, source_type: str):
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT last_ingested_at FROM public.ingestion_watermark WHERE source_type = $1",
+            source_type,
+        )
+
+
+async def set_watermark(pool: asyncpg.Pool, source_type: str, ts) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO public.ingestion_watermark (source_type, last_ingested_at)
+               VALUES ($1, $2)
+               ON CONFLICT (source_type) DO UPDATE SET last_ingested_at = EXCLUDED.last_ingested_at""",
+            source_type, ts,
+        )
 
 
 async def get_public_document(pool: asyncpg.Pool, doc_id: str) -> Optional[dict[str, Any]]:

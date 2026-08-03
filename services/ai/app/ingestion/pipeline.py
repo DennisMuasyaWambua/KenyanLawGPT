@@ -7,10 +7,21 @@ DISTINGUISHES / SUPERSEDED_BY edges.
 from __future__ import annotations
 
 import json
+from datetime import date, datetime, timezone
 from typing import Optional
 
 import asyncpg
 import httpx
+
+
+def _to_date(value: Optional[str]):
+    """Parse an ISO 'YYYY-MM-DD' string to a date for a Postgres date column."""
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
 
 from ..chunking import chunk_text
 from ..config import Config
@@ -35,8 +46,10 @@ _LABELS = {
     "tribunal": "TribunalDecision",
 }
 
-_STATUS_FOR_REL = {"AMENDS": "amended", "OVERTURNS": "overturned",
+_STATUS_FOR_REL = {"AMENDS": "amended", "REPEALS": "repealed", "OVERTURNS": "overturned",
                    "DISTINGUISHES": "distinguished", "SUPERSEDED_BY": "superseded"}
+# Relations whose target is no longer in force get a repealed_date stamp.
+_REPEALING_RELS = {"REPEALS", "SUPERSEDED_BY"}
 
 
 class PublicCorpusWriter:
@@ -53,10 +66,19 @@ class PublicCorpusWriter:
             f"""MERGE (d:{label}:Public {{doc_id: $doc_id}})
                 SET d.title = $title, d.status = $status, d.version = $version,
                     d.citation = $citation, d.court = $court, d.year = $year,
-                    d.source_url = $source_url, d.doc_type = $doc_type""",
+                    d.source_url = $source_url, d.doc_type = $doc_type,
+                    d.effective_date = $effective_date, d.repealed_date = $repealed_date""",
             {"doc_id": doc.doc_id, "title": doc.title, "status": doc.status,
              "version": doc.version, "citation": doc.citation, "court": doc.court,
-             "year": doc.year, "source_url": doc.source_url, "doc_type": doc.doc_type},
+             "year": doc.year, "source_url": doc.source_url, "doc_type": doc.doc_type,
+             "effective_date": doc.effective_date, "repealed_date": doc.repealed_date},
+        )
+
+    async def set_repealed(self, doc_id: str, repealed_on: str) -> None:
+        """Date-stamp a node as no longer in force (graph side)."""
+        await self._graph._run_internal(
+            "MATCH (d:Public {doc_id: $doc_id}) SET d.repealed_date = $on",
+            {"doc_id": doc_id, "on": repealed_on},
         )
         # Bench composition + per-judge opinions as first-class nodes.
         for judge in doc.authored_by:
@@ -81,7 +103,7 @@ class PublicCorpusWriter:
             )
 
     async def link(self, src_doc_id: str, rel_type: str, dst_doc_id: str) -> None:
-        if rel_type not in ("AMENDS", "OVERTURNS", "DISTINGUISHES", "CITES",
+        if rel_type not in ("AMENDS", "REPEALS", "OVERTURNS", "DISTINGUISHES", "CITES",
                             "INTERPRETS", "SUPERSEDED_BY"):
             raise ValueError(f"relation {rel_type} not allowed on public graph")
         await self._graph._run_internal(
@@ -153,13 +175,18 @@ class IngestionPipeline:
                 report.unchanged_docs += 1
                 return
 
+            # The new version's effective date is when the prior version stops
+            # being in force (defaults to today if the source gave no date).
+            repeal_on = doc.effective_date or date.today().isoformat()
+
             if row:  # content changed -> version the prior node, never overwrite
                 old_version = row["version"]
                 archived_id = f"{doc.doc_id}@v{old_version}"
                 await conn.execute(
                     """UPDATE public.public_documents
-                       SET doc_id = $2, status = 'superseded' WHERE doc_id = $1""",
-                    doc.doc_id, archived_id,
+                       SET doc_id = $2, status = 'superseded', repealed_date = $3
+                       WHERE doc_id = $1""",
+                    doc.doc_id, archived_id, _to_date(repeal_on),
                 )
                 await conn.execute(
                     "UPDATE public.public_vectors SET doc_id = $2 WHERE doc_id = $1",
@@ -167,17 +194,20 @@ class IngestionPipeline:
                 )
                 await self.writer.rename(doc.doc_id, archived_id)
                 await self.writer.set_status(archived_id, "superseded")
+                await self.writer.set_repealed(archived_id, repeal_on)
                 doc.version = old_version + 1
                 report.superseded_docs += 1
 
             await conn.execute(
                 """INSERT INTO public.public_documents
                      (doc_id, title, doc_type, source_url, court, citation, year,
-                      status, version, content_hash, authored_by, metadata, full_text)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13)""",
+                      status, version, content_hash, authored_by, metadata, full_text,
+                      effective_date, repealed_date)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15)""",
                 doc.doc_id, doc.title, doc.doc_type, doc.source_url, doc.court,
                 doc.citation, doc.year, doc.status, doc.version, new_hash,
                 json.dumps(doc.authored_by), json.dumps(doc.metadata), doc.full_text,
+                _to_date(doc.effective_date), _to_date(doc.repealed_date),
             )
 
             # Vectors: opinions are embedded as their own chunks so a dissent
@@ -208,11 +238,21 @@ class IngestionPipeline:
                 target_status = _STATUS_FOR_REL.get(rel.rel_type)
                 if target_status:
                     await self.writer.set_status(rel.target_doc_id, target_status)
+                    # A repeal/supersession also date-stamps the target as no
+                    # longer in force (never deleted) for as-of queries.
+                    stamp = _to_date(repeal_on) if rel.rel_type in _REPEALING_RELS else None
                     async with self.pool.acquire() as conn:
                         await conn.execute(
-                            "UPDATE public.public_documents SET status=$2 WHERE doc_id=$1 AND status='current'",
-                            rel.target_doc_id, target_status,
+                            """UPDATE public.public_documents
+                               SET status = $2,
+                                   repealed_date = COALESCE($3, repealed_date)
+                               WHERE doc_id = $1 AND status = 'current'""",
+                            rel.target_doc_id, target_status, stamp,
                         )
+                    if stamp is not None:
+                        await self.writer.set_repealed(rel.target_doc_id, repeal_on)
+                if rel.rel_type == "AMENDS":
+                    report.amended_docs += 1
             except Exception as exc:
                 report.errors.append(f"edge {doc.doc_id}-{rel.rel_type}->{rel.target_doc_id}: {exc}")
         report.new_docs += 1

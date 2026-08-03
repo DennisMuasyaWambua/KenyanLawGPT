@@ -19,7 +19,7 @@ class Opinion:
 @dataclass
 class Relation:
     """Explicit treatment edge to another public document."""
-    rel_type: str  # AMENDS | OVERTURNS | DISTINGUISHES | CITES | INTERPRETS
+    rel_type: str  # AMENDS | REPEALS | OVERTURNS | DISTINGUISHES | CITES | INTERPRETS
     target_doc_id: str
 
 
@@ -33,12 +33,17 @@ class LegalDocument:
     court: str = ""
     citation: str = ""
     year: int = 0
-    status: str = "current"      # current|amended|superseded|overturned|distinguished
+    status: str = "current"      # current|amended|superseded|overturned|distinguished|repealed
     version: int = 1
     authored_by: list[str] = field(default_factory=list)  # bench composition
     opinions: list[Opinion] = field(default_factory=list)
     relations: list[Relation] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
+    # Temporal validity (ISO 'YYYY-MM-DD'); repealed_date is set when the
+    # instrument is later repealed/superseded — the node is date-stamped, never
+    # deleted, so historical "as of <date>" queries stay accurate.
+    effective_date: Optional[str] = None
+    repealed_date: Optional[str] = None
 
     @property
     def content_hash(self) -> str:

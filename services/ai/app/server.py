@@ -28,6 +28,7 @@ from .config import Config, load
 from .drafting import DraftingEngine
 from .embeddings import make_embedder
 from .graph import Graph
+from .ingestion.auto_update import AutoUpdateWatcher
 from .ingestion.firm_queue import FirmIngestQueue, IngestJob
 from .ingestion.judge_profile import JudgeProfiler
 from .ingestion.pipeline import IngestionPipeline
@@ -290,6 +291,7 @@ class App:
         self.graph = None
         self.scheduler = None
         self.firm_queue = None
+        self.auto_update = None
         self.server = None
 
     async def build_server(self) -> grpc.aio.Server:
@@ -312,6 +314,7 @@ class App:
             post_run = profiler.recompute
         self.scheduler = IngestionScheduler(pipeline, self.cfg, post_run=post_run)
         self.firm_queue = FirmIngestQueue(ingestor, self.cfg)
+        self.auto_update = AutoUpdateWatcher(self.pool, pipeline, self.cfg)
 
         server = grpc.aio.server()
         retrieval_pb2_grpc.add_RetrievalServiceServicer_to_server(RetrievalService(retriever), server)
@@ -372,9 +375,15 @@ async def serve() -> None:
         await app.firm_queue.start()
     else:
         log().info("ENABLE_FIRM_INGESTION=false — firm ingestion queue not started")
+    if cfg.enable_auto_update:
+        await app.auto_update.start()
+    else:
+        log().info("ENABLE_AUTO_UPDATE=false — auto-update watcher not started")
     try:
         await server.wait_for_termination()
     finally:
+        if cfg.enable_auto_update:
+            await app.auto_update.stop()
         if cfg.enable_firm_ingestion:
             await app.firm_queue.stop()
         await app.scheduler.stop()

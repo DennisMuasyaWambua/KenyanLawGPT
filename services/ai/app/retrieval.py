@@ -81,12 +81,15 @@ class RetrievalOrchestrator:
         top_k: int = 12,
         include_superseded: bool = False,
         matter_id: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> tuple[list[RankedChunk], str]:
         intent = await self.classify_intent(query)
         [qvec] = await self.embedder.embed([query])
 
         fetch_n = max(top_k, 8)
-        public_rows = await dbx.search_public_chunks(self.pool, qvec, fetch_n, include_superseded)
+        # as_of => period-accurate law (the version in force on that date).
+        public_rows = await dbx.search_public_chunks(
+            self.pool, qvec, fetch_n, include_superseded, as_of=as_of)
         async with dbx.tenant_tx(self.pool, tenant_id) as conn:
             tenant_rows = await dbx.search_tenant_chunks(conn, qvec, fetch_n)
 

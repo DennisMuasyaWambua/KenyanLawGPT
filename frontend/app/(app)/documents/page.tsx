@@ -1,82 +1,127 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, uploadDocument } from "@/lib/api";
 import IngestionStatus, { IngestDoc } from "@/components/IngestionStatus";
 
-// Firm document ingestion status. Polls the gateway for per-document ingestion
-// state (backed by the async queue's status store). Degrades to a small sample
-// set if the documents endpoint isn't wired yet, so the surface is reviewable.
-const SAMPLE: IngestDoc[] = [
-  { id: "s1", filename: "Replying_Submissions_ELC_123_of_2019.pdf", doc_kind: "submission",
-    stage: "DONE", progress_pct: 100, message: "ingested 14 chunk(s) [submission]" },
-  { id: "s2", filename: "Ruling_HCCC_45_of_2018.pdf", doc_kind: "ruling",
-    stage: "EMBEDDING", progress_pct: 60, message: "embedding 9 chunk(s)" },
-  { id: "s3", filename: "Lease_Agreement_Kilimani.docx", doc_kind: "contract",
-    stage: "FAILED", progress_pct: 0, error: "document contains no extractable text" },
-];
+const DOC_KINDS = ["other", "contract", "pleading", "correspondence", "evidence", "precedent_note"];
+
+// Persisted documents expose an ingest_status; map it onto the step-based view.
+function statusToStage(s: string): { stage: string; progress_pct: number } {
+  switch (s) {
+    case "ingested":
+      return { stage: "DONE", progress_pct: 100 };
+    case "ingesting":
+      return { stage: "EMBEDDING", progress_pct: 60 };
+    case "failed":
+      return { stage: "FAILED", progress_pct: 0 };
+    default:
+      return { stage: "QUEUED", progress_pct: 0 };
+  }
+}
+
+type LiveUpload = IngestDoc & { key: string };
 
 export default function DocumentsPage() {
   const qc = useQueryClient();
-  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [matterId, setMatterId] = useState("");
+  const [docKind, setDocKind] = useState("other");
+  const [live, setLive] = useState<LiveUpload[]>([]);
 
-  const { data: documents = [] } = useQuery<IngestDoc[]>({
-    queryKey: ["documents"],
+  const { data: mattersData } = useQuery({ queryKey: ["matters"], queryFn: () => api("/api/v1/matters") });
+
+  const { data: persisted = [] } = useQuery<IngestDoc[]>({
+    queryKey: ["documents", matterId],
     queryFn: async () => {
-      try {
-        const r = await api<{ documents: IngestDoc[] }>("/api/v1/documents");
-        return r.documents || [];
-      } catch {
-        return SAMPLE; // endpoint not available yet — show the surface
-      }
+      const q = matterId ? `?matter_id=${matterId}` : "";
+      const r = await api<{ documents: any[] }>(`/api/v1/documents${q}`);
+      return (r.documents || []).map((d) => ({
+        id: d.id,
+        filename: d.filename,
+        doc_kind: d.doc_kind,
+        ...statusToStage(d.ingest_status),
+      }));
     },
-    // Poll while anything is still in flight so the steps animate live.
     refetchInterval: (q) =>
       (q.state.data || []).some((d) => d.stage !== "DONE" && d.stage !== "FAILED") ? 3000 : false,
   });
 
-  const upload = useMutation({
-    mutationFn: async (files: FileList) => {
-      setUploading(true);
-      for (const file of Array.from(files)) {
-        const form = new FormData();
-        form.append("file", file);
-        // Content-Type is set by the browser for multipart; api() adds auth+tenant.
-        await api("/api/v1/documents", { method: "POST", body: form, headers: {} as any });
+  function patchLive(key: string, patch: Partial<LiveUpload>) {
+    setLive((prev) => prev.map((u) => (u.key === key ? { ...u, ...patch } : u)));
+  }
+
+  async function handleFiles(files: FileList) {
+    for (const file of Array.from(files)) {
+      const key = crypto.randomUUID();
+      setLive((prev) => [
+        { key, id: key, filename: file.name, doc_kind: docKind, stage: "QUEUED", progress_pct: 5 },
+        ...prev,
+      ]);
+      try {
+        await uploadDocument(file, { matterId: matterId || null, docKind }, (stage, pct, msg) =>
+          patchLive(key, { stage, progress_pct: pct, message: msg })
+        );
+      } catch (err) {
+        patchLive(key, { stage: "FAILED", progress_pct: 0, error: (err as Error).message });
       }
-    },
-    onSettled: () => {
-      setUploading(false);
       qc.invalidateQueries({ queryKey: ["documents"] });
-    },
-  });
+    }
+    // Clear finished live rows shortly after; the persisted list takes over.
+    setTimeout(() => setLive((prev) => prev.filter((u) => u.stage !== "DONE")), 2500);
+  }
 
   const retry = useMutation({
-    mutationFn: (id: string) => api(`/api/v1/documents/${id}/reingest`, { method: "POST" }),
+    mutationFn: (id: string) => api(`/api/v1/documents/${id}/ingest`, { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
   });
+
+  // Live uploads sit above the persisted list (dedup by not showing DONE twice).
+  const allDocs: IngestDoc[] = [...live.filter((u) => u.stage !== "DONE"), ...persisted];
 
   return (
     <div>
       <h2 className="font-display text-3xl font-bold text-navy">Documents</h2>
       <p className="mt-1 text-sm text-ink/60">
-        Upload and track ingestion of your firm&rsquo;s pleadings, submissions and notes. Each
-        document is parsed, embedded and linked into your firm&rsquo;s private knowledge graph —
-        strictly isolated from every other firm on the platform.
+        Upload pleadings, contracts and notes, or client-conversation recordings (auto-transcribed,
+        multilingual). Attach to a matter so the content becomes per-case context for AI research.
+        Everything is parsed, embedded and linked into your firm&rsquo;s private knowledge graph —
+        isolated from every other firm.
       </p>
 
-      <div className="mt-6">
-        <IngestionStatus
-          documents={documents}
-          uploading={uploading || upload.isPending}
-          onUpload={(files) => upload.mutate(files)}
-          onRetry={(id) => retry.mutate(id)}
+      <div className="mt-6 card flex flex-col gap-3 border-dashed sm:flex-row sm:items-end">
+        <div className="flex-1">
+          <label className="label">Matter (per-case)</label>
+          <select className="input" value={matterId} onChange={(e) => setMatterId(e.target.value)}>
+            <option value="">Unassigned</option>
+            {(mattersData?.matters || []).map((m: any) => (
+              <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="label">Type</label>
+          <select className="input" value={docKind} onChange={(e) => setDocKind(e.target.value)}>
+            {DOC_KINDS.map((k) => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
+          </select>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          accept=".pdf,.docx,.doc,.txt,.md,audio/*,.mp3,.wav,.m4a,.ogg,.flac,.webm"
+          className="hidden"
+          onChange={(e) => e.target.files && handleFiles(e.target.files)}
         />
+        <button className="btn-gold shrink-0" onClick={() => fileRef.current?.click()}>
+          Upload files
+        </button>
       </div>
-      {upload.isError && (
-        <p className="mt-3 text-sm text-red-600">{(upload.error as Error).message}</p>
-      )}
+
+      <div className="mt-6">
+        <IngestionStatus documents={allDocs} onRetry={(id) => retry.mutate(id)} />
+      </div>
     </div>
   );
 }

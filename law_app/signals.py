@@ -81,5 +81,10 @@ def initialize_simgrag(sender, **kwargs):
     """
     Initialize the SimGrag instance after Django has completed migrations
     """
+    # Skip the expensive model load when running the test suite (post_migrate
+    # fires for the throwaway test database); tests patch the RAG seam instead.
+    import sys
+    if 'test' in sys.argv:
+        return
     if sender.name == 'law_app':
         init_rag()

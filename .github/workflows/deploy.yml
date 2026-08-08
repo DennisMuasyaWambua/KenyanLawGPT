@@ -32,6 +32,7 @@ jobs:
               - 'requirements-prod.txt'
               - 'law_app/**'
               - 'law_project/**'
+              - 'gateway/**'
               - 'static/**'
               - '.github/workflows/deploy.yml'
 

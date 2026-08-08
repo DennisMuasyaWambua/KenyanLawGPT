@@ -4,6 +4,11 @@ export const API_BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') ??
   'http://169.58.94.243';
 
+// Google Sign-In Web client ID (OAuth 2.0). When unset, the Google buttons are
+// hidden and only email/password auth is offered.
+export const GOOGLE_CLIENT_ID: string =
+  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? '';
+
 // LLM inference runs on CPU; long answers can take minutes.
 export const CHAT_TIMEOUT_MS = 300_000;
 export const STATUS_TIMEOUT_MS = 8_000;

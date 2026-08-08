@@ -12,6 +12,8 @@ urlpatterns = [
     path('sample-questions/', RedirectView.as_view(url='/api/sample-questions/', permanent=False)),
     path('chat/', RedirectView.as_view(url='/api/chat/', permanent=False)),
     path('crawl/', RedirectView.as_view(url='/api/crawl/', permanent=False)),
+    # Multi-tenant SaaS gateway (auth, firms, calendars, cases, transcription)
+    path('', include('gateway.urls')),
     # Include the app URLs
     path('', include('law_app.urls')),
 ]

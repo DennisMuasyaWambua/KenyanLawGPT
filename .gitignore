@@ -34,6 +34,10 @@ env/
 *.log.*
 logs/
 
+# Uploaded media (local storage backend) and collected static
+/media/
+/staticfiles/
+
 # Vector DB
 vector_db/*.bin
 vector_db/*.pickle

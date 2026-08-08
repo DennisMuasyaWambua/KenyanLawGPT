@@ -36,8 +36,10 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework.authtoken',
     'corsheaders',
     'law_app',
+    'gateway',
 ]
 
 MIDDLEWARE = [
@@ -133,6 +135,10 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
     ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
@@ -142,3 +148,28 @@ REST_FRAMEWORK = {
 VECTOR_DB_PATH = os.environ.get('VECTOR_DB_PATH', './vector_db')
 CONCURRENT_REQUESTS = int(os.environ.get('CONCURRENT_REQUESTS', '4'))
 REQUEST_DELAY = float(os.environ.get('REQUEST_DELAY', '1.0'))
+
+# --- Gateway (multi-tenant SaaS) configuration --------------------------------
+# Public origin of this backend, used to build local presigned upload URLs.
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
+
+# Where uploaded objects live on the local (dev) storage backend.
+MEDIA_ROOT = os.environ.get('MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
+
+# Google Sign-In: the OAuth 2.0 Web client ID. When set, Google credentials
+# must be issued for this audience; leave blank in development.
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
+
+# Object storage. Set AWS_STORAGE_BUCKET_NAME (+ credentials) to switch the
+# presign backend from local disk to S3-compatible storage (S3, R2, MinIO...).
+AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME', '')
+AWS_S3_ENDPOINT_URL = os.environ.get('AWS_S3_ENDPOINT_URL', '')
+AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', '')
+AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID', '')
+AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY', '')
+
+# IE multilingual speech-to-text. IE_API_KEY is the bearer JWT — provide it via
+# the environment / server .env, never commit it.
+IE_TRANSCRIPTION_URL = os.environ.get('IE_TRANSCRIPTION_URL', '')
+IE_API_KEY = os.environ.get('IE_API_KEY', '')
+IE_TRANSCRIPTION_TIMEOUT = int(os.environ.get('IE_TRANSCRIPTION_TIMEOUT', '300'))

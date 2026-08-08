@@ -23,7 +23,9 @@ type Identity struct {
 	Name          string
 }
 
-const tokenInfoURL = "https://oauth2.googleapis.com/tokeninfo"
+// TokenInfoURL is Google's ID-token introspection endpoint. It is a var (not a
+// const) so tests can point verification at a local httptest server.
+var TokenInfoURL = "https://oauth2.googleapis.com/tokeninfo"
 
 // Verify validates an ID token and returns the identity. clientID must match
 // the token's audience. An empty clientID disables the audience check and is
@@ -33,7 +35,7 @@ func Verify(ctx context.Context, idToken, clientID string) (*Identity, error) {
 		return nil, fmt.Errorf("empty id token")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		tokenInfoURL+"?"+url.Values{"id_token": {idToken}}.Encode(), nil)
+		TokenInfoURL+"?"+url.Values{"id_token": {idToken}}.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}

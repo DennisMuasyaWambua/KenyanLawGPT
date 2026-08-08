@@ -8,6 +8,10 @@ x-gateway-env: &gateway-env
   MIGRATIONS_DIR: /migrations
   REDIS_ADDR: redis:6379
   JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
+  # Google sign-in/up (empty => Google buttons hidden, password auth only).
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  # Public frontend origin, used to build staff-invite accept links.
+  APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
   AI_GRPC_ADDR: ai:50051
   AI_GRPC_SERVER_NAME: ai
   MTLS_CA_CERT: /certs/ca.crt
@@ -109,6 +113,21 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      # GMI Cloud hosted models (DeepSeek-R1 distill vs Qwen3-235B evaluation).
+      GMI_CLOUD_BASE_URL: ${GMI_CLOUD_BASE_URL:-https://api.gmi-serving.com/v1}
+      GMI_CLOUD_API_KEY: ${GMI_CLOUD_API_KEY:-}
+      GMI_CLOUD_MODEL: ${GMI_CLOUD_MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-70B}
+      GMI_CLOUD_DEEPSEEK_MODEL: ${GMI_CLOUD_DEEPSEEK_MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-70B}
+      GMI_CLOUD_QWEN_MODEL: ${GMI_CLOUD_QWEN_MODEL:-Qwen/Qwen3-235B-A22B-Instruct-2507-FP8}
+      GMI_SYNTHETIC_ONLY: ${GMI_SYNTHETIC_ONLY:-true}
+      GMI_SYNTHETIC_DATA_OK: ${GMI_SYNTHETIC_DATA_OK:-false}
+      # Multilingual speech-to-text. auto|whisper|openai|mock; cloud never auto.
+      TRANSCRIBE_PROVIDER: ${TRANSCRIBE_PROVIDER:-auto}
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      TRANSCRIBE_LANGUAGE: ${TRANSCRIBE_LANGUAGE:-auto}
+      TRANSCRIBE_BASE_URL: ${TRANSCRIBE_BASE_URL:-https://api.openai.com/v1}
+      TRANSCRIBE_API_KEY: ${TRANSCRIBE_API_KEY:-}
+      TRANSCRIBE_OPENAI_MODEL: ${TRANSCRIBE_OPENAI_MODEL:-whisper-1}
       PUBLIC_INGEST_ON_START: "true"
       INGEST_OFFLINE_SAMPLES: ${INGEST_OFFLINE_SAMPLES:-true}
       REDIS_URL: redis://redis:6379
@@ -163,6 +182,8 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+        # NEXT_PUBLIC_* is baked at build time, so Google auth needs a rebuild.
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
     ports: ["127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"]
     depends_on:
       gateway: { condition: service_started }

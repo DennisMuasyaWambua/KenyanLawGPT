@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/wakiliai/gateway/internal/auth"
+	"github.com/wakiliai/gateway/internal/integrations/google"
 	"github.com/wakiliai/gateway/internal/repository"
 	"github.com/wakiliai/gateway/internal/services"
 )
@@ -96,6 +97,98 @@ func (s *Server) Login(c *gin.Context) {
 	if ok && resp != nil {
 		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// GoogleLogin authenticates an existing firm member with a Google ID token.
+// Tenant-scoped (X-Tenant-Slug): the Google identity is matched to a user in
+// this firm by google_sub, or by verified email on first use (then linked).
+func (s *Server) GoogleLogin(c *gin.Context) {
+	var in struct {
+		Credential string `json:"credential" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	ident, err := google.Verify(c.Request.Context(), in.Credential, s.Cfg.GoogleClientID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid Google credential"})
+		return
+	}
+	if !ident.EmailVerified {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Google email is not verified"})
+		return
+	}
+	var resp gin.H
+	ok := s.withTenant(c, func(tx pgx.Tx) error {
+		user, err := repository.UserByGoogleSub(c.Request.Context(), tx, ident.Sub)
+		if err == pgx.ErrNoRows {
+			// First Google sign-in: match a pre-existing account by email and link it.
+			user, err = repository.UserByEmail(c.Request.Context(), tx, ident.Email)
+			if err == pgx.ErrNoRows {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "no account for this Google user in this firm — ask an admin to invite you"})
+				return errHandled
+			}
+			if err != nil {
+				return err
+			}
+			if err := repository.LinkGoogleSub(c.Request.Context(), tx, user.ID, ident.Sub); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+		if user.Status != "active" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "account disabled"})
+			return errHandled
+		}
+		if err := repository.TouchLastLogin(c.Request.Context(), tx, user.ID); err != nil {
+			return err
+		}
+		resp, err = s.issueTokens(c, tx, user)
+		return err
+	})
+	if ok && resp != nil {
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+// GoogleSignup provisions a new firm whose owner authenticates with Google (no
+// password). Runs outside tenant context like Signup. When firm_name/slug are
+// omitted, a personal (solo) workspace is auto-provisioned. The client then
+// calls GoogleLogin with the returned slug to obtain tokens.
+func (s *Server) GoogleSignup(c *gin.Context) {
+	var in struct {
+		Credential      string `json:"credential" binding:"required"`
+		FirmName        string `json:"firm_name"`
+		Slug            string `json:"slug"`
+		Plan            string `json:"plan"`
+		DataResidencyKE bool   `json:"data_residency_ke"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	ident, err := google.Verify(c.Request.Context(), in.Credential, s.Cfg.GoogleClientID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid Google credential"})
+		return
+	}
+	if !ident.EmailVerified {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Google email is not verified"})
+		return
+	}
+	prov := &services.ProvisionInput{
+		FirmName: in.FirmName, Slug: in.Slug, Plan: in.Plan,
+		DataResidencyKE: in.DataResidencyKE,
+		OwnerName:       ident.Name, OwnerEmail: ident.Email, GoogleSub: ident.Sub,
+	}
+	tenant, owner, err := services.ProvisionTenant(c.Request.Context(), s.DB, s.Cfg, prov)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"tenant": tenant, "owner": gin.H{"id": owner.ID, "email": owner.Email}})
 }
 
 // Refresh rotates the refresh token: the presented token is atomically

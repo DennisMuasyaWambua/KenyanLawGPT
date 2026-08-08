@@ -4,13 +4,14 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, currentUser } from "@/lib/api";
 
-const ROLES = ["owner", "partner", "associate", "paralegal", "client"];
+const STAFF_ROLES = ["partner", "associate", "paralegal", "owner"];
 
 export default function SettingsPage() {
   const qc = useQueryClient();
   const me = currentUser();
   const isPartnerPlus = me && ["owner", "partner"].includes(me.role);
   const [kdpaResult, setKdpaResult] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
 
   const { data: meData } = useQuery({ queryKey: ["me"], queryFn: () => api("/api/v1/auth/me") });
   const { data: usersData } = useQuery({
@@ -23,6 +24,14 @@ export default function SettingsPage() {
   const createUser = useMutation({
     mutationFn: (body: any) => api("/api/v1/users", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }),
+  });
+
+  const inviteUser = useMutation({
+    mutationFn: (body: any) => api("/api/v1/users/invite", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: (d: any) => {
+      setInviteLink(d.accept_url || "");
+      qc.invalidateQueries({ queryKey: ["users"] });
+    },
   });
 
   const erase = useMutation({
@@ -72,35 +81,62 @@ export default function SettingsPage() {
                 </tbody>
               </table>
             </div>
-            <form className="card space-y-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                createUser.mutate({
-                  email: fd.get("email"), full_name: fd.get("full_name"),
-                  role: fd.get("role"), password: fd.get("password"),
-                  client_id: fd.get("client_id") || null,
-                });
-                (e.target as HTMLFormElement).reset();
-              }}>
-              <h4 className="font-display text-lg font-bold text-navy">Add member</h4>
-              <input name="full_name" className="input" placeholder="Full name" required />
-              <input name="email" type="email" className="input" placeholder="Email" required />
-              <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-6">
+              <form className="card space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const fd = new FormData(e.currentTarget);
+                  setInviteLink("");
+                  inviteUser.mutate({
+                    email: fd.get("email"), full_name: fd.get("full_name"), role: fd.get("role"),
+                  });
+                  (e.target as HTMLFormElement).reset();
+                }}>
+                <h4 className="font-display text-lg font-bold text-navy">Invite a staff member</h4>
+                <p className="text-xs text-ink/50">
+                  They&apos;ll get an email link to set their own password (or sign in with Google).
+                </p>
+                <input name="full_name" className="input" placeholder="Full name" />
+                <input name="email" type="email" className="input" placeholder="Email" required />
                 <select name="role" className="input">
-                  {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                  {STAFF_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
-                <input name="password" className="input" placeholder="Temp password" required />
-              </div>
-              <select name="client_id" className="input">
-                <option value="">Link to client (portal accounts only)</option>
-                {(clientsData?.clients || []).map((c: any) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-              {createUser.isError && <p className="text-xs text-red-600">{(createUser.error as Error).message}</p>}
-              <button className="btn-gold w-full" disabled={createUser.isPending}>Create</button>
-            </form>
+                {inviteUser.isError && <p className="text-xs text-red-600">{(inviteUser.error as Error).message}</p>}
+                {inviteLink && (
+                  <p className="break-all text-xs text-gold-dim">
+                    Invite sent. Dev link: <code>{inviteLink}</code>
+                  </p>
+                )}
+                <button className="btn-gold w-full" disabled={inviteUser.isPending}>Send invite</button>
+              </form>
+
+              <form className="card space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const fd = new FormData(e.currentTarget);
+                  createUser.mutate({
+                    email: fd.get("email"), full_name: fd.get("full_name"),
+                    role: "client", password: fd.get("password"),
+                    client_id: fd.get("client_id") || null,
+                  });
+                  (e.target as HTMLFormElement).reset();
+                }}>
+                <h4 className="font-display text-lg font-bold text-navy">Create a client portal account</h4>
+                <input name="full_name" className="input" placeholder="Full name" required />
+                <input name="email" type="email" className="input" placeholder="Email" required />
+                <div className="grid grid-cols-2 gap-2">
+                  <input name="password" className="input" placeholder="Temp password" required />
+                  <select name="client_id" className="input" required>
+                    <option value="">Link to client…</option>
+                    {(clientsData?.clients || []).map((c: any) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {createUser.isError && <p className="text-xs text-red-600">{(createUser.error as Error).message}</p>}
+                <button className="btn-primary w-full" disabled={createUser.isPending}>Create portal account</button>
+              </form>
+            </div>
           </div>
 
           <h3 className="mt-8 font-display text-xl font-bold text-navy">KDPA — data subject rights</h3>

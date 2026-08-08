@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -17,13 +18,31 @@ import (
 )
 
 type ProvisionInput struct {
-	FirmName        string `json:"firm_name" binding:"required"`
-	Slug            string `json:"slug" binding:"required"`
+	FirmName        string `json:"firm_name"`
+	Slug            string `json:"slug"`
 	Plan            string `json:"plan"`
 	DataResidencyKE bool   `json:"data_residency_ke"`
-	OwnerName       string `json:"owner_name" binding:"required"`
+	OwnerName       string `json:"owner_name"`
 	OwnerEmail      string `json:"owner_email" binding:"required,email"`
-	OwnerPassword   string `json:"owner_password" binding:"required,min=8"`
+	OwnerPassword   string `json:"owner_password"`
+	// Set for Google sign-up: the owner authenticates with Google instead of a
+	// password. When present, OwnerPassword is not required.
+	GoogleSub string `json:"-"`
+}
+
+var slugSanitize = regexp.MustCompile(`[^a-z0-9]+`)
+
+// deriveSlug builds a valid tenant slug from a firm/owner name, appending a
+// short random suffix so solo (auto-provisioned) signups don't collide.
+func deriveSlug(name string) string {
+	base := strings.Trim(slugSanitize.ReplaceAllString(strings.ToLower(name), "-"), "-")
+	if len(base) < 3 {
+		base = "firm"
+	}
+	if len(base) > 30 {
+		base = base[:30]
+	}
+	return base + "-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:6]
 }
 
 // ProvisionTenant implements signup: control-row insert -> schema creation ->
@@ -32,6 +51,21 @@ type ProvisionInput struct {
 // builder stamps tenant_id on every node/edge at write time and filters on it
 // at read time, so a new tenant's graph partition exists implicitly.
 func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, in *ProvisionInput) (*repository.Tenant, *repository.User, error) {
+	google := in.GoogleSub != ""
+	if in.OwnerName == "" {
+		in.OwnerName = strings.SplitN(in.OwnerEmail, "@", 2)[0]
+	}
+	if in.FirmName == "" {
+		// Solo sign-up: a personal workspace named after the owner.
+		in.FirmName = in.OwnerName + "'s Workspace"
+	}
+	if strings.TrimSpace(in.Slug) == "" {
+		// Solo / auto path: derive a unique slug rather than requiring one.
+		in.Slug = deriveSlug(in.OwnerName)
+	}
+	if !google && len(in.OwnerPassword) < 8 {
+		return nil, nil, fmt.Errorf("owner_password must be at least 8 characters")
+	}
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
 	if len(slug) < 3 || len(slug) > 40 || strings.ContainsAny(slug, " _./\\") {
 		return nil, nil, fmt.Errorf("invalid slug: use 3-40 chars, lowercase letters, digits and hyphens")
@@ -72,18 +106,25 @@ func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, i
 		return nil, nil, fmt.Errorf("tenant migrations: %w", err)
 	}
 
-	hash, err := auth.HashPassword(in.OwnerPassword)
-	if err != nil {
-		cleanup()
-		return nil, nil, err
-	}
 	owner := &repository.User{
 		ID:           uuid.NewString(),
 		Email:        strings.ToLower(in.OwnerEmail),
 		FullName:     in.OwnerName,
 		Role:         rbac.RoleOwner,
 		Status:       "active",
-		PasswordHash: hash,
+		AuthProvider: "password",
+	}
+	if google {
+		sub := in.GoogleSub
+		owner.GoogleSub = &sub
+		owner.AuthProvider = "google"
+	} else {
+		hash, err := auth.HashPassword(in.OwnerPassword)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+		owner.PasswordHash = hash
 	}
 	if err := database.WithTenant(ctx, tenant.ID, schema, func(tx pgx.Tx) error {
 		if err := repository.InsertUser(ctx, tx, owner); err != nil {

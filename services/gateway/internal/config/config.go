@@ -23,6 +23,9 @@ type Config struct {
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
 
+	GoogleClientID string // Google Identity Services OAuth client id (id-token audience)
+	AppBaseURL     string // public frontend origin, used to build invite links
+
 	AIGRPCAddr       string
 	AIGRPCServerName string // must match SAN in the AI service's server cert
 	MTLSCACert       string
@@ -103,6 +106,9 @@ func Load() *Config {
 		AccessTTL:  envDur("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTTL: envDur("REFRESH_TOKEN_TTL", 168*time.Hour),
 
+		GoogleClientID: env("GOOGLE_CLIENT_ID", ""),
+		AppBaseURL:     env("APP_BASE_URL", "http://localhost:3000"),
+
 		AIGRPCAddr:       env("AI_GRPC_ADDR", "localhost:50051"),
 		AIGRPCServerName: env("AI_GRPC_SERVER_NAME", "ai"),
 		MTLSCACert:       env("MTLS_CA_CERT", "/certs/ca.crt"),
@@ -112,9 +118,9 @@ func Load() *Config {
 		S3Endpoint:       env("S3_ENDPOINT", "localhost:9000"),
 		S3PublicEndpoint: env("S3_PUBLIC_ENDPOINT", ""),
 		S3AccessKey:      env("S3_ACCESS_KEY", "minioadmin"),
-		S3SecretKey: env("S3_SECRET_KEY", "minioadmin"),
-		S3Bucket:    env("S3_BUCKET", "wakili-documents"),
-		S3UseSSL:    env("S3_USE_SSL", "false") == "true",
+		S3SecretKey:      env("S3_SECRET_KEY", "minioadmin"),
+		S3Bucket:         env("S3_BUCKET", "wakili-documents"),
+		S3UseSSL:         env("S3_USE_SSL", "false") == "true",
 
 		ATUsername: env("AT_USERNAME", ""),
 		ATAPIKey:   env("AT_API_KEY", ""),

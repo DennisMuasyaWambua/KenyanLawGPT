@@ -14,17 +14,22 @@ type User struct {
 	Role         string     `json:"role"`
 	Status       string     `json:"status"`
 	ClientID     *string    `json:"client_id,omitempty"` // set for portal users
-	PasswordHash string     `json:"-"`
+	PasswordHash string     `json:"-"`                   // "" for Google-only accounts
+	GoogleSub    *string    `json:"-"`
+	AuthProvider string     `json:"auth_provider"`
 	CreatedAt    time.Time  `json:"created_at"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 }
 
-const userCols = "id, email, full_name, role, status, client_id, password_hash, created_at, last_login_at"
+// password_hash is nullable (Google accounts have none); COALESCE keeps the
+// scan into a plain string. An empty PasswordHash never matches CheckPassword.
+const userCols = "id, email, full_name, role, status, client_id, COALESCE(password_hash,''), " +
+	"google_sub, auth_provider, created_at, last_login_at"
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.Status, &u.ClientID, &u.PasswordHash, &u.CreatedAt, &u.LastLoginAt)
-	if err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.Status, &u.ClientID,
+		&u.PasswordHash, &u.GoogleSub, &u.AuthProvider, &u.CreatedAt, &u.LastLoginAt); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -38,6 +43,10 @@ func UserByID(ctx context.Context, tx pgx.Tx, id string) (*User, error) {
 	return scanUser(tx.QueryRow(ctx, "SELECT "+userCols+" FROM users WHERE id = $1", id))
 }
 
+func UserByGoogleSub(ctx context.Context, tx pgx.Tx, sub string) (*User, error) {
+	return scanUser(tx.QueryRow(ctx, "SELECT "+userCols+" FROM users WHERE google_sub = $1", sub))
+}
+
 func ListUsers(ctx context.Context, tx pgx.Tx) ([]User, error) {
 	rows, err := tx.Query(ctx, "SELECT "+userCols+" FROM users ORDER BY created_at")
 	if err != nil {
@@ -46,20 +55,31 @@ func ListUsers(ctx context.Context, tx pgx.Tx) ([]User, error) {
 	defer rows.Close()
 	var out []User
 	for rows.Next() {
-		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.Status, &u.ClientID, &u.PasswordHash, &u.CreatedAt, &u.LastLoginAt); err != nil {
+		u, err := scanUser(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, u)
+		out = append(out, *u)
 	}
 	return out, rows.Err()
 }
 
 func InsertUser(ctx context.Context, tx pgx.Tx, u *User) error {
+	provider := u.AuthProvider
+	if provider == "" {
+		provider = "password"
+	}
 	_, err := tx.Exec(ctx,
-		`INSERT INTO users (id, email, full_name, role, status, client_id, password_hash)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		u.ID, u.Email, u.FullName, u.Role, u.Status, u.ClientID, u.PasswordHash)
+		`INSERT INTO users (id, email, full_name, role, status, client_id, password_hash, google_sub, auth_provider)
+		 VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,''),$8,$9)`,
+		u.ID, u.Email, u.FullName, u.Role, u.Status, u.ClientID, u.PasswordHash, u.GoogleSub, provider)
+	return err
+}
+
+// LinkGoogleSub attaches a verified Google account to an existing user the
+// first time they sign in with Google (e.g. a password user or an invitee).
+func LinkGoogleSub(ctx context.Context, tx pgx.Tx, userID, sub string) error {
+	_, err := tx.Exec(ctx, "UPDATE users SET google_sub = $2 WHERE id = $1", userID, sub)
 	return err
 }
 

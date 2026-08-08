@@ -114,14 +114,16 @@ export default function IngestionStatus({
           <div>
             <p className="text-sm font-semibold text-navy">Upload firm documents</p>
             <p className="text-xs text-ink/50">
-              Pleadings, submissions, contracts or internal notes (PDF/DOCX/TXT). Ingested privately
-              into your firm&rsquo;s partition — never shared with other firms.
+              Pleadings, submissions, contracts, notes (PDF/DOCX/TXT) or client-conversation
+              recordings (MP3/WAV/M4A — auto-transcribed, multilingual). Ingested privately into
+              your firm&rsquo;s partition — never shared with other firms.
             </p>
           </div>
           <input
             ref={fileRef}
             type="file"
             multiple
+            accept=".pdf,.docx,.doc,.txt,.md,audio/*,.mp3,.wav,.m4a,.ogg,.flac,.webm"
             className="hidden"
             onChange={(e) => e.target.files && onUpload(e.target.files)}
           />

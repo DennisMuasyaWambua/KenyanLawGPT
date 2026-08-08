@@ -74,10 +74,39 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 				}
 				metrics.Inc("wakili_reminders_sent_total", map[string]string{"kind": "deadline"})
 			}
+			// Calendar events (personal + firm) with a due remind_at.
+			events, err := repository.DueCalendarReminders(ctx, tx)
+			if err != nil {
+				return err
+			}
+			for _, e := range events {
+				when := e.StartAt.Format("Mon 02 Jan 2006 15:04")
+				body := fmt.Sprintf("Reminder: %s at %s", e.Title, when)
+				if e.Location != "" {
+					body += " · " + e.Location
+				}
+				notifyUser(ctx, tx, mail, e.OwnerID, "WakiliAI calendar reminder", body)
+				if err := repository.MarkCalendarReminded(ctx, tx, e.ID); err != nil {
+					return err
+				}
+				metrics.Inc("wakili_reminders_sent_total", map[string]string{"kind": "calendar"})
+			}
 			return nil
 		})
 		if err != nil {
 			logging.L(ctx).Error("reminders: tenant scan", "tenant", t.Slug, "err", err)
+		}
+	}
+}
+
+// notifyUser fans a message to a single user via in-app notification + email.
+func notifyUser(ctx context.Context, tx pgx.Tx, mail email.Provider, userID, subject, body string) {
+	_ = repository.InsertNotification(ctx, tx, &repository.Notification{
+		ID: uuid.NewString(), UserID: userID, Kind: "reminder", Body: body,
+	})
+	if u, err := repository.UserByID(ctx, tx, userID); err == nil {
+		if err := mail.Send(ctx, u.Email, subject, body); err != nil {
+			logging.L(ctx).Warn("reminder email failed", "err", err)
 		}
 	}
 }

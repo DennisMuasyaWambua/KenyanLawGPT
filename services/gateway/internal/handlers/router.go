@@ -20,6 +20,7 @@ func (s *Server) Register(r *gin.Engine) {
 
 	// Firm signup happens before a tenant exists.
 	r.POST("/api/v1/signup", s.Signup)
+	r.POST("/api/v1/signup/google", s.GoogleSignup)
 
 	// Provider webhooks (no tenant subdomain, no JWT; idempotent handlers).
 	wh := r.Group("/webhooks")
@@ -30,7 +31,10 @@ func (s *Server) Register(r *gin.Engine) {
 
 	// Unauthenticated (tenant-scoped) auth endpoints.
 	api.POST("/auth/login", s.Login)
+	api.POST("/auth/google", s.GoogleLogin)
 	api.POST("/auth/refresh", s.Refresh)
+	api.GET("/auth/invite/:token", s.GetInvite)
+	api.POST("/auth/invite/:token/accept", s.AcceptInvite)
 
 	// Everything below requires a valid JWT bound to this tenant.
 	priv := api.Group("", middleware.Auth(s.Cfg), middleware.Audit(s.DB))
@@ -60,6 +64,11 @@ func (s *Server) Register(r *gin.Engine) {
 	staff.GET("/clients", s.ListClients)
 	staff.POST("/clients", s.CreateClient)
 
+	staff.GET("/calendar/events", s.ListCalendarEvents)
+	staff.POST("/calendar/events", s.CreateCalendarEvent)
+	staff.PUT("/calendar/events/:id", s.UpdateCalendarEvent)
+	staff.DELETE("/calendar/events/:id", s.DeleteCalendarEvent)
+
 	staff.POST("/documents/presign", s.PresignUpload)
 	staff.GET("/documents", s.ListDocuments)
 	staff.POST("/documents/:id/ingest", s.IngestDocument)
@@ -87,6 +96,7 @@ func (s *Server) Register(r *gin.Engine) {
 	partner := priv.Group("", middleware.RequireRole(rbac.RolePartner))
 	partner.GET("/users", s.ListUsers)
 	partner.POST("/users", s.CreateUser)
+	partner.POST("/users/invite", s.InviteUser)
 	partner.PATCH("/users/:id", s.UpdateUser)
 	partner.GET("/kdpa/export", s.ExportSubject)
 	partner.POST("/kdpa/erasure", s.EraseSubject)

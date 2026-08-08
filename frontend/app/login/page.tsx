@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { getTenant, setSession } from "@/lib/api";
+import GoogleButton from "@/components/GoogleButton";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
@@ -26,6 +28,27 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "login failed");
+      setSession(slug, data.access_token, data.refresh_token, data.user);
+      router.push(data.user.role === "client" ? "/portal" : "/dashboard");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function googleLogin(credential: string) {
+    setBusy(true);
+    setError("");
+    try {
+      if (!slug) throw new Error("Enter your firm slug first, then continue with Google");
+      const res = await fetch(`${API}/api/v1/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Tenant-Slug": slug },
+        body: JSON.stringify({ credential }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Google sign-in failed");
       setSession(slug, data.access_token, data.refresh_token, data.user);
       router.push(data.user.role === "client" ? "/portal" : "/dashboard");
     } catch (err: any) {
@@ -66,6 +89,15 @@ export default function LoginPage() {
           <button className="btn-gold w-full" disabled={busy}>
             {busy ? "Signing in…" : "Sign in"}
           </button>
+
+          <div className="flex items-center gap-3 text-xs text-ink/40">
+            <span className="h-px flex-1 bg-ink/10" /> or <span className="h-px flex-1 bg-ink/10" />
+          </div>
+          <GoogleButton text="signin_with" onCredential={googleLogin} />
+
+          <p className="text-center text-xs text-ink/50">
+            New here? <Link href="/signup" className="text-gold underline">Create a firm workspace</Link>
+          </p>
           <p className="text-center text-xs text-ink/50">
             Demo firms: <code>mwangi-advocates</code> / <code>odhiambo-partners</code> — password{" "}
             <code>DemoPass123!</code>

@@ -53,6 +53,40 @@ class Config:
     ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "llama3"))
     ollama_fast_model: str = field(default_factory=lambda: _env("OLLAMA_FAST_MODEL", "llama3.2:1b"))
 
+    # GMI Cloud — OpenAI-compatible hosted inference. Used to evaluate multiple
+    # hosted models (DeepSeek-R1 distill vs Qwen3-235B) before picking one for
+    # production. The model string is chosen per GMICloudProvider instance:
+    # ``gmi_cloud_model`` is the default, but the A/B tooling instantiates the
+    # provider with ``gmi_cloud_deepseek_model`` / ``gmi_cloud_qwen_model``.
+    gmi_cloud_base_url: str = field(default_factory=lambda: _env("GMI_CLOUD_BASE_URL", "https://api.gmi-serving.com/v1"))
+    gmi_cloud_api_key: str = field(default_factory=lambda: _env("GMI_CLOUD_API_KEY"))
+    gmi_cloud_model: str = field(default_factory=lambda: _env(
+        "GMI_CLOUD_MODEL", "deepseek-ai/DeepSeek-R1-Distill-Llama-70B"))
+    # DeepSeek distill is a chain-of-thought model (emits <think>...</think>);
+    # Qwen3-235B-Instruct is not. The provider strips reasoning only for the
+    # former — see GMICloudProvider._is_reasoning_model.
+    gmi_cloud_deepseek_model: str = field(default_factory=lambda: _env(
+        "GMI_CLOUD_DEEPSEEK_MODEL", "deepseek-ai/DeepSeek-R1-Distill-Llama-70B"))
+    gmi_cloud_qwen_model: str = field(default_factory=lambda: _env(
+        "GMI_CLOUD_QWEN_MODEL", "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"))
+    # Guardrail: Qwen3 is a *paid* endpoint and GMI Cloud is external. Outside
+    # prod, refuse GMI calls unless the operator attests (GMI_SYNTHETIC_DATA_OK)
+    # that the loaded corpus is synthetic — no real client documents leave the
+    # box to a paid third party during model evaluation.
+    gmi_synthetic_only: bool = field(default_factory=lambda: _env_bool("GMI_SYNTHETIC_ONLY", True))
+    gmi_synthetic_data_ok: bool = field(default_factory=lambda: _env_bool("GMI_SYNTHETIC_DATA_OK", False))
+
+    # Speech-to-text (multilingual) for client-conversation recordings. Audio is
+    # privileged/KDPA-sensitive, so "auto" only ever picks a LOCAL Whisper or the
+    # offline mock — the cloud provider must be selected explicitly.
+    # auto|whisper|openai|mock.
+    transcribe_provider: str = field(default_factory=lambda: _env("TRANSCRIBE_PROVIDER", "auto"))
+    whisper_model: str = field(default_factory=lambda: _env("WHISPER_MODEL", "base"))
+    transcribe_language: str = field(default_factory=lambda: _env("TRANSCRIBE_LANGUAGE", "auto"))  # auto-detect
+    transcribe_base_url: str = field(default_factory=lambda: _env("TRANSCRIBE_BASE_URL", "https://api.openai.com/v1"))
+    transcribe_api_key: str = field(default_factory=lambda: _env("TRANSCRIBE_API_KEY"))
+    transcribe_openai_model: str = field(default_factory=lambda: _env("TRANSCRIBE_OPENAI_MODEL", "whisper-1"))
+
     # Embeddings — voyage-law-2 (legal-domain, 1024-dim) when a key is present,
     # otherwise a deterministic hashing embedder so dev/tests run offline.
     embedding_provider: str = field(default_factory=lambda: _env("EMBEDDING_PROVIDER", "auto"))  # auto|voyage|hash

@@ -21,6 +21,7 @@ from ..config import Config
 from ..embeddings import EmbeddingProvider
 from ..graph import Graph, TenantScopedGraphQuery
 from ..logging_setup import log
+from ..transcription import TranscriptionProvider, is_audio, make_transcriber
 from .extraction import ExtractedEntities, classify_doc_kind, extract_entities
 
 
@@ -31,11 +32,15 @@ def _slug(value: str) -> str:
 
 
 class TenantIngestor:
-    def __init__(self, pool: asyncpg.Pool, graph: Graph, embedder: EmbeddingProvider, cfg: Config) -> None:
+    def __init__(self, pool: asyncpg.Pool, graph: Graph, embedder: EmbeddingProvider, cfg: Config,
+                 transcriber: Optional[TranscriptionProvider] = None) -> None:
         self.pool = pool
         self.graph = graph
         self.embedder = embedder
         self.cfg = cfg
+        # Audio documents (client-conversation recordings) are transcribed to
+        # text before the normal chunk/embed/graph pipeline runs.
+        self.transcriber = transcriber or make_transcriber(cfg)
         self._minio = Minio(
             cfg.s3_endpoint, access_key=cfg.s3_access_key,
             secret_key=cfg.s3_secret_key, secure=cfg.s3_use_ssl,
@@ -82,10 +87,21 @@ class TenantIngestor:
         yield ("FETCHING", f"fetching {object_key}", 10)
         raw = await self._fetch_object(tenant_id, object_key)
 
-        yield ("PARSING", f"parsing {filename} ({len(raw)} bytes)", 25)
-        text = self._extract_text(raw, mime_type, filename)
-        if not text.strip():
-            raise ValueError("document contains no extractable text")
+        if is_audio(filename, mime_type):
+            # Client-conversation recording: transcribe (multilingual) so the
+            # spoken content becomes citable, per-case context for the AI.
+            yield ("PARSING", f"transcribing {filename} ({len(raw)} bytes)", 25)
+            result = await self.transcriber.transcribe(raw, filename, mime_type)
+            text = result.text
+            log().info("transcribed %s via %s (lang=%s, %d chars)",
+                       filename, result.provider, result.language, len(text))
+            if not text.strip():
+                raise ValueError("transcription produced no text")
+        else:
+            yield ("PARSING", f"parsing {filename} ({len(raw)} bytes)", 25)
+            text = self._extract_text(raw, mime_type, filename)
+            if not text.strip():
+                raise ValueError("document contains no extractable text")
 
         yield ("CHUNKING", "chunking", 40)
         chunks = chunk_text(text)

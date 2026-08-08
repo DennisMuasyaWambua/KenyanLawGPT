@@ -170,12 +170,15 @@ class RetrievalOrchestrator:
         return notes
 
     # -- 4. answer synthesis ---------------------------------------------------
-    async def answer(self, query: str, chunks: list[RankedChunk], intent: str,
-                     judge_context: str = "") -> str:
-        if not chunks and not judge_context:
-            return ("No relevant sources found in the corpus yet. If this deployment is fresh, "
-                    "run the public-corpus ingestion (it runs automatically at startup) or "
-                    "ingest firm documents first.")
+    @staticmethod
+    def build_answer_prompt(query: str, chunks: list[RankedChunk], intent: str,
+                            judge_context: str = "") -> tuple[str, str]:
+        """Assemble the (system, prompt) pair for cited answer synthesis.
+
+        Factored out of ``answer()`` so the exact production prompt can be
+        reused verbatim by out-of-band tooling (e.g. the model A/B script)
+        without going through ``answer()``'s single bound provider. The prompt
+        text is unchanged from the inline version."""
         ctx_lines = []
         for i, c in enumerate(chunks, 1):
             label = c.source_type
@@ -204,6 +207,15 @@ class RetrievalOrchestrator:
             "firm's own prior experience before a judge, not settled law and not a "
             "prediction — never present it as authority. " + CONFIDENTIALITY_PREAMBLE
         )
+        return system, prompt
+
+    async def answer(self, query: str, chunks: list[RankedChunk], intent: str,
+                     judge_context: str = "") -> str:
+        if not chunks and not judge_context:
+            return ("No relevant sources found in the corpus yet. If this deployment is fresh, "
+                    "run the public-corpus ingestion (it runs automatically at startup) or "
+                    "ingest firm documents first.")
+        system, prompt = self.build_answer_prompt(query, chunks, intent, judge_context)
         return await self.llm.complete(system=system, prompt=prompt, max_tokens=2048)
 
     async def _judge_context(self, tenant_id: str, query: str,

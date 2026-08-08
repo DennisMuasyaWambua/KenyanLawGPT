@@ -159,6 +159,150 @@ class OllamaProvider:
             yield buf
 
 
+class GMICloudProvider:
+    """A GMI Cloud hosted model via its OpenAI-compatible chat API.
+
+    One instance wraps exactly one model. The model is chosen at construction
+    (defaulting to ``cfg.gmi_cloud_model``) so the same class serves both the
+    DeepSeek-R1 distill and Qwen3-235B during evaluation — the A/B tooling
+    spins up two instances with different ``model`` strings and the same config.
+
+    Two model-specific behaviours are handled here so business logic stays
+    provider-agnostic:
+      * <think>-block stripping is applied *only* to chain-of-thought models
+        (the DeepSeek distill), never to Qwen3-Instruct, whose answer is final.
+      * per-request token usage + latency are logged, because Qwen3 is a paid
+        endpoint and we want real cost signal during testing, not just latency.
+    """
+
+    def __init__(self, cfg: Config, model: Optional[str] = None) -> None:
+        import httpx  # already a service dependency
+
+        self._httpx = httpx
+        self._cfg = cfg
+        self._base = cfg.gmi_cloud_base_url.rstrip("/")
+        self._api_key = cfg.gmi_cloud_api_key
+        self._model = model or cfg.gmi_cloud_model
+        self._reasoning = self._is_reasoning_model(self._model, cfg)
+        # Populated after every complete() so callers (e.g. the A/B script) can
+        # print cost alongside the answer without re-parsing the response.
+        self.last_usage: dict = {}
+        self.last_latency_ms: float = 0.0
+
+    @staticmethod
+    def _is_reasoning_model(model: str, cfg: Config) -> bool:
+        """Whether this model emits a <think>...</think> chain of thought that
+        must be stripped before the answer is used. True for the DeepSeek
+        distill; false for Qwen3-Instruct and other instruct-tuned models."""
+        if model == cfg.gmi_cloud_deepseek_model:
+            return True
+        m = model.lower()
+        return "deepseek-r1" in m or "-r1-" in m or m.endswith("-r1")
+
+    def _headers(self) -> dict:
+        return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
+
+    def _guard_synthetic(self) -> None:
+        """Synthetic-data-only gate: outside prod, refuse to send anything to
+        the external paid endpoint unless the operator has attested the corpus
+        is synthetic. Applies to every GMI model (Qwen3 and DeepSeek alike)."""
+        if self._cfg.env != "prod" and self._cfg.gmi_synthetic_only and not self._cfg.gmi_synthetic_data_ok:
+            raise RuntimeError(
+                "GMI Cloud call blocked in non-prod: the synthetic-data-only gate is on. "
+                "Set GMI_SYNTHETIC_DATA_OK=true only when the loaded corpus is synthetic "
+                "(no real client documents), or GMI_SYNTHETIC_ONLY=false to disable the gate."
+            )
+
+    def _log_usage(self, usage: dict, latency_ms: float) -> None:
+        self.last_usage = usage or {}
+        self.last_latency_ms = latency_ms
+        log().info(
+            "gmi_cloud call model=%s latency_ms=%.0f prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+            self._model, latency_ms,
+            (usage or {}).get("prompt_tokens"), (usage or {}).get("completion_tokens"),
+            (usage or {}).get("total_tokens"),
+        )
+
+    async def complete(self, system: str, prompt: str, max_tokens: int = 2048, fast: bool = False) -> str:
+        import time
+
+        self._guard_synthetic()
+        payload = {
+            "model": self._model,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        started = time.perf_counter()
+        async with self._httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(f"{self._base}/chat/completions", json=payload, headers=self._headers())
+            resp.raise_for_status()
+            data = resp.json()
+        self._log_usage(data.get("usage") or {}, (time.perf_counter() - started) * 1000)
+        text = data["choices"][0]["message"]["content"] or ""
+        # Only chain-of-thought models wrap the answer in <think>...</think>.
+        return _strip_reasoning(text) if self._reasoning else text.strip()
+
+    async def stream(self, system: str, prompt: str, max_tokens: int = 8192) -> AsyncIterator[str]:
+        import json as _json
+
+        self._guard_synthetic()
+        payload = {
+            "model": self._model,
+            "max_tokens": max_tokens,
+            "stream": True,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        # For reasoning models, suppress the leading <think>...</think> block
+        # token-by-token (tags may split across chunks) exactly like Ollama; for
+        # instruct models pass every delta straight through.
+        buf, gate = "", ("deciding" if self._reasoning else "passthrough")
+        async with self._httpx.AsyncClient(timeout=None) as client:
+            async with client.stream(
+                "POST", f"{self._base}/chat/completions", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[len("data:"):].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = _json.loads(data)
+                    except ValueError:
+                        continue
+                    piece = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content") or ""
+                    if not piece:
+                        continue
+                    if gate == "passthrough":
+                        yield piece
+                        continue
+                    buf += piece
+                    if gate == "deciding":
+                        if "<think>" in buf.lstrip()[:8]:
+                            gate = "thinking"
+                        elif len(buf) >= 8:  # no think block — flush and pass through
+                            gate, out, buf = "passthrough", buf, ""
+                            yield out
+                        continue
+                    if gate == "thinking":
+                        end = buf.find("</think>")
+                        if end != -1:
+                            rest = buf[end + len("</think>"):].lstrip()
+                            gate, buf = "passthrough", ""
+                            if rest:
+                                yield rest
+        if gate == "deciding" and buf:  # short response, never decided — emit it
+            yield buf
+
+
 class MockProvider:
     """Deterministic offline provider: answers by quoting the highest-ranked
     context, drafts by returning the grounded template. Clearly watermarked."""
@@ -208,6 +352,8 @@ def make_llm(cfg: Config) -> LLMProvider:
         return AnthropicProvider(cfg)
     if cfg.llm_provider == "ollama":
         return OllamaProvider(cfg)
+    if cfg.llm_provider == "gmi":
+        return GMICloudProvider(cfg)
     if cfg.llm_provider == "mock":
         return MockProvider()
     # auto: Claude if a key is present, else a reachable local Ollama, else mock.

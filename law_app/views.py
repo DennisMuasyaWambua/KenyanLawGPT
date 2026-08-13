@@ -1,10 +1,11 @@
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
 
 from django.conf import settings
-from django.http import FileResponse, HttpResponse
+from django.http import FileResponse, HttpResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
@@ -13,9 +14,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from .serializers import (
-    ChatRequestSerializer, 
+    ChatRequestSerializer,
     ChatResponseSerializer,
     CrawlRequestSerializer,
+    DraftRequestSerializer,
     StatusResponseSerializer,
     SampleQuestionsSerializer
 )
@@ -27,6 +29,32 @@ logger = logging.getLogger(__name__)
 
 # Global crawl task
 crawl_task = None
+
+
+def _sse_response(meta, chunks):
+    """Wrap a ``StreamChunk`` iterator in a Server-Sent Events response.
+
+    Emits one ``meta`` event first (backend + any sources), then per chunk a
+    ``reasoning`` event (the model's "thinking…", for reasoning models) or a
+    ``delta`` event (answer text), and finally a ``done`` event. A failure
+    mid-stream is surfaced as an ``error`` event rather than a broken connection.
+    """
+    def _events():
+        yield f"data: {json.dumps({'type': 'meta', **meta})}\n\n"
+        try:
+            for chunk in chunks:
+                event = 'reasoning' if chunk.kind == 'reasoning' else 'delta'
+                yield f"data: {json.dumps({'type': event, 'delta': chunk.text})}\n\n"
+        except Exception as exc:  # mid-stream backend failure (cannot fall back now)
+            logger.error(f"Stream failed after start: {exc}")
+            yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
+            return
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    resp = StreamingHttpResponse(_events(), content_type="text/event-stream")
+    resp["Cache-Control"] = "no-cache"
+    resp["X-Accel-Buffering"] = "no"  # disable proxy buffering (nginx) so tokens flush
+    return resp
 
 class IndexView(APIView):
     """Serve the index.html file"""
@@ -103,9 +131,34 @@ class ChatView(APIView):
             query = serializer.validated_data['query']
             site_filter = serializer.validated_data.get('site_filter')
             model_name = serializer.validated_data.get('model_name', 'llama3')
-            
-            logger.info(f"Processing query: {query}")
-            
+            want_stream = serializer.validated_data.get('stream', False)
+
+            logger.info(f"Processing query: {query} (stream={want_stream})")
+
+            # Streaming path: GMI (primary) -> Ollama, surfaced token-by-token
+            # over SSE. Retrieval + backend selection happen up front, so the
+            # meta event already carries sources and the resolved backend.
+            if want_stream:
+                try:
+                    stream_result, sources = signals.rag.stream_response_with_context(
+                        query=query, site_filter=site_filter, model_name=model_name,
+                    )
+                except Exception as exc:
+                    logger.error(f"Error starting stream: {exc}")
+                    return Response(
+                        {"error": f"Error processing query: {exc}", "query": query},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+                if not stream_result.served_by.startswith("gmi:"):
+                    logger.warning(
+                        "Chat stream NOT served by GMI (%s). Reason: %s",
+                        stream_result.served_by, stream_result.fallback_reason or "unknown",
+                    )
+                return _sse_response(
+                    {"served_by": stream_result.served_by, "sources": sources, "query": query},
+                    stream_result.chunks,
+                )
+
             try:
                 # First get relevant context chunks
                 context_results = signals.rag.query(
@@ -158,6 +211,62 @@ class ChatView(APIView):
                  "query": serializer.validated_data.get('query', '')},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+@method_decorator(csrf_exempt, name='dispatch')
+class DraftView(APIView):
+    """Draft a legal document with the fast GMI drafting model (Ollama fallback).
+
+    POST an ``instruction`` (and optional ``context``). Streams the draft over
+    SSE by default (``stream=true``); set ``stream=false`` for a single JSON
+    response. ``contains_client_data`` gates GMI use for real client material.
+    """
+    serializer_class = DraftRequestSerializer
+
+    def post(self, request):
+        serializer = DraftRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        if not signals.rag:
+            return Response(
+                {"error": "Service not yet initialized. Please try again later."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        instruction = serializer.validated_data['instruction']
+        context = serializer.validated_data.get('context') or None
+        contains_client_data = serializer.validated_data.get('contains_client_data', False)
+        want_stream = serializer.validated_data.get('stream', True)
+
+        logger.info(f"Drafting request (stream={want_stream}, client_data={contains_client_data})")
+
+        try:
+            stream_result = signals.rag.stream_draft(
+                instruction=instruction,
+                context=context,
+                contains_client_data=contains_client_data,
+            )
+        except Exception as exc:
+            logger.error(f"Error starting draft: {exc}")
+            return Response(
+                {"error": f"Error drafting document: {exc}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if not stream_result.served_by.startswith("gmi:"):
+            logger.warning(
+                "Draft NOT served by GMI (%s). Reason: %s",
+                stream_result.served_by, stream_result.fallback_reason or "unknown",
+            )
+
+        if want_stream:
+            return _sse_response({"served_by": stream_result.served_by}, stream_result.chunks)
+
+        # Non-streaming: drain the iterator into one response body, keeping only
+        # the answer (reasoning chunks are the model's scratchpad, not output).
+        text = "".join(c.text for c in stream_result.chunks if c.kind == "content")
+        return Response({"draft": text, "served_by": stream_result.served_by})
+
 
 class StatusView(APIView):
     """Get the current status of the API"""

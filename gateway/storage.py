@@ -34,13 +34,18 @@ def generate_storage_key(prefix, firm_id, filename):
 
 def _s3_client():
     import boto3  # imported lazily; only needed when S3 is configured
+    from botocore.config import Config
 
+    # SigV4 + path-style addressing are required for reliable Cloudflare R2
+    # presigned URLs (keeps them as endpoint/bucket/key, matching R2's CORS
+    # model); both are also valid for AWS S3 and MinIO.
     return boto3.client(
         's3',
         endpoint_url=getattr(settings, 'AWS_S3_ENDPOINT_URL', None) or None,
         region_name=getattr(settings, 'AWS_S3_REGION_NAME', None) or None,
         aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None) or None,
         aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None) or None,
+        config=Config(signature_version='s3v4', s3={'addressing_style': 'path'}),
     )
 
 

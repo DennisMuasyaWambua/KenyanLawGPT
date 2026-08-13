@@ -4,6 +4,16 @@ from pathlib import Path
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load .env before any os.environ reads below so secrets/config (e.g.
+# GMI_CLOUD_API_KEY) resolve at settings-import time. Real environment variables
+# (platform-provided in production) take precedence — load_dotenv won't override
+# them — and a missing python-dotenv or .env file is a safe no-op.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / '.env')
+except ImportError:
+    pass
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -173,3 +183,32 @@ AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY', '')
 IE_TRANSCRIPTION_URL = os.environ.get('IE_TRANSCRIPTION_URL', '')
 IE_API_KEY = os.environ.get('IE_API_KEY', '')
 IE_TRANSCRIPTION_TIMEOUT = int(os.environ.get('IE_TRANSCRIPTION_TIMEOUT', '300'))
+
+# --- GMI Cloud generation (OpenAI-compatible) --------------------------------
+# Text generation via GMI Cloud-hosted models (DeepSeek-R1-Distill, Qwen3-235B).
+# GMICloudProvider(model=...) picks a model at instantiation; the two model
+# strings are exposed as separate env vars so both are easy to reference.
+# The API key lives ONLY in the server environment — never commit it.
+GMI_CLOUD_BASE_URL = os.environ.get('GMI_CLOUD_BASE_URL', 'https://api.gmi-serving.com/v1')
+GMI_CLOUD_API_KEY = os.environ.get('GMI_CLOUD_API_KEY', '')
+GMI_CLOUD_DEEPSEEK_MODEL = os.environ.get('GMI_CLOUD_DEEPSEEK_MODEL', 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B')
+GMI_CLOUD_QWEN_MODEL = os.environ.get('GMI_CLOUD_QWEN_MODEL', 'Qwen/Qwen3-235B-A22B-Instruct-2507-FP8')
+# Primary model for the live assistant (falls back to Ollama on failure).
+GMI_CLOUD_MODEL = os.environ.get('GMI_CLOUD_MODEL', GMI_CLOUD_DEEPSEEK_MODEL)
+GMI_CLOUD_TIMEOUT = int(os.environ.get('GMI_CLOUD_TIMEOUT', '120'))
+
+# Data-sensitivity gate: real client/case-document prompts are refused unless
+# this is explicitly enabled. Synthetic / public-corpus prompts always flow.
+GMI_CLOUD_ALLOW_REAL_DATA = os.environ.get('GMI_CLOUD_ALLOW_REAL_DATA', 'false').lower() == 'true'
+
+# Cost controls. The daily USD cap fails closed (-> Ollama fallback); the
+# per-request output cap bounds worst-case single-call cost.
+GMI_CLOUD_DAILY_USD_CAP = float(os.environ.get('GMI_CLOUD_DAILY_USD_CAP', '10'))
+GMI_CLOUD_MAX_OUTPUT_TOKENS = int(os.environ.get('GMI_CLOUD_MAX_OUTPUT_TOKENS', '1024'))
+
+# Per-model pricing (USD per 1M tokens) for spend accounting. The DeepSeek
+# distill endpoint is free by default; set Qwen3 to GMI's real published rates.
+GMI_CLOUD_QWEN_PRICE_INPUT_PER_1M = float(os.environ.get('GMI_CLOUD_QWEN_PRICE_INPUT_PER_1M', '0'))
+GMI_CLOUD_QWEN_PRICE_OUTPUT_PER_1M = float(os.environ.get('GMI_CLOUD_QWEN_PRICE_OUTPUT_PER_1M', '0'))
+GMI_CLOUD_DEEPSEEK_PRICE_INPUT_PER_1M = float(os.environ.get('GMI_CLOUD_DEEPSEEK_PRICE_INPUT_PER_1M', '0'))
+GMI_CLOUD_DEEPSEEK_PRICE_OUTPUT_PER_1M = float(os.environ.get('GMI_CLOUD_DEEPSEEK_PRICE_OUTPUT_PER_1M', '0'))

@@ -1487,63 +1487,38 @@ class SimGrag:
             # Return empty results on error to prevent API failure
             return []
     
-    async def get_response_with_context(self, query: str, top_k: int = None, site_filter: str = None,
-                                       model_name: str = "llama3") -> str:
+    def build_context_prompt(self, query: str, top_k: int = None, site_filter: str = None):
+        """Retrieve Kenya-law context and assemble the assistant prompt.
+
+        Returns ``(prompt, context_text, sources)``. This is pure prompt
+        construction — byte-for-byte the same prompt the assistant has always
+        sent — factored out so multiple generation backends (GMI Cloud, Ollama)
+        can share one identical prompt.
         """
-        Get response with context from both Kenya Law sites
-        
-        Args:
-            query: User query
-            top_k: Number of context passages to retrieve (defaults to self.max_context_chunks)
-            site_filter: Optional site to filter by ("kenyalaw.org" or "new.kenyalaw.org")
-            model_name: Name of the model to use with Ollama (if available)
-            
-        Returns:
-            LLM response with context
-        """
-        logger.info(f"Getting response for query: '{query[:50]}...'")
-        
-        try:
-            # Use default top_k if not specified
-            if top_k is None:
-                top_k = self.max_context_chunks
-                
-            # Query for relevant context across both sites
-            context_results = self.query(query, top_k=top_k, site_filter=site_filter)
-            
-            # Build context string, respecting the context limit
-            context_text = ""
-            sources = []
-            
-            for result in context_results:
-                # Get source information
-                url = result["metadata"].get("url", "unknown")
-                title = result["metadata"].get("title", "")
-                site = result.get("site", "unknown")
-                
-                # Track sources for attribution
-                if url not in [s[0] for s in sources]:
-                    sources.append((url, title))
-                
-                # Format source with title when available
-                source_info = f"Source: {title} ({url})" if title else f"Source: {url}"
-                
-                # Add text with a separator
-                new_context = f"\n\n{source_info}:\n{result['text']}"
-                
-                # Check if adding this would exceed the context limit
-                if len(context_text) + len(new_context) > self.context_limit:
-                    # If we're at the limit, stop adding more
-                    if context_text:
-                        break
-                        
-                    # If the first context is already too large, truncate it
-                    new_context = new_context[:self.context_limit]
-                    
-                context_text += new_context
-            
-            # Create prompt for Kenya Law
-            prompt = f"""
+        if top_k is None:
+            top_k = self.max_context_chunks
+
+        # Query for relevant context across both sites
+        context_results = self.query(query, top_k=top_k, site_filter=site_filter)
+
+        # Build context string, respecting the context limit
+        context_text = ""
+        sources = []
+        for result in context_results:
+            url = result["metadata"].get("url", "unknown")
+            title = result["metadata"].get("title", "")
+            if url not in [s[0] for s in sources]:
+                sources.append((url, title))
+            source_info = f"Source: {title} ({url})" if title else f"Source: {url}"
+            new_context = f"\n\n{source_info}:\n{result['text']}"
+            if len(context_text) + len(new_context) > self.context_limit:
+                if context_text:
+                    break
+                new_context = new_context[:self.context_limit]
+            context_text += new_context
+
+        # Create prompt for Kenya Law
+        prompt = f"""
 You are a Kenya Law Assistant providing accurate information based solely on the Kenya Law website content provided. 
 Your role is to assist with queries related to Kenyan laws, statutes, case law, and legal frameworks.
 
@@ -1563,81 +1538,117 @@ User Question: {query}
 
 Answer:
 """
-            # Try to use Ollama if available
-            try:
-                import requests
-                import os
-                import json
-                
-                # Get Ollama host from environment variable or use default
-                ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-                logger.info(f"Sending request to Ollama at: {ollama_host}")
-                
-                # Check if Ollama is available with a quick status check
-                try:
-                    status_response = requests.get(f"{ollama_host}/api/tags", timeout=2)
-                    if status_response.status_code != 200:
-                        logger.error(f"Ollama not available. Status check failed with code: {status_response.status_code}")
-                        return f"Ollama service is not available. Here's the relevant context:\n\n{context_text[:500]}..."
-                    
-                    # Check if the requested model is available
-                    models = [model.get("name") for model in status_response.json().get("models", [])]
-                    if model_name not in models:
-                        logger.warning(f"Model {model_name} not found in Ollama. Available models: {models}")
-                        # Try to use any available model
-                        if models:
-                            model_name = models[0]
-                            logger.info(f"Falling back to available model: {model_name}")
-                        else:
-                            return f"Requested model '{model_name}' not available in Ollama. Here's the relevant context:\n\n{context_text[:500]}..."
-                except Exception as status_err:
-                    logger.error(f"Error checking Ollama status: {str(status_err)}")
-                    # Continue anyway and try the main request
-                
-                # Prepare request payload
-                payload = {
-                    "model": model_name,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,  # Lower temperature for more factual responses
-                        "top_p": 0.95,
-                        "top_k": 40,
-                        "num_ctx": 2048  # Cap context window to limit Ollama memory usage
-                    }
-                }
+        return prompt, context_text, sources
 
-                logger.info(f"Sending request to Ollama with model: {model_name}")
-                
-                # Make request to Ollama API with increased timeout
-                response = requests.post(
-                    f"{ollama_host}/api/generate",
-                    json=payload,
-                    timeout=60  # Increase timeout to 60 seconds
+    async def get_response_with_context(self, query: str, top_k: int = None, site_filter: str = None,
+                                       model_name: str = "llama3") -> str:
+        """Answer a query with retrieved Kenya-law context.
+
+        Generation is routed GMI Cloud (primary) -> Ollama (fallback): a GMI
+        outage, rate-limit or policy refusal transparently falls back to the
+        local Ollama model. Retrieval and prompt construction are unchanged; only
+        the generation call site now supports GMI-hosted models with fallback.
+        """
+        logger.info(f"Getting response for query: '{query[:50]}...'")
+
+        try:
+            prompt, context_text, sources = self.build_context_prompt(query, top_k, site_filter)
+
+            # The assistant answers over the PUBLIC Kenya-law corpus only, so
+            # this is not real client data (contains_client_data=False).
+            from law_app.providers.generation import generate_answer, GenerationUnavailable
+            try:
+                result = generate_answer(
+                    prompt,
+                    contains_client_data=False,
+                    ollama_fallback=lambda: self._ollama_generate(prompt, model_name, context_text),
                 )
-                
-                if response.status_code == 200:
-                    try:
-                        result = response.json()
-                        logger.info("Successfully received response from Ollama")
-                        return result["response"]
-                    except json.JSONDecodeError as json_err:
-                        logger.error(f"Error decoding Ollama response: {str(json_err)}")
-                        return f"Error processing Ollama response. Here's the relevant context:\n\n{context_text[:500]}..."
-                else:
-                    logger.error(f"Error from Ollama API: {response.status_code}, {response.text}")
-                    return f"Error accessing Ollama (HTTP {response.status_code}). Here's the relevant context:\n\n{context_text[:500]}..."
-                    
-            except requests.RequestException as req_err:
-                logger.error(f"Request error connecting to Ollama: {str(req_err)}")
-                return f"Could not connect to Ollama service. Here's the relevant context:\n\n{context_text[:500]}..."
-            except Exception as e:
-                logger.error(f"Unexpected error with Ollama: {str(e)}")
-                return f"Error using Ollama LLM. Here's the relevant context:\n\n{context_text[:500]}..."
-                
+                logger.info(f"Answer served by {result.served_by}")
+                return result.text
+            except GenerationUnavailable as exc:
+                logger.error(f"No generation backend available: {exc}")
+                return f"An error occurred while processing your query: {exc}"
+
         except Exception as e:
             logger.error(f"Error in get_response_with_context: {str(e)}")
             return f"An error occurred while processing your query: {str(e)}"
+
+    def _ollama_generate(self, prompt: str, model_name: str, context_text: str) -> str:
+        """Generate with a local Ollama model.
+
+        This is the original generation path, unchanged in behaviour, now used as
+        the fallback when GMI Cloud is unavailable or refuses a request.
+        """
+        try:
+            import requests
+            import os
+            import json
+
+            # Get Ollama host from environment variable or use default
+            ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+            logger.info(f"Sending request to Ollama at: {ollama_host}")
+
+            # Check if Ollama is available with a quick status check
+            try:
+                status_response = requests.get(f"{ollama_host}/api/tags", timeout=2)
+                if status_response.status_code != 200:
+                    logger.error(f"Ollama not available. Status check failed with code: {status_response.status_code}")
+                    return f"Ollama service is not available. Here's the relevant context:\n\n{context_text[:500]}..."
+
+                # Check if the requested model is available
+                models = [model.get("name") for model in status_response.json().get("models", [])]
+                if model_name not in models:
+                    logger.warning(f"Model {model_name} not found in Ollama. Available models: {models}")
+                    # Try to use any available model
+                    if models:
+                        model_name = models[0]
+                        logger.info(f"Falling back to available model: {model_name}")
+                    else:
+                        return f"Requested model '{model_name}' not available in Ollama. Here's the relevant context:\n\n{context_text[:500]}..."
+            except Exception as status_err:
+                logger.error(f"Error checking Ollama status: {str(status_err)}")
+                # Continue anyway and try the main request
+
+            # Prepare request payload
+            payload = {
+                "model": model_name,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.1,  # Lower temperature for more factual responses
+                    "top_p": 0.95,
+                    "top_k": 40,
+                    "num_ctx": 2048  # Cap context window to limit Ollama memory usage
+                }
+            }
+
+            logger.info(f"Sending request to Ollama with model: {model_name}")
+
+            # Make request to Ollama API with increased timeout
+            response = requests.post(
+                f"{ollama_host}/api/generate",
+                json=payload,
+                timeout=60  # Increase timeout to 60 seconds
+            )
+
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                    logger.info("Successfully received response from Ollama")
+                    return result["response"]
+                except json.JSONDecodeError as json_err:
+                    logger.error(f"Error decoding Ollama response: {str(json_err)}")
+                    return f"Error processing Ollama response. Here's the relevant context:\n\n{context_text[:500]}..."
+            else:
+                logger.error(f"Error from Ollama API: {response.status_code}, {response.text}")
+                return f"Error accessing Ollama (HTTP {response.status_code}). Here's the relevant context:\n\n{context_text[:500]}..."
+
+        except requests.RequestException as req_err:
+            logger.error(f"Request error connecting to Ollama: {str(req_err)}")
+            return f"Could not connect to Ollama service. Here's the relevant context:\n\n{context_text[:500]}..."
+        except Exception as e:
+            logger.error(f"Unexpected error with Ollama: {str(e)}")
+            return f"Error using Ollama LLM. Here's the relevant context:\n\n{context_text[:500]}..."
 
 class LLMContextProvider:
     """

@@ -71,8 +71,14 @@ jobs:
         run: |
           rsync -az --delete -e "ssh -i ~/.ssh/id_ed25519" \
             frontend/dist/ "$SSH_USER@$SSH_HOST:/var/www/wakili/"
-          ssh -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" \
-            'chown -R www-data:www-data /var/www/wakili'
+          ssh -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" bash -s <<'EOF'
+          set -euo pipefail
+          chown -R www-data:www-data /var/www/wakili
+          # Smoke check: confirm the build actually landed on disk.
+          test -f /var/www/wakili/index.html
+          ls /var/www/wakili/assets/*.js >/dev/null 2>&1 || { echo "::error::No JS assets deployed"; exit 1; }
+          echo "Frontend smoke check OK: index.html + assets present"
+          EOF
 
   deploy-backend:
     needs: detect
@@ -109,13 +115,13 @@ jobs:
             --exclude='node_modules' \
             ./ "$SSH_USER@$SSH_HOST:/opt/law/"
 
-      - name: Migrate, collectstatic, restart
+      - name: Migrate, collectstatic, restart, reload nginx, smoke-check
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
         run: |
           ssh -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" bash -s <<'EOF'
-          set -e
+          set -euo pipefail
           cd /opt/law
           set -a; . ./.env; set +a
           venv/bin/pip install -q -r requirements-prod.txt \
@@ -125,4 +131,28 @@ jobs:
           systemctl restart law
           sleep 3
           systemctl is-active law
+
+          # Reload nginx so its proxy picks up the freshly restarted app
+          # (a restart can leave the upstream connection stale -> 404s).
+          nginx -t && systemctl reload nginx
+
+          # Smoke check: exercise the FULL public path (local nginx server block
+          # + TLS + Django) via --resolve, retrying while the app warms up. A
+          # non-200 fails the deploy loudly instead of shipping a broken API.
+          url="https://lawapi.dennismuasya.com/api/status/"
+          ok=""
+          for i in $(seq 1 10); do
+            code=$(curl -sk -o /tmp/smoke.txt -w '%{http_code}' --max-time 10 \
+              --resolve lawapi.dennismuasya.com:443:127.0.0.1 "$url" || echo 000)
+            if [ "$code" = "200" ]; then ok=1; echo "Smoke check OK (HTTP 200) on attempt $i"; break; fi
+            echo "Smoke check attempt $i: HTTP $code; retrying in 3s..."; sleep 3
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::SMOKE CHECK FAILED — $url never returned 200"
+            echo "--- response body ---";      head -c 500 /tmp/smoke.txt || true; echo
+            echo "--- systemctl status law ---"; systemctl status law --no-pager -l | tail -30 || true
+            echo "--- journalctl -u law ---";   journalctl -u law -n 50 --no-pager || true
+            echo "--- listening sockets ---";   ss -ltnp | grep -E ':8000|:443|:80|law' || true
+            exit 1
+          fi
           EOF

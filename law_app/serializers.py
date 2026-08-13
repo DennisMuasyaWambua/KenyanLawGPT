@@ -2,10 +2,21 @@ from rest_framework import serializers
 
 class ChatRequestSerializer(serializers.Serializer):
     query = serializers.CharField(help_text="User query to the Kenya Law Assistant")
-    site_filter = serializers.CharField(allow_null=True, required=False, 
+    site_filter = serializers.CharField(allow_null=True, required=False,
                                       help_text="Optional site filter: 'kenyalaw.org' or 'new.kenyalaw.org'")
-    model_name = serializers.CharField(default="llama3", 
+    model_name = serializers.CharField(default="llama3",
                                      help_text="Model name to use with Ollama")
+    stream = serializers.BooleanField(default=False,
+                                      help_text="Stream the answer token-by-token via SSE")
+
+class DraftRequestSerializer(serializers.Serializer):
+    instruction = serializers.CharField(help_text="What document to draft, and the details to include")
+    context = serializers.CharField(allow_blank=True, required=False,
+                                    help_text="Optional reference material to draw on")
+    contains_client_data = serializers.BooleanField(default=False,
+                                    help_text="Declare true if the instruction/context contains real client data")
+    stream = serializers.BooleanField(default=True,
+                                      help_text="Stream the draft token-by-token via SSE")
 
 class CrawlRequestSerializer(serializers.Serializer):
     max_pages = serializers.IntegerField(default=100, 

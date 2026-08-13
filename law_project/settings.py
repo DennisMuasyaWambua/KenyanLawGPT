@@ -185,16 +185,37 @@ IE_API_KEY = os.environ.get('IE_API_KEY', '')
 IE_TRANSCRIPTION_TIMEOUT = int(os.environ.get('IE_TRANSCRIPTION_TIMEOUT', '300'))
 
 # --- GMI Cloud generation (OpenAI-compatible) --------------------------------
-# Text generation via GMI Cloud-hosted models (DeepSeek-R1-Distill, Qwen3-235B).
-# GMICloudProvider(model=...) picks a model at instantiation; the two model
-# strings are exposed as separate env vars so both are easy to reference.
+# Text generation via GMI Cloud-hosted models.
+# GMICloudProvider(model=...) picks a model at instantiation; the model strings
+# are exposed as separate env vars so each role is easy to reference.
 # The API key lives ONLY in the server environment — never commit it.
+#
+# NOTE: pick models that are CURRENTLY served on GMI. The original defaults
+# (DeepSeek-R1-Distill-Llama-70B, Qwen3-235B-...-FP8) were retired and returned
+# HTTP 429 "No available endpoints", which silently forced every request onto
+# the slow local Ollama fallback. Prefer fast, non-reasoning models: reasoning
+# (R1/distill/reasoner) models emit long <think> scratchpads that are stripped
+# and discarded, so you pay their full latency for tokens the user never sees.
 GMI_CLOUD_BASE_URL = os.environ.get('GMI_CLOUD_BASE_URL', 'https://api.gmi-serving.com/v1')
 GMI_CLOUD_API_KEY = os.environ.get('GMI_CLOUD_API_KEY', '')
-GMI_CLOUD_DEEPSEEK_MODEL = os.environ.get('GMI_CLOUD_DEEPSEEK_MODEL', 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B')
-GMI_CLOUD_QWEN_MODEL = os.environ.get('GMI_CLOUD_QWEN_MODEL', 'Qwen/Qwen3-235B-A22B-Instruct-2507-FP8')
-# Primary model for the live assistant (falls back to Ollama on failure).
-GMI_CLOUD_MODEL = os.environ.get('GMI_CLOUD_MODEL', GMI_CLOUD_DEEPSEEK_MODEL)
+# The ONLY genuinely free model on GMI (prompt=$0, completion=$0), so it runs on
+# a zero-balance account. It is a reasoning model: it "thinks" for a few seconds
+# (a separate `reasoning` field, not <think> tags) before the answer, so give it
+# a generous output budget below or `content` comes back null (all tokens spent
+# thinking). Still dramatically faster than local Ollama.
+GMI_CLOUD_FREE_MODEL = os.environ.get(
+    'GMI_CLOUD_FREE_MODEL', 'nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16')
+# Near-free PAID upgrades (non-reasoning, instant streaming) if you fund the
+# account and want no think-gap: DeepSeek-V4-Flash ~$0.14/$0.28 per 1M,
+# gpt-oss-120b ~$0.05/$0.25 per 1M. Referenced for spend pricing only.
+GMI_CLOUD_DEEPSEEK_MODEL = os.environ.get('GMI_CLOUD_DEEPSEEK_MODEL', 'deepseek-ai/DeepSeek-V4-Flash-0731')
+GMI_CLOUD_QWEN_MODEL = os.environ.get('GMI_CLOUD_QWEN_MODEL', 'Qwen/Qwen3.7-Max')
+# Role-based aliases used by the app. Default both to the free model; override
+# per role via env once the account is funded.
+GMI_CLOUD_DRAFT_MODEL = os.environ.get('GMI_CLOUD_DRAFT_MODEL', GMI_CLOUD_FREE_MODEL)
+GMI_CLOUD_RESEARCH_MODEL = os.environ.get('GMI_CLOUD_RESEARCH_MODEL', GMI_CLOUD_FREE_MODEL)
+# Primary model for the live assistant / research path (falls back to Ollama).
+GMI_CLOUD_MODEL = os.environ.get('GMI_CLOUD_MODEL', GMI_CLOUD_RESEARCH_MODEL)
 GMI_CLOUD_TIMEOUT = int(os.environ.get('GMI_CLOUD_TIMEOUT', '120'))
 
 # Data-sensitivity gate: real client/case-document prompts are refused unless
@@ -204,7 +225,9 @@ GMI_CLOUD_ALLOW_REAL_DATA = os.environ.get('GMI_CLOUD_ALLOW_REAL_DATA', 'false')
 # Cost controls. The daily USD cap fails closed (-> Ollama fallback); the
 # per-request output cap bounds worst-case single-call cost.
 GMI_CLOUD_DAILY_USD_CAP = float(os.environ.get('GMI_CLOUD_DAILY_USD_CAP', '10'))
-GMI_CLOUD_MAX_OUTPUT_TOKENS = int(os.environ.get('GMI_CLOUD_MAX_OUTPUT_TOKENS', '1024'))
+# Generous by default: the free reasoning model spends part of this budget on its
+# (free) chain-of-thought, so a small cap truncates the actual answer to null.
+GMI_CLOUD_MAX_OUTPUT_TOKENS = int(os.environ.get('GMI_CLOUD_MAX_OUTPUT_TOKENS', '4096'))
 
 # Per-model pricing (USD per 1M tokens) for spend accounting. The DeepSeek
 # distill endpoint is free by default; set Qwen3 to GMI's real published rates.

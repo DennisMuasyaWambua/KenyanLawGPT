@@ -1563,7 +1563,18 @@ Answer:
                     contains_client_data=False,
                     ollama_fallback=lambda: self._ollama_generate(prompt, model_name, context_text),
                 )
-                logger.info(f"Answer served by {result.served_by}")
+                if result.served_by.startswith("gmi:"):
+                    logger.info(
+                        "Answer served by %s (%dms)", result.served_by, result.latency_ms
+                    )
+                else:
+                    # Loud, not silent: GMI did not serve, so the user is on the
+                    # slow local model. This is the signal that used to be missing.
+                    logger.warning(
+                        "GMI did NOT serve this request — fell back to %s (%dms). Reason: %s",
+                        result.served_by, result.latency_ms,
+                        result.fallback_reason or "unknown",
+                    )
                 return result.text
             except GenerationUnavailable as exc:
                 logger.error(f"No generation backend available: {exc}")
@@ -1649,6 +1660,131 @@ Answer:
         except Exception as e:
             logger.error(f"Unexpected error with Ollama: {str(e)}")
             return f"Error using Ollama LLM. Here's the relevant context:\n\n{context_text[:500]}..."
+
+    def _ollama_stream(self, prompt: str, model_name: str, context_text: str):
+        """Stream a local Ollama generation as a generator of text chunks.
+
+        The streaming fallback for GMI. Mirrors :meth:`_ollama_generate` but
+        consumes Ollama's newline-delimited JSON stream and yields each
+        ``response`` fragment as it arrives. Errors are yielded as a final text
+        chunk (rather than raised) so a partially streamed answer is never lost.
+        """
+        import requests
+        import os
+        import json
+
+        ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        try:
+            # Resolve a usable model, same policy as the non-streaming path.
+            try:
+                status_response = requests.get(f"{ollama_host}/api/tags", timeout=2)
+                models = [m.get("name") for m in status_response.json().get("models", [])]
+                if model_name not in models and models:
+                    logger.info(f"Ollama stream falling back to available model: {models[0]}")
+                    model_name = models[0]
+            except Exception as status_err:
+                logger.error(f"Error checking Ollama status: {str(status_err)}")
+
+            payload = {
+                "model": model_name,
+                "prompt": prompt,
+                "stream": True,
+                "options": {"temperature": 0.1, "top_p": 0.95, "top_k": 40, "num_ctx": 2048},
+            }
+            logger.info(f"Streaming request to Ollama with model: {model_name}")
+            with requests.post(f"{ollama_host}/api/generate", json=payload,
+                               stream=True, timeout=120) as response:
+                if response.status_code != 200:
+                    logger.error(f"Error from Ollama API: {response.status_code}")
+                    yield (f"Error accessing Ollama (HTTP {response.status_code}). "
+                           f"Here's the relevant context:\n\n{context_text[:500]}...")
+                    return
+                for line in response.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except ValueError:
+                        continue
+                    piece = obj.get("response") or ""
+                    if piece:
+                        yield piece
+                    if obj.get("done"):
+                        break
+            logger.info("Completed streaming response from Ollama")
+        except requests.RequestException as req_err:
+            logger.error(f"Request error connecting to Ollama: {str(req_err)}")
+            yield f"\n\n[Could not connect to Ollama service. Context:\n{context_text[:500]}...]"
+        except Exception as e:
+            logger.error(f"Unexpected error streaming from Ollama: {str(e)}")
+            yield f"\n\n[Error using Ollama LLM: {e}]"
+
+    def stream_response_with_context(self, query: str, top_k: int = None,
+                                     site_filter: str = None, model_name: str = "llama3"):
+        """Streaming counterpart of :meth:`get_response_with_context`.
+
+        Returns ``(stream_result, sources)`` where ``stream_result`` is a
+        ``StreamResult`` (``.served_by`` / ``.chunks``) and ``sources`` is a list
+        of ``{"url", "title"}`` dicts. Routing is GMI (primary) -> Ollama
+        (fallback), identical policy to the non-streaming path; only the transport
+        differs. The public Kenya-law corpus is not client data.
+        """
+        from law_app.providers.generation import generate_answer_stream
+
+        prompt, context_text, sources = self.build_context_prompt(query, top_k, site_filter)
+        stream = generate_answer_stream(
+            prompt,
+            contains_client_data=False,
+            ollama_stream_fallback=lambda: self._ollama_stream(prompt, model_name, context_text),
+        )
+        source_dicts = [{"url": u, "title": t} for (u, t) in sources]
+        return stream, source_dicts
+
+    def build_draft_prompt(self, instruction: str, context: str = None) -> str:
+        """Assemble a legal-drafting prompt.
+
+        Unlike the research prompt (which is strictly grounded in retrieved
+        corpus text), drafting asks the model to *produce* a document from an
+        instruction, optionally informed by supplied reference material.
+        """
+        reference = f"\n\nReference material to draw on:\n{context}\n" if context else ""
+        return f"""
+You are a Kenyan legal drafting assistant. Produce a clear, professional,
+well-structured legal document based on the instruction below.
+
+Guidelines:
+1. Use formal legal language appropriate to Kenyan legal practice.
+2. Structure the document with appropriate headings, clauses and numbering.
+3. Where a required detail is not supplied, insert a clearly marked placeholder
+   such as [PARTY NAME] or [DATE] rather than inventing facts.
+4. Do not state legal conclusions that are not supported by the instruction or
+   the reference material.
+{reference}
+Drafting instruction:
+{instruction}
+
+Draft:
+"""
+
+    def stream_draft(self, instruction: str, context: str = None,
+                     contains_client_data: bool = False):
+        """Stream a drafted legal document using the drafting model.
+
+        Uses ``GMI_CLOUD_DRAFT_MODEL`` (fast, low-latency) with Ollama fallback.
+        ``contains_client_data`` is declared by the caller and gates GMI use for
+        real client/case material (see the data-sensitivity gate in the provider).
+        Returns a ``StreamResult``.
+        """
+        from django.conf import settings
+        from law_app.providers.generation import generate_answer_stream
+
+        prompt = self.build_draft_prompt(instruction, context)
+        return generate_answer_stream(
+            prompt,
+            model=settings.GMI_CLOUD_DRAFT_MODEL,
+            contains_client_data=contains_client_data,
+            ollama_stream_fallback=lambda: self._ollama_stream(prompt, "llama3", context or ""),
+        )
 
 class LLMContextProvider:
     """

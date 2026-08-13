@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { sendChat, ApiError } from '../lib/api';
+import { streamChat, ApiError } from '../lib/api';
 import { useBackendStatus } from '../hooks/useBackendStatus';
 import { StatusBadge } from '../components/StatusBadge';
-import { MessageBubble, TypingIndicator, type ChatMessage } from '../components/MessageBubble';
+import { MessageBubble, type ChatMessage } from '../components/MessageBubble';
 import { EmptyState } from '../components/EmptyState';
 import { AdminDrawer } from '../components/AdminDrawer';
 import { Toast, type ToastData } from '../components/Toast';
@@ -38,12 +38,26 @@ export function Assistant() {
   const submit = async (text: string) => {
     const query = text.trim();
     if (!query || pending || !backendReady) return;
-    setMessages((m) => [...m, { id: uid(), role: 'user', text: query }]);
+    const replyId = uid();
+    setMessages((m) => [
+      ...m,
+      { id: uid(), role: 'user', text: query },
+      { id: replyId, role: 'assistant', text: '', reasoning: '', streaming: true },
+    ]);
     setInput('');
     setPending(true);
+
+    // Patch just the in-flight assistant message as tokens arrive.
+    const patch = (fn: (msg: ChatMessage) => ChatMessage) =>
+      setMessages((m) => m.map((msg) => (msg.id === replyId ? fn(msg) : msg)));
+
     try {
-      const res = await sendChat(query, model);
-      setMessages((m) => [...m, { id: uid(), role: 'assistant', text: res.response, sources: res.sources }]);
+      await streamChat(query, model, {
+        onMeta: ({ sources }) => patch((msg) => ({ ...msg, sources })),
+        onReasoning: (delta) => patch((msg) => ({ ...msg, reasoning: (msg.reasoning ?? '') + delta })),
+        onDelta: (delta) => patch((msg) => ({ ...msg, text: msg.text + delta })),
+      });
+      patch((msg) => ({ ...msg, streaming: false }));
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -51,7 +65,8 @@ export function Assistant() {
             ? 'The assistant took too long to respond. Please try again — shorter questions or the smaller model may help.'
             : err.message
           : 'Something went wrong.';
-      setMessages((m) => [...m, { id: uid(), role: 'assistant', text: msg, isError: true }]);
+      // Turn the in-flight bubble into an error (unless some answer already streamed).
+      patch((m) => (m.text.trim() ? { ...m, streaming: false } : { ...m, text: msg, isError: true, streaming: false }));
     } finally {
       setPending(false);
       inputRef.current?.focus();
@@ -93,7 +108,6 @@ export function Assistant() {
           ) : (
             messages.map((m) => <MessageBubble key={m.id} message={m} />)
           )}
-          {pending && <TypingIndicator />}
         </div>
       </div>
 

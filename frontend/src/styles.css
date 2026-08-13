@@ -417,6 +417,48 @@ body {
   }
 }
 
+/* ---------- Thinking panel (reasoning models) ---------- */
+.msg-thinking {
+  margin-bottom: 8px;
+  border-left: 2px solid var(--border, #d9d9e3);
+  padding-left: 10px;
+}
+.msg-thinking > summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  list-style: none;
+  user-select: none;
+}
+.msg-thinking > summary::-webkit-details-marker {
+  display: none;
+}
+.msg-thinking-body {
+  margin-top: 6px;
+  font-size: 0.82rem;
+  color: var(--text-faint);
+  white-space: pre-wrap;
+  line-height: 1.5;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+/* Blinking caret trailing the streamed answer. */
+.stream-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--text-faint);
+  animation: caret-blink 1s steps(2, start) infinite;
+}
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
 /* ---------- Empty state ---------- */
 .empty-state {
   margin: auto;

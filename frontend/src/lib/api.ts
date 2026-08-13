@@ -101,6 +101,104 @@ export function sendChat(query: string, modelName: string): Promise<ChatResponse
   );
 }
 
+export interface ChatStreamHandlers {
+  /** First event: the backend that served it and any retrieved sources. */
+  onMeta?: (meta: { servedBy: string; sources: Source[] }) => void;
+  /** The model's chain-of-thought ("thinking…") — reasoning models only. */
+  onReasoning?: (delta: string) => void;
+  /** A piece of the answer text. */
+  onDelta?: (delta: string) => void;
+}
+
+/**
+ * Stream a chat answer over Server-Sent Events (POST, so parsed manually rather
+ * than via EventSource which is GET-only). Resolves when the stream completes;
+ * rejects with an ApiError on HTTP/network/timeout failure or a mid-stream
+ * `error` event. The timeout is idle-based — it resets on every chunk — so a
+ * long but steadily-streaming answer is not aborted.
+ */
+export async function streamChat(
+  query: string,
+  modelName: string,
+  handlers: ChatStreamHandlers,
+): Promise<void> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const resetIdle = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
+  };
+  resetIdle();
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/chat/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, model_name: modelName, stream: true }),
+      signal: controller.signal,
+    });
+    if (!res.ok || !res.body) {
+      let detail = '';
+      try {
+        const body = await res.json();
+        detail = body.error ?? body.message ?? '';
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ApiError(detail || `Request failed (HTTP ${res.status})`, 'http', res.status);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      resetIdle();
+      buf += decoder.decode(value, { stream: true });
+      // SSE frames are separated by a blank line.
+      let sep: number;
+      while ((sep = buf.indexOf('\n\n')) !== -1) {
+        const frame = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
+        if (!dataLine) continue;
+        const payload = dataLine.slice(5).trim();
+        if (!payload) continue;
+        let evt: { type: string; delta?: string; error?: string; served_by?: string; sources?: Source[] };
+        try {
+          evt = JSON.parse(payload);
+        } catch {
+          continue;
+        }
+        switch (evt.type) {
+          case 'meta':
+            handlers.onMeta?.({ servedBy: evt.served_by ?? '', sources: evt.sources ?? [] });
+            break;
+          case 'reasoning':
+            handlers.onReasoning?.(evt.delta ?? '');
+            break;
+          case 'delta':
+            handlers.onDelta?.(evt.delta ?? '');
+            break;
+          case 'error':
+            throw new ApiError(evt.error ?? 'The assistant hit an error mid-response.', 'http');
+          case 'done':
+            return;
+        }
+      }
+    }
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new ApiError('The request timed out.', 'timeout');
+    }
+    throw new ApiError('Could not reach the backend.', 'network');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function startCrawl(maxPages = 100, maxDepth = 3): Promise<CrawlResponse> {
   return request<CrawlResponse>('/api/crawl/', {
     method: 'POST',

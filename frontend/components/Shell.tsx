@@ -50,7 +50,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <aside className="flex w-60 flex-col bg-navy text-white">
         <div className="border-b border-white/10 p-5">
           <h1 className="font-display text-2xl font-bold">
-            Wakili<span className="text-gold">AI</span>
+            Advocat<span className="text-gold">us</span>
           </h1>
           <p className="mt-1 truncate text-xs text-white/50">{getTenant()}</p>
         </div>

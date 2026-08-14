@@ -1,8 +1,8 @@
-# Deploying WakiliAI to Contabo (169.58.94.243)
+# Deploying Advocatus to Contabo (169.58.94.243)
 
 The box already runs **law-rag** (old Django `law_project` on `:8000` behind host
 nginx, with Ollama+llama3) and **SmartNyumba** (Docker; nginx on `127.0.0.1:8080`).
-This deploys the new WakiliAI microservices and **cuts over** `law.dennismuasya.com`
+This deploys the new Advocatus microservices and **cuts over** `law.dennismuasya.com`
 / `lawapi.dennismuasya.com` from the old Django app to the new stack.
 
 Resources (checked 2026-08-03): 7.8 GB RAM, ~6.5 GB free, 4 GB swap, 77 GB disk

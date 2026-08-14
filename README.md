@@ -1,4 +1,4 @@
-# WakiliAI
+# Advocatus
 
 Production-grade, multi-tenant legal SaaS for Kenyan law firms: practice
 management, hybrid graph+vector AI legal research over Kenyan law, streaming

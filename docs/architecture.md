@@ -1,4 +1,4 @@
-# WakiliAI — Architecture Notes
+# Advocatus — Architecture Notes
 
 Companion to the README; this covers the decisions that matter for extending
 the system safely.

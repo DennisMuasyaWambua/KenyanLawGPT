@@ -200,7 +200,7 @@ class RetrievalOrchestrator:
             "insufficient, say what is missing."
         )
         system = (
-            "You are WakiliAI, a legal research assistant for Kenyan law firms. "
+            "You are Advocatus, a legal research assistant for Kenyan law firms. "
             "You are not a substitute for an advocate's own judgment. "
             "Sharply distinguish what the LAW says (from the CONTEXT sources) from "
             "the FIRM-INTERNAL HISTORICAL PATTERN, if present: the latter is this "

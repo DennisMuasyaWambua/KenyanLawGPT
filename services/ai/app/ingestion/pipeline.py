@@ -136,7 +136,7 @@ class IngestionPipeline:
         reports: list[RunReport] = []
         registry = all_crawlers()
         names = source_types or list(registry)
-        async with httpx.AsyncClient(headers={"User-Agent": "WakiliAI-ingest/1.0"}) as http:
+        async with httpx.AsyncClient(headers={"User-Agent": "Advocatus-ingest/1.0"}) as http:
             for name in names:
                 crawler_cls = registry.get(name)
                 if crawler_cls is None:

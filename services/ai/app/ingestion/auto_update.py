@@ -89,7 +89,7 @@ class AutoUpdateWatcher:
                    "new": [], "amended": [], "repealed": [], "unchanged": 0, "errors": []}
         registry = all_crawlers()
         owns_http = http is None
-        client = http or httpx.AsyncClient(headers={"User-Agent": "WakiliAI-watcher/1.0"})
+        client = http or httpx.AsyncClient(headers={"User-Agent": "Advocatus-watcher/1.0"})
         try:
             for name in self._watched_sources():
                 crawler_cls = registry.get(name)

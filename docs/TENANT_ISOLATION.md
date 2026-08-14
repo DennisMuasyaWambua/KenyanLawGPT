@@ -1,8 +1,8 @@
-# How WakiliAI keeps your firm's data yours
+# How Advocatus keeps your firm's data yours
 
 *A plain-language summary for managing partners. No technical background needed.*
 
-WakiliAI runs many law firms on one shared platform, the way a well-run chambers
+Advocatus runs many law firms on one shared platform, the way a well-run chambers
 building houses many practices under one roof — shared library downstairs,
 locked private offices upstairs. This note explains, without jargon, why another
 firm on the platform **cannot** see your pleadings, submissions, client notes,
@@ -48,7 +48,7 @@ fail at once:
 
 ## The judge-insight feature, specifically
 
-WakiliAI can summarise *"in this firm's past matters before Judge X, submissions
+Advocatus can summarise *"in this firm's past matters before Judge X, submissions
 citing Section Y succeeded in M of N cases."* That history is computed **only
 from your firm's own records** and the public case record. Another firm asking
 about the very same judge sees only *their* own history — never yours. The

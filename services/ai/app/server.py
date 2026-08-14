@@ -1,4 +1,4 @@
-"""WakiliAI AI/RAG service — grpc.aio server (mTLS) + internal health/metrics.
+"""Advocatus AI/RAG service — grpc.aio server (mTLS) + internal health/metrics.
 
 All business traffic is gRPC from the Go gateway. Every RPC re-validates the
 TenantContext in the message against the ``x-tenant-id`` channel metadata the

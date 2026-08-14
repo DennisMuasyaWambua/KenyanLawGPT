@@ -63,7 +63,7 @@ export default function InviteAcceptPage() {
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="font-display text-4xl font-bold text-white">
-            Wakili<span className="text-gold">AI</span>
+            Advocat<span className="text-gold">us</span>
           </h1>
           <p className="mt-2 text-sm text-white/60">
             {invite ? `Join ${firmName || firm} as ${invite.role}` : "Accept your invite"}

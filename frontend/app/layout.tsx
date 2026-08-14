@@ -3,7 +3,7 @@ import "./globals.css";
 import Providers from "./providers";
 
 export const metadata: Metadata = {
-  title: "WakiliAI — Practice management & legal research for Kenyan firms",
+  title: "Advocatus — Practice management & legal research for Kenyan firms",
   description: "Multi-tenant legal SaaS: matters, AI research, drafting, billing.",
 };
 

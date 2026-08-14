@@ -1,6 +1,6 @@
 import type { Config } from "tailwindcss";
 
-// WakiliAI brand: deep navy + gold accent, warm paper background.
+// Advocatus brand: deep navy + gold accent, warm paper background.
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {

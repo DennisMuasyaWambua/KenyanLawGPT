@@ -34,9 +34,11 @@ type Config struct {
 
 	S3Endpoint       string
 	S3PublicEndpoint string // browser-reachable endpoint used only for presigning
+	S3PublicUseSSL   bool   // TLS for the public endpoint (usually true, even when the internal endpoint is plaintext)
 	S3AccessKey      string
 	S3SecretKey      string
 	S3Bucket         string
+	S3Region         string
 	S3UseSSL         bool
 
 	ATUsername string
@@ -117,9 +119,11 @@ func Load() *Config {
 
 		S3Endpoint:       env("S3_ENDPOINT", "localhost:9000"),
 		S3PublicEndpoint: env("S3_PUBLIC_ENDPOINT", ""),
+		S3PublicUseSSL:   env("S3_PUBLIC_USE_SSL", "true") == "true",
 		S3AccessKey:      env("S3_ACCESS_KEY", "minioadmin"),
 		S3SecretKey:      env("S3_SECRET_KEY", "minioadmin"),
 		S3Bucket:         env("S3_BUCKET", "wakili-documents"),
+		S3Region:         env("S3_REGION", "us-east-1"),
 		S3UseSSL:         env("S3_USE_SSL", "false") == "true",
 
 		ATUsername: env("AT_USERNAME", ""),

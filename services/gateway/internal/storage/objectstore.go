@@ -28,19 +28,25 @@ type ObjectStore struct {
 }
 
 func New(cfg *config.Config) (*ObjectStore, error) {
-	opts := &minio.Options{
+	// Region is pinned so presigning is a pure offline signature computation
+	// (no getBucketLocation round-trip to the endpoint at sign time).
+	cli, err := minio.New(cfg.S3Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
 		Secure: cfg.S3UseSSL,
-	}
-	cli, err := minio.New(cfg.S3Endpoint, opts)
+		Region: cfg.S3Region,
+	})
 	if err != nil {
 		return nil, err
 	}
+	// The presigner signs browser-reachable URLs for the PUBLIC endpoint, which
+	// is typically TLS-fronted even when the in-network endpoint is plaintext —
+	// hence its own S3PublicUseSSL flag rather than sharing S3UseSSL.
 	presigner := cli
 	if cfg.S3PublicEndpoint != "" && cfg.S3PublicEndpoint != cfg.S3Endpoint {
 		presigner, err = minio.New(cfg.S3PublicEndpoint, &minio.Options{
 			Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
-			Secure: cfg.S3UseSSL,
+			Secure: cfg.S3PublicUseSSL,
+			Region: cfg.S3Region,
 		})
 		if err != nil {
 			return nil, err

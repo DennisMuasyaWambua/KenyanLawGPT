@@ -74,19 +74,26 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 				}
 				metrics.Inc("wakili_reminders_sent_total", map[string]string{"kind": "deadline"})
 			}
-			// Calendar events (personal + firm) with a due remind_at.
-			events, err := repository.DueCalendarReminders(ctx, tx)
+			// Calendar event reminders (personal + shared; multiple per event).
+			reminders, err := repository.DueReminders(ctx, tx)
 			if err != nil {
 				return err
 			}
-			for _, e := range events {
-				when := e.StartAt.Format("Mon 02 Jan 2006 15:04")
-				body := fmt.Sprintf("Reminder: %s at %s", e.Title, when)
-				if e.Location != "" {
-					body += " · " + e.Location
+			for _, rem := range reminders {
+				when := rem.StartAt.Format("Mon 02 Jan 2006 15:04")
+				body := fmt.Sprintf("Reminder: %s at %s", rem.Title, when)
+				if rem.Location != "" {
+					body += " · " + rem.Location
 				}
-				notifyUser(ctx, tx, mail, e.OwnerID, "WakiliAI calendar reminder", body)
-				if err := repository.MarkCalendarReminded(ctx, tx, e.ID); err != nil {
+				switch rem.Channel {
+				case "sms":
+					// Per-user phone numbers aren't collected yet; the schema
+					// already permits 'sms' so this branch lights up once they are.
+					logging.L(ctx).Debug("sms calendar reminder skipped (no user phone)", "reminder", rem.ReminderID)
+				default: // email
+					notifyUser(ctx, tx, mail, rem.OwnerID, "WakiliAI calendar reminder", body)
+				}
+				if err := repository.MarkReminderSent(ctx, tx, rem.ReminderID); err != nil {
 					return err
 				}
 				metrics.Inc("wakili_reminders_sent_total", map[string]string{"kind": "calendar"})

@@ -81,11 +81,14 @@ class Config:
     # offline mock — the cloud provider must be selected explicitly.
     # auto|whisper|openai|mock.
     transcribe_provider: str = field(default_factory=lambda: _env("TRANSCRIBE_PROVIDER", "auto"))
-    whisper_model: str = field(default_factory=lambda: _env("WHISPER_MODEL", "base"))
+    # 'small' balances Swahili/English code-switching against CPU cost (was 'base').
+    whisper_model: str = field(default_factory=lambda: _env("WHISPER_MODEL", "small"))
     transcribe_language: str = field(default_factory=lambda: _env("TRANSCRIBE_LANGUAGE", "auto"))  # auto-detect
     transcribe_base_url: str = field(default_factory=lambda: _env("TRANSCRIBE_BASE_URL", "https://api.openai.com/v1"))
     transcribe_api_key: str = field(default_factory=lambda: _env("TRANSCRIBE_API_KEY"))
     transcribe_openai_model: str = field(default_factory=lambda: _env("TRANSCRIBE_OPENAI_MODEL", "whisper-1"))
+    # Meeting-recording processor: how often to scan tenants for pending audio.
+    recordings_poll_seconds: int = field(default_factory=lambda: int(_env("RECORDINGS_POLL_SECONDS", "20")))
 
     # Embeddings — voyage-law-2 (legal-domain, 1024-dim) when a key is present,
     # otherwise a deterministic hashing embedder so dev/tests run offline.

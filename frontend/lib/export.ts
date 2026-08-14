@@ -5,7 +5,7 @@
 // Google Doc. The Google path reuses the same OAuth client used for sign-in
 // (NEXT_PUBLIC_GOOGLE_CLIENT_ID) but asks for a narrow Drive scope on demand.
 
-import { Document, Packer, Paragraph, TextRun } from "docx";
+import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 
 // Google Identity Services attaches `google` to window. Declared here so this
 // module type-checks on its own (merges with any other Window.google decl).
@@ -19,8 +19,50 @@ const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-// A short uppercase line with no trailing punctuation reads as a heading in
-// legal drafts (e.g. "STATEMENT OF CLAIM", "REPUBLIC OF KENYA"). Bold those.
+// The AI streams the draft as Markdown. Rather than dump the raw syntax into
+// Word, we parse it so **bold**, *italic*, `code`, # headings, and - lists
+// become real .docx formatting.
+
+type Flags = { bold?: boolean; italics?: boolean };
+
+// Parse inline Markdown (bold/italic/code/links) into styled runs. Recurses so
+// nested marks compose, e.g. ***x*** -> bold + italic. Underscores are left as
+// literals on purpose (they collide with identifiers like matters.view_own).
+function inlineRuns(text: string, flags: Flags = {}): TextRun[] {
+  const runs: TextRun[] = [];
+  // Ordered strongest-first: *** before ** before * so triple-star resolves to
+  // bold + italic instead of leaving a stray asterisk.
+  const RE =
+    /\*\*\*([\s\S]+?)\*\*\*|\*\*([\s\S]+?)\*\*|\*([\s\S]+?)\*|`([^`]+?)`|\[([^\]]+?)\]\(([^)]+?)\)/;
+  let rest = text;
+  while (rest) {
+    const m = RE.exec(rest);
+    if (!m) {
+      runs.push(new TextRun({ text: rest, ...flags }));
+      break;
+    }
+    if (m.index > 0) runs.push(new TextRun({ text: rest.slice(0, m.index), ...flags }));
+    if (m[1] !== undefined) runs.push(...inlineRuns(m[1], { ...flags, bold: true, italics: true }));
+    else if (m[2] !== undefined) runs.push(...inlineRuns(m[2], { ...flags, bold: true }));
+    else if (m[3] !== undefined) runs.push(...inlineRuns(m[3], { ...flags, italics: true }));
+    else if (m[4] !== undefined) runs.push(new TextRun({ text: m[4], ...flags, font: "Courier New" }));
+    else if (m[5] !== undefined) runs.push(...inlineRuns(m[5], flags)); // link: keep the label text
+    rest = rest.slice(m.index + m[0].length);
+  }
+  return runs;
+}
+
+const HEADING_LEVELS = [
+  HeadingLevel.HEADING_1,
+  HeadingLevel.HEADING_2,
+  HeadingLevel.HEADING_3,
+  HeadingLevel.HEADING_4,
+  HeadingLevel.HEADING_5,
+  HeadingLevel.HEADING_6,
+];
+
+// A short all-caps line reads as a heading in legal drafts even without a
+// leading '#', e.g. "STATEMENT OF CLAIM", "REPUBLIC OF KENYA".
 function looksLikeHeading(line: string): boolean {
   const t = line.trim();
   if (!t || t.length > 80) return false;
@@ -28,15 +70,52 @@ function looksLikeHeading(line: string): boolean {
   return letters.length > 0 && t === t.toUpperCase();
 }
 
-function draftToParagraphs(text: string): Paragraph[] {
-  return text.split("\n").map((line) => {
-    if (line.trim() === "") return new Paragraph("");
-    const heading = looksLikeHeading(line);
+function blockToParagraph(line: string): Paragraph {
+  if (line.trim() === "") return new Paragraph("");
+
+  // Horizontal rule (---, ***, ___) -> just a blank spacer line.
+  if (/^\s*([-*_])\1{2,}\s*$/.test(line)) return new Paragraph("");
+
+  // ATX heading: #..###### text
+  const heading = line.match(/^(#{1,6})\s+(.*)$/);
+  if (heading) {
     return new Paragraph({
-      spacing: { after: 120 },
-      children: [new TextRun({ text: line, bold: heading })],
+      heading: HEADING_LEVELS[heading[1].length - 1],
+      spacing: { before: 160, after: 80 },
+      children: inlineRuns(heading[2].replace(/\s*#+\s*$/, "")),
     });
+  }
+
+  // Unordered list: -, * or + followed by a space.
+  const bullet = line.match(/^\s*[-*+]\s+(.*)$/);
+  if (bullet) {
+    return new Paragraph({
+      bullet: { level: 0 },
+      spacing: { after: 60 },
+      children: inlineRuns(bullet[1]),
+    });
+  }
+
+  // Ordered list: keep the "1." marker as literal text (avoids wiring a docx
+  // numbering instance) but still format the item's inline Markdown.
+  const ordered = line.match(/^\s*(\d+[.)])\s+(.*)$/);
+  if (ordered) {
+    return new Paragraph({
+      spacing: { after: 60 },
+      indent: { left: 360 },
+      children: [new TextRun({ text: ordered[1] + " " }), ...inlineRuns(ordered[2])],
+    });
+  }
+
+  // Plain paragraph — bold it wholesale if it's an all-caps legal heading.
+  return new Paragraph({
+    spacing: { after: 120 },
+    children: inlineRuns(line, looksLikeHeading(line) ? { bold: true } : {}),
   });
+}
+
+function draftToParagraphs(text: string): Paragraph[] {
+  return text.split("\n").map(blockToParagraph);
 }
 
 // Build a genuine OOXML .docx (a zip of XML), not a Word-flavoured HTML blob.

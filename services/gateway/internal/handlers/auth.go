@@ -44,7 +44,11 @@ func (s *Server) setAuthCookies(c *gin.Context, access, refresh string) {
 
 func (s *Server) issueTokens(c *gin.Context, tx pgx.Tx, user *repository.User) (gin.H, error) {
 	tenant := s.tenant(c)
-	access, err := auth.IssueAccessToken(s.Cfg.JWTSecret, user.ID, tenant.ID, tenant.Slug, user.Role, s.Cfg.AccessTTL)
+	roleID := ""
+	if user.RoleID != nil {
+		roleID = *user.RoleID
+	}
+	access, err := auth.IssueAccessTokenWithRole(s.Cfg.JWTSecret, user.ID, tenant.ID, tenant.Slug, user.Role, roleID, s.Cfg.AccessTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -244,14 +248,21 @@ func (s *Server) Logout(c *gin.Context) {
 func (s *Server) Me(c *gin.Context) {
 	userID := s.claims(c).UserID()
 	var user *repository.User
+	perms := []string{}
 	ok := s.withTenant(c, func(tx pgx.Tx) error {
 		u, err := repository.UserByID(c.Request.Context(), tx, userID)
+		if err != nil {
+			return err
+		}
 		user = u
+		if u.RoleID != nil {
+			perms, err = repository.RolePermissions(c.Request.Context(), tx, *u.RoleID)
+		}
 		return err
 	})
 	if ok {
 		tenant := s.tenant(c)
-		c.JSON(http.StatusOK, gin.H{"user": user, "tenant": gin.H{
+		c.JSON(http.StatusOK, gin.H{"user": user, "permissions": perms, "tenant": gin.H{
 			"id": tenant.ID, "slug": tenant.Slug, "name": tenant.Name, "plan": tenant.Plan,
 			"data_residency_ke": tenant.DataResidencyKE,
 		}})

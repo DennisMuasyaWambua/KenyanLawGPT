@@ -17,19 +17,22 @@ type Tenant struct {
 	Plan            string    `json:"plan"`
 	DataResidencyKE bool      `json:"data_residency_ke"`
 	Status          string    `json:"status"`
+	RegNumber       string    `json:"reg_number"` // LSK / firm registration number
+	OwnerUserID     *string   `json:"owner_user_id,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
 func scanTenant(row pgx.Row) (*Tenant, error) {
 	var t Tenant
-	err := row.Scan(&t.ID, &t.Name, &t.Slug, &t.SchemaName, &t.Plan, &t.DataResidencyKE, &t.Status, &t.CreatedAt)
+	err := row.Scan(&t.ID, &t.Name, &t.Slug, &t.SchemaName, &t.Plan, &t.DataResidencyKE, &t.Status,
+		&t.RegNumber, &t.OwnerUserID, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return &t, nil
 }
 
-const tenantCols = "id, name, slug, schema_name, plan, data_residency_ke, status, created_at"
+const tenantCols = "id, name, slug, schema_name, plan, data_residency_ke, status, reg_number, owner_user_id, created_at"
 
 func TenantBySlug(ctx context.Context, pool *pgxpool.Pool, slug string) (*Tenant, error) {
 	return scanTenant(pool.QueryRow(ctx,
@@ -50,7 +53,8 @@ func ListActiveTenants(ctx context.Context, pool *pgxpool.Pool) ([]Tenant, error
 	var out []Tenant
 	for rows.Next() {
 		var t Tenant
-		if err := rows.Scan(&t.ID, &t.Name, &t.Slug, &t.SchemaName, &t.Plan, &t.DataResidencyKE, &t.Status, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Slug, &t.SchemaName, &t.Plan, &t.DataResidencyKE, &t.Status,
+			&t.RegNumber, &t.OwnerUserID, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -60,9 +64,16 @@ func ListActiveTenants(ctx context.Context, pool *pgxpool.Pool) ([]Tenant, error
 
 func InsertTenant(ctx context.Context, tx pgx.Tx, t *Tenant) error {
 	_, err := tx.Exec(ctx,
-		`INSERT INTO public.tenants (id, name, slug, schema_name, plan, data_residency_ke, status)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		t.ID, t.Name, strings.ToLower(t.Slug), t.SchemaName, t.Plan, t.DataResidencyKE, t.Status)
+		`INSERT INTO public.tenants (id, name, slug, schema_name, plan, data_residency_ke, status, reg_number)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		t.ID, t.Name, strings.ToLower(t.Slug), t.SchemaName, t.Plan, t.DataResidencyKE, t.Status, t.RegNumber)
+	return err
+}
+
+// SetTenantOwner records which user owns the firm (used after the owner user is
+// created during provisioning).
+func SetTenantOwner(ctx context.Context, pool *pgxpool.Pool, tenantID, ownerUserID string) error {
+	_, err := pool.Exec(ctx, "UPDATE public.tenants SET owner_user_id = $2 WHERE id = $1", tenantID, ownerUserID)
 	return err
 }
 

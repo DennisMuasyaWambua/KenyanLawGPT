@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/wakiliai/gateway/internal/auth"
-	"github.com/wakiliai/gateway/internal/rbac"
 	"github.com/wakiliai/gateway/internal/repository"
 )
 
@@ -24,31 +23,22 @@ func (s *Server) ListUsers(c *gin.Context) {
 	}
 }
 
-// CreateUser adds a firm member or a portal (client) account. Only owners may
-// mint other owners; partners may create everyone else.
+// CreateUser adds a firm member (assigned a role_id) or a portal (client)
+// account (no role — client_id only). Gated by users.invite.
 func (s *Server) CreateUser(c *gin.Context) {
 	var in struct {
 		Email    string  `json:"email" binding:"required,email"`
 		FullName string  `json:"full_name" binding:"required"`
-		Role     string  `json:"role" binding:"required"`
+		RoleID   string  `json:"role_id"` // required for firm members
 		Password string  `json:"password" binding:"required,min=8"`
-		ClientID *string `json:"client_id"` // required when role=client
+		ClientID *string `json:"client_id"` // set => portal (client) account, no role
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, err.Error())
 		return
 	}
-	if !rbac.Valid(in.Role) {
-		badRequest(c, "invalid role")
-		return
-	}
-	caller := s.claims(c).Role()
-	if in.Role == rbac.RoleOwner && caller != rbac.RoleOwner {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only an owner can create owners"})
-		return
-	}
-	if in.Role == rbac.RoleClient && in.ClientID == nil {
-		badRequest(c, "client role requires client_id")
+	if in.ClientID == nil && in.RoleID == "" {
+		badRequest(c, "role_id is required for firm members (or set client_id for a portal account)")
 		return
 	}
 	hash, err := auth.HashPassword(in.Password)
@@ -58,34 +48,86 @@ func (s *Server) CreateUser(c *gin.Context) {
 	}
 	u := &repository.User{
 		ID: uuid.NewString(), Email: strings.ToLower(in.Email), FullName: in.FullName,
-		Role: in.Role, Status: "active", ClientID: in.ClientID, PasswordHash: hash,
+		Status: "active", ClientID: in.ClientID, PasswordHash: hash,
+	}
+	if in.ClientID != nil {
+		u.Role = "client" // portal account: no firm role
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
+		if in.RoleID != "" {
+			role, err := repository.GetRole(c.Request.Context(), tx, in.RoleID)
+			if err == pgx.ErrNoRows {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "unknown role_id"})
+				return errHandled
+			}
+			if err != nil {
+				return err
+			}
+			u.Role = role.Name
+			u.RoleID = &role.ID
+		}
 		return repository.InsertUser(c.Request.Context(), tx, u)
 	}) {
 		c.JSON(http.StatusCreated, gin.H{"user": u})
 	}
 }
 
+// UpdateUser changes a member's status (active/disabled). Gated by users.remove.
 func (s *Server) UpdateUser(c *gin.Context) {
 	var in struct {
-		Role   string `json:"role" binding:"required"`
 		Status string `json:"status" binding:"required,oneof=active disabled"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, err.Error())
 		return
 	}
-	if !rbac.Valid(in.Role) {
-		badRequest(c, "invalid role")
+	if s.withTenant(c, func(tx pgx.Tx) error {
+		return repository.UpdateUserStatus(c.Request.Context(), tx, c.Param("id"), in.Status)
+	}) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	}
+}
+
+// ChangeUserRole reassigns a user's single role (replaces it entirely). Gated
+// by users.manage_roles. The firm owner's role cannot be changed away from Owner.
+func (s *Server) ChangeUserRole(c *gin.Context) {
+	var in struct {
+		RoleID string `json:"role_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, err.Error())
 		return
 	}
-	if in.Role == rbac.RoleOwner && s.claims(c).Role() != rbac.RoleOwner {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only an owner can grant owner"})
-		return
+	targetID := c.Param("id")
+	if owner := s.tenant(c).OwnerUserID; owner != nil && *owner == targetID {
+		// Guard against locking the firm out of its Owner.
+		var isOwnerRole bool
+		if !s.withTenant(c, func(tx pgx.Tx) error {
+			role, err := repository.GetRole(c.Request.Context(), tx, in.RoleID)
+			if err == nil {
+				isOwnerRole = role.IsProtected
+			} else if err != pgx.ErrNoRows {
+				return err
+			}
+			return nil
+		}) {
+			return
+		}
+		if !isOwnerRole {
+			c.JSON(http.StatusForbidden, gin.H{"error": "the firm owner must keep the Owner role"})
+			return
+		}
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		return repository.UpdateUser(c.Request.Context(), tx, c.Param("id"), in.Role, in.Status)
+		role, err := repository.GetRole(c.Request.Context(), tx, in.RoleID)
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown role_id"})
+			return errHandled
+		}
+		if err != nil {
+			return err
+		}
+		return repository.UpdateUserRole(c.Request.Context(), tx, targetID, role.ID, role.Name)
 	}) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}

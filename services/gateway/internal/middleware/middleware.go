@@ -201,6 +201,124 @@ func RequireStaff() gin.HandlerFunc {
 	}
 }
 
+// RequireFirmMember admits any firm member (a user with a role) and blocks
+// portal clients. Under RBAC a portal client has no role_id; the role-name
+// fallback keeps pre-RBAC tokens working through their short TTL.
+func RequireFirmMember() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cl := ClaimsFrom(c)
+		if cl == nil || !isFirmMember(cl) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "firm members only"})
+			return
+		}
+		c.Next()
+	}
+}
+
+func isFirmMember(cl *auth.Claims) bool {
+	if cl.RoleID != "" {
+		return true
+	}
+	return cl.Role != "" && cl.Role != rbac.RoleClient // legacy token fallback
+}
+
+// --- Permission checks (firm-scoped RBAC) -----------------------------------
+
+// permCache memoizes a role's permission set for a short window so role edits
+// take effect within seconds without re-issuing tokens or hitting the DB every
+// request. Mirrors the tenant cache above.
+type permCacheEntry struct {
+	perms map[string]bool
+	exp   time.Time
+}
+
+var (
+	permMu    sync.RWMutex
+	permCache = map[string]permCacheEntry{}
+)
+
+const permCacheTTL = 30 * time.Second
+
+// resolvePermissions loads (and caches) the granted permission set for the
+// caller's role in this tenant. Legacy tokens without a role id fall back to
+// resolving the user's role_id from the DB, so the switch self-heals.
+func resolvePermissions(c *gin.Context, database *db.DB) (map[string]bool, error) {
+	cl := ClaimsFrom(c)
+	tenant := TenantFrom(c)
+	if cl == nil || tenant == nil {
+		return map[string]bool{}, nil
+	}
+	key := tenant.ID + "|r:" + cl.RoleID
+	if cl.RoleID == "" {
+		key = tenant.ID + "|u:" + cl.UserID
+	}
+	permMu.RLock()
+	entry, ok := permCache[key]
+	permMu.RUnlock()
+	if ok && time.Now().Before(entry.exp) {
+		return entry.perms, nil
+	}
+
+	var perms []string
+	err := database.WithTenant(c.Request.Context(), tenant.ID, tenant.SchemaName, func(tx pgx.Tx) error {
+		roleID := cl.RoleID
+		if roleID == "" {
+			u, err := repository.UserByID(c.Request.Context(), tx, cl.UserID)
+			if err != nil {
+				return err
+			}
+			if u.RoleID != nil {
+				roleID = *u.RoleID
+			}
+		}
+		if roleID == "" { // portal client / no role assigned
+			return nil
+		}
+		p, err := repository.RolePermissions(c.Request.Context(), tx, roleID)
+		perms = p
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]bool, len(perms))
+	for _, p := range perms {
+		set[p] = true
+	}
+	permMu.Lock()
+	permCache[key] = permCacheEntry{perms: set, exp: time.Now().Add(permCacheTTL)}
+	permMu.Unlock()
+	return set, nil
+}
+
+// HasPermission reports whether the caller's role grants perm. Handlers use it
+// for conditional logic (e.g. widening a query, or gating a shared vs personal
+// branch) without a dedicated route gate.
+func HasPermission(c *gin.Context, database *db.DB, perm string) bool {
+	set, err := resolvePermissions(c, database)
+	if err != nil {
+		logging.L(c.Request.Context()).Error("permission resolve failed", "err", err, "perm", perm)
+		return false
+	}
+	return set[perm]
+}
+
+// RequirePermission gates a route on a single catalog permission.
+func RequirePermission(database *db.DB, perm string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		set, err := resolvePermissions(c, database)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "permission check failed"})
+			return
+		}
+		if !set[perm] {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "missing permission: " + perm})
+			return
+		}
+		c.Next()
+	}
+}
+
 // RateLimit is a per-tenant sliding window using Redis INCR/EXPIRE.
 func RateLimit(rdb *redis.Client, perMin int) gin.HandlerFunc {
 	return func(c *gin.Context) {

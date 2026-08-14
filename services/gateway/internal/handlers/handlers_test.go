@@ -116,22 +116,15 @@ func TestGoogleSignupUnverifiedEmail(t *testing.T) {
 
 // --- Staff invites -----------------------------------------------------------
 
-func TestInviteUserInvalidRole(t *testing.T) {
+// Under RBAC an invite pre-assigns exactly one role_id; the request is rejected
+// (before any DB work) when it's missing. Which roles a caller may assign is
+// enforced by the users.invite permission on the route, not by role strings.
+func TestInviteUserRequiresRoleID(t *testing.T) {
 	s := testServer()
 	claims := &auth.Claims{UserID: "u1", Role: rbac.RoleOwner}
-	w := call(http.MethodPost, "/inv", "/inv", `{"email":"a@b.com","role":"wizard"}`, s.InviteUser, aTenant(), claims)
+	w := call(http.MethodPost, "/inv", "/inv", `{"email":"a@b.com"}`, s.InviteUser, aTenant(), claims)
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("want 400 on invalid role, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestInviteUserOwnerEscalationForbidden(t *testing.T) {
-	s := testServer()
-	// A partner may not mint an owner.
-	claims := &auth.Claims{UserID: "u1", Role: rbac.RolePartner}
-	w := call(http.MethodPost, "/inv", "/inv", `{"email":"a@b.com","role":"owner"}`, s.InviteUser, aTenant(), claims)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("want 403 on owner escalation, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("want 400 when role_id is missing, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

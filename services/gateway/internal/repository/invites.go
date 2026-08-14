@@ -11,7 +11,8 @@ type StaffInvite struct {
 	ID         string     `json:"id"`
 	Email      string     `json:"email"`
 	FullName   string     `json:"full_name"`
-	Role       string     `json:"role"`
+	Role       string     `json:"role"`              // denormalized role name (label)
+	RoleID     *string    `json:"role_id,omitempty"` // the pre-assigned firm role
 	Status     string     `json:"status"`
 	InvitedBy  *string    `json:"invited_by,omitempty"`
 	ExpiresAt  time.Time  `json:"expires_at"`
@@ -19,11 +20,11 @@ type StaffInvite struct {
 	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
 }
 
-const inviteCols = "id, email, full_name, role, status, invited_by, expires_at, created_at, accepted_at"
+const inviteCols = "id, email, full_name, role, role_id, status, invited_by, expires_at, created_at, accepted_at"
 
 func scanInvite(row pgx.Row) (*StaffInvite, error) {
 	var inv StaffInvite
-	if err := row.Scan(&inv.ID, &inv.Email, &inv.FullName, &inv.Role, &inv.Status,
+	if err := row.Scan(&inv.ID, &inv.Email, &inv.FullName, &inv.Role, &inv.RoleID, &inv.Status,
 		&inv.InvitedBy, &inv.ExpiresAt, &inv.CreatedAt, &inv.AcceptedAt); err != nil {
 		return nil, err
 	}
@@ -32,9 +33,9 @@ func scanInvite(row pgx.Row) (*StaffInvite, error) {
 
 func CreateInvite(ctx context.Context, tx pgx.Tx, inv *StaffInvite, tokenHash string) error {
 	_, err := tx.Exec(ctx,
-		`INSERT INTO staff_invites (id, email, full_name, role, token_hash, invited_by, expires_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		inv.ID, inv.Email, inv.FullName, inv.Role, tokenHash, inv.InvitedBy, inv.ExpiresAt)
+		`INSERT INTO staff_invites (id, email, full_name, role, role_id, token_hash, invited_by, expires_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		inv.ID, inv.Email, inv.FullName, inv.Role, inv.RoleID, tokenHash, inv.InvitedBy, inv.ExpiresAt)
 	return err
 }
 

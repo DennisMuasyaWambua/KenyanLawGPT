@@ -11,7 +11,7 @@ import (
 )
 
 // Register wires the full route table with the middleware chain:
-// request-id -> CORS -> metrics -> [tenant -> rate-limit -> auth -> rbac -> audit].
+// request-id -> CORS -> metrics -> [tenant -> rate-limit -> auth -> member -> permission -> audit].
 func (s *Server) Register(r *gin.Engine) {
 	r.Use(middleware.RequestID(), middleware.CORS(s.Cfg.CORSOrigins), metrics.HTTP())
 
@@ -48,57 +48,70 @@ func (s *Server) Register(r *gin.Engine) {
 	portal.GET("/invoices", s.PortalInvoices)
 	portal.GET("/messages", s.PortalMessages)
 
-	// Firm-internal: staff only (owner/partner/associate/paralegal).
-	staff := priv.Group("", middleware.RequireStaff())
-	staff.GET("/dashboard", s.Dashboard)
+	// Firm-internal: any firm member (a user with a role); portal clients excluded.
+	// Per-route granular gating uses RequirePermission (firm-scoped RBAC).
+	perm := func(p string) gin.HandlerFunc { return middleware.RequirePermission(s.DB, p) }
+	member := priv.Group("", middleware.RequireFirmMember())
+	member.GET("/dashboard", s.Dashboard)
 
-	staff.GET("/matters", s.ListMatters)
-	staff.POST("/matters", s.CreateMatter)
-	staff.GET("/matters/:id", s.GetMatter)
-	staff.PUT("/matters/:id", s.UpdateMatter)
-	staff.POST("/matters/:id/events", s.AddMatterEvent)
-	staff.POST("/matters/:id/court-dates", s.AddCourtDate)
-	staff.POST("/matters/:id/deadlines", s.AddDeadline)
-	staff.GET("/matters/:id/judiciary", s.JudiciaryStatus)
+	member.GET("/matters", perm(rbac.PermMattersViewOwn), s.ListMatters)
+	member.POST("/matters", perm(rbac.PermMattersCreate), s.CreateMatter)
+	member.GET("/matters/:id", perm(rbac.PermMattersViewOwn), s.GetMatter)
+	member.PUT("/matters/:id", perm(rbac.PermMattersEdit), s.UpdateMatter)
+	member.POST("/matters/:id/events", perm(rbac.PermMattersEdit), s.AddMatterEvent)
+	member.POST("/matters/:id/court-dates", perm(rbac.PermMattersEdit), s.AddCourtDate)
+	member.POST("/matters/:id/deadlines", perm(rbac.PermMattersEdit), s.AddDeadline)
+	member.GET("/matters/:id/judiciary", perm(rbac.PermMattersViewOwn), s.JudiciaryStatus)
 
-	staff.GET("/clients", s.ListClients)
-	staff.POST("/clients", s.CreateClient)
+	member.GET("/clients", perm(rbac.PermClientsView), s.ListClients)
+	member.POST("/clients", perm(rbac.PermClientsManage), s.CreateClient)
 
-	staff.GET("/calendar/events", s.ListCalendarEvents)
-	staff.POST("/calendar/events", s.CreateCalendarEvent)
-	staff.PUT("/calendar/events/:id", s.UpdateCalendarEvent)
-	staff.DELETE("/calendar/events/:id", s.DeleteCalendarEvent)
+	// Calendar: the personal calendar is available to every member; shared-event
+	// permissions (calendar.*_shared) are enforced inside the handlers so a
+	// single event route can serve both personal and shared events.
+	member.GET("/calendar/events", s.ListCalendarEvents)
+	member.POST("/calendar/events", s.CreateCalendarEvent)
+	member.PUT("/calendar/events/:id", s.UpdateCalendarEvent)
+	member.DELETE("/calendar/events/:id", s.DeleteCalendarEvent)
 
-	staff.POST("/documents/presign", s.PresignUpload)
-	staff.GET("/documents", s.ListDocuments)
-	staff.POST("/documents/:id/ingest", s.IngestDocument)
-	staff.GET("/documents/:id/download", s.DownloadDocument)
-	staff.GET("/drafts", s.ListDrafts)
+	member.POST("/documents/presign", perm(rbac.PermDocumentsUpload), s.PresignUpload)
+	member.GET("/documents", perm(rbac.PermDocumentsView), s.ListDocuments)
+	member.POST("/documents/:id/ingest", perm(rbac.PermDocumentsUpload), s.IngestDocument)
+	member.GET("/documents/:id/download", perm(rbac.PermDocumentsDownload), s.DownloadDocument)
+	member.GET("/drafts", perm(rbac.PermDocumentsView), s.ListDrafts)
 
-	staff.POST("/research/query", s.ResearchQuery)
-	staff.POST("/research/reason", s.ResearchReason)
-	staff.POST("/drafting/stream", s.DraftStream)
+	member.POST("/research/query", perm(rbac.PermResearchQuery), s.ResearchQuery)
+	member.POST("/research/reason", perm(rbac.PermResearchReason), s.ResearchReason)
+	member.POST("/drafting/stream", perm(rbac.PermDraftingCreate), s.DraftStream)
 
-	staff.GET("/messages", s.ListMessages)
-	staff.POST("/messages/send", s.SendMessage)
+	member.GET("/messages", perm(rbac.PermCommsView), s.ListMessages)
+	member.POST("/messages/send", perm(rbac.PermCommsSend), s.SendMessage)
 
-	staff.GET("/time-entries", s.ListTimeEntries)
-	staff.POST("/time-entries", s.CreateTimeEntry)
-	staff.GET("/invoices", s.ListInvoices)
-	staff.POST("/invoices", s.CreateInvoice)
-	staff.GET("/invoices/:id", s.GetInvoice)
-	staff.POST("/invoices/:id/stk-push", s.STKPush)
+	member.GET("/time-entries", perm(rbac.PermBillingView), s.ListTimeEntries)
+	member.POST("/time-entries", perm(rbac.PermBillingView), s.CreateTimeEntry)
+	member.GET("/invoices", perm(rbac.PermBillingView), s.ListInvoices)
+	member.POST("/invoices", perm(rbac.PermBillingManage), s.CreateInvoice)
+	member.GET("/invoices/:id", perm(rbac.PermBillingView), s.GetInvoice)
+	member.POST("/invoices/:id/stk-push", perm(rbac.PermBillingManage), s.STKPush)
 
-	staff.POST("/kdpa/consents", s.LogConsent)
-	staff.GET("/kdpa/consents", s.ListConsents)
+	member.POST("/kdpa/consents", s.LogConsent)
+	member.GET("/kdpa/consents", s.ListConsents)
 
-	// Partner+ management surface.
-	partner := priv.Group("", middleware.RequireRole(rbac.RolePartner))
-	partner.GET("/users", s.ListUsers)
-	partner.POST("/users", s.CreateUser)
-	partner.POST("/users/invite", s.InviteUser)
-	partner.PATCH("/users/:id", s.UpdateUser)
-	partner.GET("/kdpa/export", s.ExportSubject)
-	partner.POST("/kdpa/erasure", s.EraseSubject)
-	partner.GET("/kdpa/audit", s.AuditLog)
+	// User & role management.
+	member.GET("/users", perm(rbac.PermUsersView), s.ListUsers)
+	member.POST("/users", perm(rbac.PermUsersInvite), s.CreateUser)
+	member.POST("/users/invite", perm(rbac.PermUsersInvite), s.InviteUser)
+	member.PATCH("/users/:id", perm(rbac.PermUsersRemove), s.UpdateUser)
+	member.PATCH("/users/:id/role", perm(rbac.PermUsersManageRoles), s.ChangeUserRole)
+
+	member.GET("/permissions", perm(rbac.PermRolesManage), s.ListPermissions)
+	member.GET("/role-templates", perm(rbac.PermRolesManage), s.ListRoleTemplates)
+	member.GET("/roles", perm(rbac.PermRolesManage), s.ListRoles)
+	member.POST("/roles", perm(rbac.PermRolesManage), s.CreateRole)
+	member.PATCH("/roles/:id", perm(rbac.PermRolesManage), s.UpdateRole)
+	member.DELETE("/roles/:id", perm(rbac.PermRolesManage), s.DeleteRole)
+
+	member.GET("/kdpa/export", perm(rbac.PermKDPAExport), s.ExportSubject)
+	member.POST("/kdpa/erasure", perm(rbac.PermKDPAErase), s.EraseSubject)
+	member.GET("/kdpa/audit", perm(rbac.PermKDPAViewAudit), s.AuditLog)
 }

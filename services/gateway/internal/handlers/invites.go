@@ -12,31 +12,22 @@ import (
 
 	"github.com/wakiliai/gateway/internal/auth"
 	"github.com/wakiliai/gateway/internal/integrations/google"
-	"github.com/wakiliai/gateway/internal/rbac"
 	"github.com/wakiliai/gateway/internal/repository"
 )
 
 const inviteTTL = 72 * time.Hour
 
-// InviteUser (owner/partner) creates a staff invite and emails an accept link.
-// Unlike CreateUser, the owner sets no password — the invitee sets their own
-// (or links Google) when accepting.
+// InviteUser creates a staff invite pre-assigned to exactly one role and emails
+// an accept link. Gated by users.invite. Unlike CreateUser, the owner sets no
+// password — the invitee sets their own (or links Google) when accepting.
 func (s *Server) InviteUser(c *gin.Context) {
 	var in struct {
 		Email    string `json:"email" binding:"required,email"`
 		FullName string `json:"full_name"`
-		Role     string `json:"role" binding:"required"`
+		RoleID   string `json:"role_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, err.Error())
-		return
-	}
-	if !rbac.Valid(in.Role) {
-		badRequest(c, "invalid role")
-		return
-	}
-	if in.Role == rbac.RoleOwner && s.claims(c).Role() != rbac.RoleOwner {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only an owner can invite owners"})
 		return
 	}
 	rawToken, tokenHash, err := auth.NewRefreshToken() // opaque token; only the hash is stored
@@ -47,9 +38,19 @@ func (s *Server) InviteUser(c *gin.Context) {
 	invitedBy := s.claims(c).UserID()
 	inv := &repository.StaffInvite{
 		ID: uuid.NewString(), Email: strings.ToLower(in.Email), FullName: in.FullName,
-		Role: in.Role, InvitedBy: &invitedBy, ExpiresAt: time.Now().Add(inviteTTL),
+		InvitedBy: &invitedBy, ExpiresAt: time.Now().Add(inviteTTL),
 	}
 	if !s.withTenant(c, func(tx pgx.Tx) error {
+		role, err := repository.GetRole(c.Request.Context(), tx, in.RoleID)
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown role_id"})
+			return errHandled
+		}
+		if err != nil {
+			return err
+		}
+		inv.Role = role.Name
+		inv.RoleID = &role.ID
 		return repository.CreateInvite(c.Request.Context(), tx, inv, tokenHash)
 	}) {
 		return
@@ -58,7 +59,7 @@ func (s *Server) InviteUser(c *gin.Context) {
 	acceptURL := fmt.Sprintf("%s/invite/%s?firm=%s", strings.TrimRight(s.Cfg.AppBaseURL, "/"), rawToken, tenant.Slug)
 	body := fmt.Sprintf(
 		"You've been invited to join %s on WakiliAI as %s.\n\nAccept your invite and set up your account:\n%s\n\nThis link expires in 72 hours.",
-		tenant.Name, in.Role, acceptURL)
+		tenant.Name, inv.Role, acceptURL)
 	if err := s.Mail.Send(c.Request.Context(), inv.Email, "You're invited to WakiliAI", body); err != nil {
 		// The invite is persisted; surface the link so onboarding isn't blocked by email.
 		c.JSON(http.StatusCreated, gin.H{"invite": inv, "accept_url": acceptURL, "email_error": err.Error()})
@@ -129,7 +130,7 @@ func (s *Server) AcceptInvite(c *gin.Context) {
 		}
 		u := &repository.User{
 			ID: uuid.NewString(), Email: inv.Email, FullName: fullName,
-			Role: inv.Role, Status: "active", AuthProvider: "password",
+			Role: inv.Role, RoleID: inv.RoleID, Status: "active", AuthProvider: "password",
 		}
 		if ident != nil {
 			sub := ident.Sub

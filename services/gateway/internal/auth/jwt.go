@@ -14,14 +14,23 @@ type Claims struct {
 	UserID   string `json:"uid"`
 	TenantID string `json:"tid"`
 	Slug     string `json:"slug"`
-	Role     string `json:"role"`
+	Role     string `json:"role"`          // denormalized role name (display / legacy)
+	RoleID   string `json:"rid,omitempty"` // firm-scoped role id — source of truth for permissions
 	jwt.RegisteredClaims
 }
 
+// IssueAccessToken keeps the legacy signature (no role id). Prefer
+// IssueAccessTokenWithRole in production paths.
 func IssueAccessToken(secret, userID, tenantID, slug, role string, ttl time.Duration) (string, error) {
+	return IssueAccessTokenWithRole(secret, userID, tenantID, slug, role, "", ttl)
+}
+
+// IssueAccessTokenWithRole embeds the firm-scoped role id used by the permission
+// middleware to resolve the caller's granted permissions.
+func IssueAccessTokenWithRole(secret, userID, tenantID, slug, role, roleID string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := &Claims{
-		UserID: userID, TenantID: tenantID, Slug: slug, Role: role,
+		UserID: userID, TenantID: tenantID, Slug: slug, Role: role, RoleID: roleID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "wakiliai",
 			Subject:   userID,

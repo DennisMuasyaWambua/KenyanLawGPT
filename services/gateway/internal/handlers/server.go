@@ -58,8 +58,8 @@ func (s *Server) withTenant(c *gin.Context, fn func(tx pgx.Tx) error) bool {
 	return false
 }
 
-func (s *Server) tenant(c *gin.Context) *repository.Tenant  { return middleware.TenantFrom(c) }
-func (s *Server) claims(c *gin.Context) *middlewareClaims   { return &middlewareClaims{c} }
+func (s *Server) tenant(c *gin.Context) *repository.Tenant { return middleware.TenantFrom(c) }
+func (s *Server) claims(c *gin.Context) *middlewareClaims  { return &middlewareClaims{c} }
 
 // middlewareClaims is a tiny accessor wrapper to keep handlers terse.
 type middlewareClaims struct{ c *gin.Context }
@@ -76,6 +76,20 @@ func (m *middlewareClaims) Role() string {
 		return cl.Role
 	}
 	return ""
+}
+
+func (m *middlewareClaims) RoleID() string {
+	if cl := middleware.ClaimsFrom(m.c); cl != nil {
+		return cl.RoleID
+	}
+	return ""
+}
+
+// can reports whether the caller's role grants perm (firm-scoped RBAC). Used
+// for conditional in-handler checks; route-level gating uses
+// middleware.RequirePermission.
+func (s *Server) can(c *gin.Context, perm string) bool {
+	return middleware.HasPermission(c, s.DB, perm)
 }
 
 func badRequest(c *gin.Context, msg string) {

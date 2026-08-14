@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -115,11 +116,26 @@ func seedFirm(ctx context.Context, database *db.DB, cfg *config.Config, store *s
 	clientAID := uuid.NewString()
 
 	err = database.WithTenant(ctx, tenant.ID, tenant.SchemaName, func(tx pgx.Tx) error {
-		// Staff.
+		// Create the default non-owner roles (Owner already exists from the 0005
+		// migration) so demo staff have real, permissioned roles.
+		roleIDByName := map[string]string{}
+		for _, tpl := range rbac.DefaultTemplates {
+			if tpl.Protected {
+				continue
+			}
+			id := uuid.NewString()
+			if err := repository.CreateRole(ctx, tx,
+				&repository.Role{ID: id, Name: tpl.Name, Description: tpl.Description}, tpl.Permissions); err != nil {
+				return err
+			}
+			roleIDByName[strings.ToLower(tpl.Name)] = id
+		}
+		// Staff, each assigned to the matching role.
 		for _, r := range []string{rbac.RolePartner, rbac.RoleAssociate, rbac.RoleParalegal} {
+			rid := roleIDByName[r] // rbac.Role* constants are lowercase, matching lower(name)
 			if err := repository.InsertUser(ctx, tx, &repository.User{
 				ID: uuid.NewString(), Email: r + "@" + f.Slug + ".demo",
-				FullName: "Demo " + r, Role: r, Status: "active", PasswordHash: hash,
+				FullName: "Demo " + r, Role: r, RoleID: &rid, Status: "active", PasswordHash: hash,
 			}); err != nil {
 				return err
 			}

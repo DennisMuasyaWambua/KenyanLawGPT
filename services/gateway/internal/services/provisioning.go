@@ -13,7 +13,6 @@ import (
 	"github.com/wakiliai/gateway/internal/config"
 	"github.com/wakiliai/gateway/internal/db"
 	"github.com/wakiliai/gateway/internal/logging"
-	"github.com/wakiliai/gateway/internal/rbac"
 	"github.com/wakiliai/gateway/internal/repository"
 )
 
@@ -21,6 +20,7 @@ type ProvisionInput struct {
 	FirmName        string `json:"firm_name"`
 	Slug            string `json:"slug"`
 	Plan            string `json:"plan"`
+	RegNumber       string `json:"reg_number"` // LSK / firm registration number
 	DataResidencyKE bool   `json:"data_residency_ke"`
 	OwnerName       string `json:"owner_name"`
 	OwnerEmail      string `json:"owner_email" binding:"required,email"`
@@ -81,6 +81,7 @@ func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, i
 		Slug:            slug,
 		SchemaName:      schema,
 		Plan:            in.Plan,
+		RegNumber:       in.RegNumber,
 		DataResidencyKE: in.DataResidencyKE,
 		Status:          "active",
 	}
@@ -110,7 +111,6 @@ func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, i
 		ID:           uuid.NewString(),
 		Email:        strings.ToLower(in.OwnerEmail),
 		FullName:     in.OwnerName,
-		Role:         rbac.RoleOwner,
 		Status:       "active",
 		AuthProvider: "password",
 	}
@@ -127,6 +127,14 @@ func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, i
 		owner.PasswordHash = hash
 	}
 	if err := database.WithTenant(ctx, tenant.ID, schema, func(tx pgx.Tx) error {
+		// The 0005 migration seeded the protected Owner role (all permissions)
+		// into the fresh schema; assign the owner to it.
+		ownerRole, err := repository.RoleByName(ctx, tx, "Owner")
+		if err != nil {
+			return fmt.Errorf("owner role: %w", err)
+		}
+		owner.Role = ownerRole.Name
+		owner.RoleID = &ownerRole.ID
 		if err := repository.InsertUser(ctx, tx, owner); err != nil {
 			return err
 		}
@@ -134,6 +142,10 @@ func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, i
 	}); err != nil {
 		cleanup()
 		return nil, nil, fmt.Errorf("owner user: %w", err)
+	}
+	// Record the firm's owner pointer on the tenant control row.
+	if err := repository.SetTenantOwner(ctx, database.Pool, tenant.ID, owner.ID); err != nil {
+		logging.L(ctx).Error("provisioning: set tenant owner", "err", err)
 	}
 	logging.L(ctx).Info("tenant provisioned", "tenant_id", tenant.ID, "slug", slug, "schema", schema)
 	return tenant, owner, nil

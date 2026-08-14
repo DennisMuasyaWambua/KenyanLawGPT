@@ -7,6 +7,14 @@
 
 import { Document, Packer, Paragraph, TextRun } from "docx";
 
+// Google Identity Services attaches `google` to window. Declared here so this
+// module type-checks on its own (merges with any other Window.google decl).
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
+
 const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";

@@ -8,13 +8,32 @@ import (
 )
 
 type Client struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Email       string    `json:"email"`
-	Phone       string    `json:"phone"`
-	IDNumber    string    `json:"id_number"`
-	KDPAConsent bool      `json:"kdpa_consent"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Email            string     `json:"email"`
+	Phone            string     `json:"phone"`
+	IDNumber         string     `json:"id_number"` // national ID for individuals
+	KDPAConsent      bool       `json:"kdpa_consent"`
+	Status           string     `json:"status"`      // lead|intake|conflict_check|engaged|active|closed
+	ClientType       string     `json:"client_type"` // individual|company
+	CompanyRegNumber string     `json:"company_reg_number"`
+	ConflictCheckAt  *time.Time `json:"conflict_check_at,omitempty"`
+	ConflictCheckBy  *string    `json:"conflict_check_by,omitempty"`
+	RetainerRef      string     `json:"retainer_ref"`
+	KYCCompletedAt   *time.Time `json:"kyc_completed_at,omitempty"`
+	KYCRef           string     `json:"kyc_ref"`
+	CreatedAt        time.Time  `json:"created_at"`
+}
+
+// StageEvent is one row of the client onboarding audit trail.
+type StageEvent struct {
+	ID         string    `json:"id"`
+	ClientID   string    `json:"client_id"`
+	FromStatus string    `json:"from_status"`
+	ToStatus   string    `json:"to_status"`
+	Note       string    `json:"note"`
+	AdvancedBy string    `json:"advanced_by"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type Matter struct {
@@ -232,40 +251,125 @@ func MarkReminded(ctx context.Context, tx pgx.Tx, table, id string) error {
 
 // --- clients ---
 
-func ListClients(ctx context.Context, tx pgx.Tx) ([]Client, error) {
-	rows, err := tx.Query(ctx,
-		"SELECT id, name, email, phone, id_number, kdpa_consent, created_at FROM clients ORDER BY name")
+const clientCols = "id, name, email, phone, id_number, kdpa_consent, status, client_type, " +
+	"company_reg_number, conflict_check_at, conflict_check_by, retainer_ref, kyc_completed_at, kyc_ref, created_at"
+
+func scanClient(row pgx.Row) (*Client, error) {
+	var c Client
+	if err := row.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.IDNumber, &c.KDPAConsent, &c.Status,
+		&c.ClientType, &c.CompanyRegNumber, &c.ConflictCheckAt, &c.ConflictCheckBy, &c.RetainerRef,
+		&c.KYCCompletedAt, &c.KYCRef, &c.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// ListClients returns clients, optionally filtered by pipeline status.
+func ListClients(ctx context.Context, tx pgx.Tx, status string) ([]Client, error) {
+	q := "SELECT " + clientCols + " FROM clients"
+	args := []any{}
+	if status != "" {
+		q += " WHERE status = $1"
+		args = append(args, status)
+	}
+	q += " ORDER BY name"
+	rows, err := tx.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []Client
 	for rows.Next() {
-		var c Client
-		if err := rows.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.IDNumber, &c.KDPAConsent, &c.CreatedAt); err != nil {
+		c, err := scanClient(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, c)
+		out = append(out, *c)
 	}
 	return out, rows.Err()
 }
 
 func ClientByID(ctx context.Context, tx pgx.Tx, id string) (*Client, error) {
-	var c Client
-	err := tx.QueryRow(ctx,
-		"SELECT id, name, email, phone, id_number, kdpa_consent, created_at FROM clients WHERE id=$1", id).
-		Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.IDNumber, &c.KDPAConsent, &c.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &c, nil
+	return scanClient(tx.QueryRow(ctx, "SELECT "+clientCols+" FROM clients WHERE id=$1", id))
 }
 
 func InsertClient(ctx context.Context, tx pgx.Tx, c *Client) error {
+	if c.Status == "" {
+		c.Status = "lead"
+	}
+	if c.ClientType == "" {
+		c.ClientType = "individual"
+	}
 	_, err := tx.Exec(ctx,
-		"INSERT INTO clients (id, name, email, phone, id_number, kdpa_consent) VALUES ($1,$2,$3,$4,$5,$6)",
-		c.ID, c.Name, c.Email, c.Phone, c.IDNumber, c.KDPAConsent)
+		`INSERT INTO clients (id, name, email, phone, id_number, kdpa_consent, status, client_type, company_reg_number)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		c.ID, c.Name, c.Email, c.Phone, c.IDNumber, c.KDPAConsent, c.Status, c.ClientType, c.CompanyRegNumber)
 	return err
+}
+
+// UpdateClientDetails edits non-pipeline fields (not status — that goes through
+// AdvanceClientStage so every transition is audited).
+func UpdateClientDetails(ctx context.Context, tx pgx.Tx, c *Client) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE clients SET name=$2, email=$3, phone=$4, id_number=$5, kdpa_consent=$6,
+		   client_type=$7, company_reg_number=$8 WHERE id=$1`,
+		c.ID, c.Name, c.Email, c.Phone, c.IDNumber, c.KDPAConsent, c.ClientType, c.CompanyRegNumber)
+	return err
+}
+
+// SetClientStage moves a client to a new status and records optional
+// pipeline artifacts (retainer/KYC refs). The caller validates the transition.
+func SetClientStage(ctx context.Context, tx pgx.Tx, id, toStatus, retainerRef, kycRef string, kycDone bool) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE clients SET status=$2,
+		   retainer_ref     = CASE WHEN $3 <> '' THEN $3 ELSE retainer_ref END,
+		   kyc_ref          = CASE WHEN $4 <> '' THEN $4 ELSE kyc_ref END,
+		   kyc_completed_at = CASE WHEN $5 THEN now() ELSE kyc_completed_at END
+		 WHERE id=$1`,
+		id, toStatus, retainerRef, kycRef, kycDone)
+	return err
+}
+
+// ConfirmConflictCheck stamps the manual conflict-check gate.
+func ConfirmConflictCheck(ctx context.Context, tx pgx.Tx, id, byUser string) error {
+	_, err := tx.Exec(ctx,
+		"UPDATE clients SET conflict_check_at = now(), conflict_check_by = $2 WHERE id=$1", id, byUser)
+	return err
+}
+
+func InsertStageEvent(ctx context.Context, tx pgx.Tx, e *StageEvent) error {
+	_, err := tx.Exec(ctx,
+		`INSERT INTO client_stage_events (id, client_id, from_status, to_status, note, advanced_by)
+		 VALUES ($1,$2,$3,$4,$5,$6)`,
+		e.ID, e.ClientID, e.FromStatus, e.ToStatus, e.Note, e.AdvancedBy)
+	return err
+}
+
+func ListStageEvents(ctx context.Context, tx pgx.Tx, clientID string) ([]StageEvent, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT id, client_id, from_status, to_status, note, advanced_by, created_at
+		 FROM client_stage_events WHERE client_id=$1 ORDER BY created_at`, clientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []StageEvent{}
+	for rows.Next() {
+		var e StageEvent
+		if err := rows.Scan(&e.ID, &e.ClientID, &e.FromStatus, &e.ToStatus, &e.Note, &e.AdvancedBy, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// CountMattersByClient counts matters opened for a client (used to gate a
+// client's advance to "active").
+func CountMattersByClient(ctx context.Context, tx pgx.Tx, clientID string) (int, error) {
+	var n int
+	err := tx.QueryRow(ctx, "SELECT count(*) FROM matters WHERE client_id = $1", clientID).Scan(&n)
+	return n, err
 }
 
 func itoa(n int) string {

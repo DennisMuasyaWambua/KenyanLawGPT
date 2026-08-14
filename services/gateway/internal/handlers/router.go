@@ -64,7 +64,29 @@ func (s *Server) Register(r *gin.Engine) {
 	member.GET("/matters/:id/judiciary", perm(rbac.PermMattersViewOwn), s.JudiciaryStatus)
 
 	member.GET("/clients", perm(rbac.PermClientsView), s.ListClients)
-	member.POST("/clients", perm(rbac.PermClientsManage), s.CreateClient)
+	member.GET("/clients/:id", perm(rbac.PermClientsView), s.GetClient)
+	member.POST("/clients", perm(rbac.PermClientsCreate), s.CreateClient)
+	member.PATCH("/clients/:id", perm(rbac.PermClientsEdit), s.UpdateClient)
+	member.POST("/clients/:id/conflict-check", perm(rbac.PermClientsAdvanceStage), s.ConflictCheck)
+	member.POST("/clients/:id/advance", perm(rbac.PermClientsAdvanceStage), s.AdvanceClientStage)
+
+	// Tasks — assignees can always update their own task's status (checked in the
+	// handler), so PATCH gates on the broad view_own permission.
+	member.GET("/tasks", perm(rbac.PermTasksViewOwn), s.ListTasks)
+	member.POST("/tasks", perm(rbac.PermTasksCreate), s.CreateTask)
+	member.PATCH("/tasks/:id", perm(rbac.PermTasksViewOwn), s.UpdateTask)
+	member.DELETE("/tasks/:id", perm(rbac.PermTasksCreate), s.DeleteTask)
+	member.GET("/matters/:id/tasks", perm(rbac.PermTasksViewOwn), s.MatterTasks)
+
+	// Case-status dashboard — manager/owner oversight.
+	member.GET("/dashboard/cases", perm(rbac.PermMattersViewAll), s.CaseDashboard)
+
+	// Meeting recordings (consent-gated; transcribed/summarized by the AI worker).
+	member.GET("/recordings", perm(rbac.PermRecordingsViewOwn), s.ListRecordings)
+	member.POST("/recordings", perm(rbac.PermRecordingsCreate), s.CreateRecording)
+	member.GET("/recordings/:id", perm(rbac.PermRecordingsViewOwn), s.GetRecording)
+	member.POST("/recordings/:id/uploaded", perm(rbac.PermRecordingsCreate), s.MarkRecordingUploaded)
+	member.GET("/matters/:id/recordings", perm(rbac.PermRecordingsViewOwn), s.MatterRecordings)
 
 	// Calendar: the personal calendar is available to every member; shared-event
 	// permissions (calendar.*_shared) are enforced inside the handlers so a

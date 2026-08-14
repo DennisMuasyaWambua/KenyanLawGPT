@@ -23,8 +23,20 @@ const (
 
 	PermDraftingCreate = "drafting.create"
 
-	PermClientsView   = "clients.view"
-	PermClientsManage = "clients.manage"
+	PermClientsView         = "clients.view"
+	PermClientsManage       = "clients.manage" // deprecated: kept for existing grants
+	PermClientsCreate       = "clients.create"
+	PermClientsEdit         = "clients.edit"
+	PermClientsAdvanceStage = "clients.advance_stage"
+
+	PermTasksCreate  = "tasks.create"
+	PermTasksAssign  = "tasks.assign"
+	PermTasksViewOwn = "tasks.view_own"
+	PermTasksViewAll = "tasks.view_all"
+
+	PermRecordingsCreate  = "recordings.create"
+	PermRecordingsViewOwn = "recordings.view_own"
+	PermRecordingsViewAll = "recordings.view_all"
 
 	PermBillingView   = "billing.view"
 	PermBillingManage = "billing.manage"
@@ -79,7 +91,18 @@ var Catalog = []PermissionDef{
 	{PermDraftingCreate, "drafting", "create", "Generate drafts"},
 
 	{PermClientsView, "clients", "view", "View clients"},
-	{PermClientsManage, "clients", "manage", "Create & manage clients"},
+	{PermClientsCreate, "clients", "create", "Create clients (intake)"},
+	{PermClientsEdit, "clients", "edit", "Edit client details"},
+	{PermClientsAdvanceStage, "clients", "advance_stage", "Advance clients through onboarding"},
+
+	{PermTasksCreate, "tasks", "create", "Create, edit & delete tasks"},
+	{PermTasksAssign, "tasks", "assign", "Assign tasks to other members"},
+	{PermTasksViewOwn, "tasks", "view_own", "View own tasks"},
+	{PermTasksViewAll, "tasks", "view_all", "View all firm tasks"},
+
+	{PermRecordingsCreate, "recordings", "create", "Record & transcribe meetings"},
+	{PermRecordingsViewOwn, "recordings", "view_own", "View own recordings"},
+	{PermRecordingsViewAll, "recordings", "view_all", "View all firm recordings"},
 
 	{PermBillingView, "billing", "view", "View time entries & invoices"},
 	{PermBillingManage, "billing", "manage", "Create invoices & take payments"},
@@ -149,21 +172,26 @@ var DefaultTemplates = []RoleTemplate{
 			PermMattersCreate, PermMattersViewOwn, PermMattersViewAll, PermMattersEdit, PermMattersDelete,
 			PermDocumentsUpload, PermDocumentsView, PermDocumentsDownload, PermDocumentsDelete,
 			PermResearchQuery, PermResearchReason, PermDraftingCreate,
-			PermClientsView, PermClientsManage, PermBillingView, PermBillingManage,
+			PermClientsView, PermClientsCreate, PermClientsEdit, PermClientsAdvanceStage,
+			PermBillingView, PermBillingManage,
 			PermCalendarViewShared, PermCalendarCreateShared, PermCalendarEditShared, PermCalendarDeleteShared,
 			PermCommsView, PermCommsSend,
+			PermTasksCreate, PermTasksAssign, PermTasksViewOwn, PermTasksViewAll,
+			PermRecordingsCreate, PermRecordingsViewOwn, PermRecordingsViewAll,
 			PermUsersInvite, PermUsersView, PermRolesManage, PermKDPAViewAudit,
 		},
 	},
 	{
 		Name: "Associate", Description: "Advocate handling matters",
 		Permissions: []string{
-			PermMattersCreate, PermMattersViewAll, PermMattersEdit,
+			PermMattersCreate, PermMattersViewOwn, PermMattersViewAll, PermMattersEdit,
 			PermDocumentsUpload, PermDocumentsView, PermDocumentsDownload,
 			PermResearchQuery, PermResearchReason, PermDraftingCreate,
-			PermClientsView,
+			PermClientsView, PermClientsCreate, PermClientsEdit, PermClientsAdvanceStage,
 			PermCalendarViewShared, PermCalendarCreateShared, PermCalendarEditShared,
 			PermCommsView, PermCommsSend,
+			PermTasksCreate, PermTasksViewOwn, PermTasksViewAll,
+			PermRecordingsCreate, PermRecordingsViewOwn,
 		},
 	},
 	{
@@ -172,8 +200,11 @@ var DefaultTemplates = []RoleTemplate{
 			PermMattersViewOwn,
 			PermDocumentsUpload, PermDocumentsView,
 			PermResearchQuery,
+			PermClientsView,
 			PermCalendarViewShared,
 			PermCommsView,
+			PermTasksViewOwn,
+			PermRecordingsCreate, PermRecordingsViewOwn,
 		},
 	},
 	{

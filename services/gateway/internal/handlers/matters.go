@@ -49,6 +49,23 @@ func (s *Server) CreateMatter(c *gin.Context) {
 		CourtCaseNumber: in.CourtCaseNumber, AssignedTo: in.AssignedTo, CreatedBy: s.claims(c).UserID(),
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
+		// A matter can only be opened once its client has been engaged (retainer
+		// signed) — the onboarding pipeline gate.
+		if m.ClientID != nil {
+			cl, err := repository.ClientByID(c.Request.Context(), tx, *m.ClientID)
+			if err == pgx.ErrNoRows {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "unknown client_id"})
+				return errHandled
+			}
+			if err != nil {
+				return err
+			}
+			if cl.Status != "engaged" && cl.Status != "active" {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{
+					"error": "a matter can only be opened for an engaged client (client is " + cl.Status + ")"})
+				return errHandled
+			}
+		}
 		if err := repository.InsertMatter(c.Request.Context(), tx, m); err != nil {
 			return err
 		}
@@ -210,7 +227,7 @@ func (s *Server) JudiciaryStatus(c *gin.Context) {
 func (s *Server) ListClients(c *gin.Context) {
 	var clients []repository.Client
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		cl, err := repository.ListClients(c.Request.Context(), tx)
+		cl, err := repository.ListClients(c.Request.Context(), tx, c.Query("status"))
 		clients = cl
 		return err
 	}) {
@@ -218,13 +235,33 @@ func (s *Server) ListClients(c *gin.Context) {
 	}
 }
 
+// GetClient returns one client with its onboarding stage history.
+func (s *Server) GetClient(c *gin.Context) {
+	var client *repository.Client
+	var history []repository.StageEvent
+	if s.withTenant(c, func(tx pgx.Tx) error {
+		cl, err := repository.ClientByID(c.Request.Context(), tx, c.Param("id"))
+		if err != nil {
+			return err
+		}
+		client = cl
+		history, err = repository.ListStageEvents(c.Request.Context(), tx, cl.ID)
+		return err
+	}) {
+		c.JSON(http.StatusOK, gin.H{"client": client, "stage_history": history})
+	}
+}
+
+// CreateClient captures a new client at the "lead" stage (intake).
 func (s *Server) CreateClient(c *gin.Context) {
 	var in struct {
-		Name        string `json:"name" binding:"required"`
-		Email       string `json:"email"`
-		Phone       string `json:"phone"`
-		IDNumber    string `json:"id_number"`
-		KDPAConsent bool   `json:"kdpa_consent"`
+		Name             string `json:"name" binding:"required"`
+		Email            string `json:"email"`
+		Phone            string `json:"phone"`
+		IDNumber         string `json:"id_number"`
+		ClientType       string `json:"client_type"`
+		CompanyRegNumber string `json:"company_reg_number"`
+		KDPAConsent      bool   `json:"kdpa_consent"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, err.Error())
@@ -232,7 +269,8 @@ func (s *Server) CreateClient(c *gin.Context) {
 	}
 	cl := &repository.Client{
 		ID: uuid.NewString(), Name: in.Name, Email: in.Email, Phone: in.Phone,
-		IDNumber: in.IDNumber, KDPAConsent: in.KDPAConsent,
+		IDNumber: in.IDNumber, KDPAConsent: in.KDPAConsent, Status: "lead",
+		ClientType: in.ClientType, CompanyRegNumber: in.CompanyRegNumber,
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
 		if err := repository.InsertClient(c.Request.Context(), tx, cl); err != nil {

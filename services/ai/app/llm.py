@@ -333,6 +333,45 @@ class MockProvider:
             yield text[i : i + 24]
 
 
+class FallbackProvider:
+    """Tries a primary provider and, on failure, transparently falls back to a
+    secondary one (e.g. GMI Cloud primary, on-box Ollama fallback).
+
+    For streaming, the fallback only applies when the primary fails *before*
+    emitting its first token — a mid-stream failure can't be replayed without
+    duplicating output, so it propagates."""
+
+    def __init__(self, primary: LLMProvider, secondary: LLMProvider,
+                 primary_name: str = "primary", secondary_name: str = "fallback") -> None:
+        self._primary = primary
+        self._secondary = secondary
+        self._pn = primary_name
+        self._sn = secondary_name
+
+    async def complete(self, system: str, prompt: str, max_tokens: int = 2048, fast: bool = False) -> str:
+        try:
+            return await self._primary.complete(system, prompt, max_tokens, fast=fast)
+        except Exception as e:
+            log().warning("LLM primary (%s) complete failed, falling back to %s: %s", self._pn, self._sn, e)
+            return await self._secondary.complete(system, prompt, max_tokens, fast=fast)
+
+    async def stream(self, system: str, prompt: str, max_tokens: int = 8192) -> AsyncIterator[str]:
+        agen = self._primary.stream(system, prompt, max_tokens)
+        try:
+            first = await agen.__anext__()
+        except StopAsyncIteration:
+            return
+        except Exception as e:
+            log().warning("LLM primary (%s) stream failed before first token, falling back to %s: %s",
+                          self._pn, self._sn, e)
+            async for tok in self._secondary.stream(system, prompt, max_tokens):
+                yield tok
+            return
+        yield first
+        async for tok in agen:
+            yield tok
+
+
 def _ollama_reachable(cfg: Config) -> bool:
     """Best-effort liveness probe so 'auto' only picks Ollama when it answers."""
     import httpx
@@ -346,16 +385,23 @@ def _ollama_reachable(cfg: Config) -> bool:
         return False
 
 
-def make_llm(cfg: Config) -> LLMProvider:
-    # Explicit selection wins.
-    if cfg.llm_provider == "anthropic":
+def _build_named(cfg: Config, name: str) -> LLMProvider:
+    """Construct a provider by explicit name (no 'auto' resolution)."""
+    if name == "anthropic":
         return AnthropicProvider(cfg)
-    if cfg.llm_provider == "ollama":
+    if name == "ollama":
         return OllamaProvider(cfg)
-    if cfg.llm_provider == "gmi":
+    if name == "gmi":
         return GMICloudProvider(cfg)
-    if cfg.llm_provider == "mock":
+    if name == "mock":
         return MockProvider()
+    raise ValueError(f"unknown LLM provider: {name!r}")
+
+
+def _make_primary(cfg: Config) -> LLMProvider:
+    # Explicit selection wins.
+    if cfg.llm_provider in ("anthropic", "ollama", "gmi", "mock"):
+        return _build_named(cfg, cfg.llm_provider)
     # auto: Claude if a key is present, else a reachable local Ollama, else mock.
     if cfg.anthropic_api_key:
         return AnthropicProvider(cfg)
@@ -364,6 +410,20 @@ def make_llm(cfg: Config) -> LLMProvider:
         return OllamaProvider(cfg)
     log().warning("No ANTHROPIC_API_KEY and no reachable Ollama — using MockProvider (offline demo mode)")
     return MockProvider()
+
+
+def make_llm(cfg: Config) -> LLMProvider:
+    primary = _make_primary(cfg)
+    fb = (cfg.llm_fallback_provider or "").strip()
+    if fb and fb != cfg.llm_provider:
+        try:
+            secondary = _build_named(cfg, fb)
+        except ValueError:
+            log().warning("ignoring unknown LLM_FALLBACK_PROVIDER=%r", fb)
+            return primary
+        log().info("LLM fallback enabled: primary=%s secondary=%s", cfg.llm_provider, fb)
+        return FallbackProvider(primary, secondary, cfg.llm_provider or "primary", fb)
+    return primary
 
 
 def make_optional_llm(cfg: Config) -> Optional[LLMProvider]:

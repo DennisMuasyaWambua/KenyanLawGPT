@@ -42,6 +42,9 @@ class Config:
     # auto|anthropic|ollama|mock. "auto" prefers Claude (if key), then a
     # reachable local Ollama, then the deterministic offline mock.
     llm_provider: str = field(default_factory=lambda: _env("LLM_PROVIDER", "auto"))
+    # Optional secondary provider used when the primary fails (e.g. GMI Cloud
+    # down/rate-limited => fall back to on-box Ollama). Empty => no fallback.
+    llm_fallback_provider: str = field(default_factory=lambda: _env("LLM_FALLBACK_PROVIDER", ""))
     anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     # Claude Opus 4.8 for drafting/reasoning; Haiku for cheap intent classification.
     anthropic_model: str = field(default_factory=lambda: _env("ANTHROPIC_MODEL", "claude-opus-4-8"))

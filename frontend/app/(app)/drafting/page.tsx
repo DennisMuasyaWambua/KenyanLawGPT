@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, streamDraft } from "@/lib/api";
+import { downloadDocx, exportToGoogleDocs, googleDocsConfigured } from "@/lib/export";
 
 const DOC_TYPES = [
   { value: "pleading", label: "Pleading (Statement of Claim)" },
@@ -21,7 +22,39 @@ export default function DraftingPage() {
   const [citations, setCitations] = useState<any[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
+  const [exporting, setExporting] = useState<"" | "docx" | "gdoc">("");
+  const [exportError, setExportError] = useState("");
   const outRef = useRef<HTMLPreElement>(null);
+
+  // A stable, human-readable name for the exported file / Google Doc.
+  function exportName(): string {
+    const label = DOC_TYPES.find((d) => d.value === docType)?.value || "draft";
+    const stamp = new Date().toISOString().slice(0, 10);
+    return `${label}-${stamp}`;
+  }
+
+  async function onDownloadDocx() {
+    setExportError(""); setExporting("docx");
+    try {
+      await downloadDocx(output, exportName());
+    } catch (e: any) {
+      setExportError(e?.message || "Could not build the .docx");
+    } finally {
+      setExporting("");
+    }
+  }
+
+  async function onExportGoogleDocs() {
+    setExportError(""); setExporting("gdoc");
+    try {
+      const url = await exportToGoogleDocs(output, exportName());
+      window.open(url, "_blank", "noopener");
+    } catch (e: any) {
+      setExportError(e?.message || "Could not export to Google Docs");
+    } finally {
+      setExporting("");
+    }
+  }
 
   const { data: mattersData } = useQuery({ queryKey: ["matters", ""], queryFn: () => api("/api/v1/matters") });
 
@@ -89,12 +122,29 @@ export default function DraftingPage() {
         )}
       </div>
       <div className="lg:col-span-3">
-        <div className="card h-full !bg-white">
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-navy/60">
-            Draft {streaming && <span className="text-gold-dim">· streaming…</span>}
-          </p>
+        <div className="card flex h-full flex-col !bg-white">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-bold uppercase tracking-wide text-navy/60">
+              Draft {streaming && <span className="text-gold-dim">· streaming…</span>}
+            </p>
+            {output && !streaming && (
+              <div className="flex items-center gap-2">
+                <button className="btn-outline text-xs" onClick={onDownloadDocx}
+                  disabled={!!exporting}>
+                  {exporting === "docx" ? "Preparing…" : "Download .docx"}
+                </button>
+                {googleDocsConfigured() && (
+                  <button className="btn-outline text-xs" onClick={onExportGoogleDocs}
+                    disabled={!!exporting}>
+                    {exporting === "gdoc" ? "Exporting…" : "Open in Google Docs"}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {exportError && <p className="mb-2 text-xs text-red-600">{exportError}</p>}
           <pre ref={outRef}
-            className="h-[calc(100%-2rem)] overflow-y-auto whitespace-pre-wrap font-display text-sm leading-relaxed text-ink">
+            className="flex-1 overflow-y-auto whitespace-pre-wrap font-display text-sm leading-relaxed text-ink">
             {output || "The draft will stream here token by token."}
           </pre>
         </div>

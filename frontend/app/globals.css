@@ -18,6 +18,10 @@ body {
   @apply rounded-md bg-gold px-4 py-2 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50;
 }
 
+.btn-outline {
+  @apply rounded-md border border-navy/20 bg-white px-3 py-1.5 font-medium text-navy transition hover:border-gold hover:text-gold-dim disabled:opacity-50;
+}
+
 .input {
   @apply w-full rounded-md border border-navy/20 bg-white px-3 py-2 text-sm outline-none focus:border-gold focus:ring-1 focus:ring-gold;
 }

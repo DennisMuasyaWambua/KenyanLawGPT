@@ -3,11 +3,17 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api, clearSession, currentUser, getTenant } from "@/lib/api";
+import { usePermissions } from "@/lib/usePermissions";
 
+// `perm` (optional) hides a nav item unless the caller holds that permission.
 const STAFF_NAV = [
   { href: "/dashboard", label: "Dashboard", icon: "▦" },
+  { href: "/cases", label: "Case status", icon: "▤", perm: "matters.view_all" },
   { href: "/matters", label: "Matters", icon: "⚖" },
+  { href: "/clients", label: "Clients", icon: "👤", perm: "clients.view" },
+  { href: "/tasks", label: "Tasks", icon: "✔", perm: "tasks.view_own" },
   { href: "/calendar", label: "Calendar", icon: "🗓" },
+  { href: "/recordings", label: "Recordings", icon: "🎙", perm: "recordings.view_own" },
   { href: "/documents", label: "Documents", icon: "🗎" },
   { href: "/research", label: "AI Research", icon: "🔍" },
   { href: "/drafting", label: "Drafting", icon: "✎" },
@@ -22,7 +28,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const user = currentUser();
-  const nav = user?.role === "client" ? CLIENT_NAV : STAFF_NAV;
+  const { can, permissions } = usePermissions();
+  // Until permissions load, show ungated items; hide gated ones the user lacks.
+  const nav =
+    user?.role === "client"
+      ? CLIENT_NAV
+      : STAFF_NAV.filter((i) => !i.perm || permissions.length === 0 || can(i.perm));
 
   async function logout() {
     try {

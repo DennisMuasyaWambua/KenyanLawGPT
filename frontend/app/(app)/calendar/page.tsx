@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fmtDate } from "@/lib/api";
+import { usePermissions } from "@/lib/usePermissions";
 
 type EventT = {
   id: string;
@@ -14,16 +15,30 @@ type EventT = {
   start_at: string;
   end_at?: string | null;
   all_day: boolean;
-  remind_at?: string | null;
 };
 
 const toISO = (local: string) => (local ? new Date(local).toISOString() : undefined);
 const fmtTime = (s: string) =>
   new Date(s).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" });
 
+// Reminder presets, expressed as minutes before the event start. The event may
+// carry multiple; the backend materializes one event_reminders row per offset.
+const REMINDER_OPTIONS: { minutes: number; label: string }[] = [
+  { minutes: 1440, label: "1 day before" },
+  { minutes: 60, label: "1 hour before" },
+  { minutes: 10, label: "10 min before" },
+];
+
 export default function CalendarPage() {
   const qc = useQueryClient();
+  const { can } = usePermissions();
+  const canCreateShared = can("calendar.create_shared");
   const [filter, setFilter] = useState<"all" | "personal" | "firm">("all");
+  const [reminders, setReminders] = useState<number[]>([60]);
+
+  function toggleReminder(m: number) {
+    setReminders((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
+  }
 
   const from = useMemo(() => new Date(Date.now() - 7 * 864e5).toISOString(), []);
   const to = useMemo(() => new Date(Date.now() + 60 * 864e5).toISOString(), []);
@@ -94,7 +109,6 @@ export default function CalendarPage() {
                         {e.all_day ? "All day" : fmtTime(e.start_at)}
                         {e.end_at && !e.all_day ? ` – ${fmtTime(e.end_at)}` : ""}
                         {e.location ? ` · ${e.location}` : ""}
-                        {e.remind_at ? " · 🔔" : ""}
                       </p>
                       {e.description && <p className="mt-1 text-xs text-ink/50">{e.description}</p>}
                     </div>
@@ -122,16 +136,18 @@ export default function CalendarPage() {
               start_at: toISO(fd.get("start_at") as string),
               end_at: toISO(fd.get("end_at") as string) || null,
               all_day: fd.get("all_day") === "on",
-              remind_at: toISO(fd.get("remind_at") as string) || null,
+              reminders: reminders.map((m) => ({ offset_minutes: m })),
             });
             (e.target as HTMLFormElement).reset();
+            setReminders([60]);
           }}>
           <h3 className="font-display text-lg font-bold text-navy">New event / meeting</h3>
           <input name="title" className="input" placeholder="Title" required />
           <div className="grid grid-cols-2 gap-2">
-            <select name="scope" className="input">
+            <select name="scope" className="input" defaultValue="personal">
               <option value="personal">Personal</option>
-              <option value="firm">Firm (shared)</option>
+              {/* Shared events need the calendar.create_shared permission. */}
+              {canCreateShared && <option value="firm">Firm (shared)</option>}
             </select>
             <select name="matter_id" className="input">
               <option value="">No matter</option>
@@ -144,8 +160,15 @@ export default function CalendarPage() {
           <input name="start_at" type="datetime-local" className="input" required />
           <label className="label">End (optional)</label>
           <input name="end_at" type="datetime-local" className="input" />
-          <label className="label">Remind me at (optional)</label>
-          <input name="remind_at" type="datetime-local" className="input" />
+          <label className="label">Reminders</label>
+          <div className="flex flex-wrap gap-3 text-xs text-ink/70">
+            {REMINDER_OPTIONS.map((o) => (
+              <label key={o.minutes} className="flex items-center gap-1.5">
+                <input type="checkbox" checked={reminders.includes(o.minutes)} onChange={() => toggleReminder(o.minutes)} />
+                {o.label}
+              </label>
+            ))}
+          </div>
           <input name="location" className="input" placeholder="Location (optional)" />
           <textarea name="description" className="input" placeholder="Notes (optional)" rows={2} />
           <label className="flex items-center gap-2 text-sm text-ink/70">

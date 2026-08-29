@@ -159,60 +159,68 @@ type RoleTemplate struct {
 	Permissions []string `json:"permissions"`
 }
 
-// DefaultTemplates are the suggested role presets. Owner is listed first and is
-// the only one created automatically (with the full catalog).
+// DefaultTemplates are the firm designations. "Managing Partner" is the
+// protected top role (created automatically with the full catalog); the rest
+// mirror the per-designation permission sets seeded in tenant migration 0010.
+// Gating: Clients -> Secretary+Partner+MP; Tasks/Billing -> Partner+MP;
+// onboarding (users.*, roles.manage) -> Managing Partner only.
 var DefaultTemplates = []RoleTemplate{
 	{
-		Name: "Owner", Description: "Full access to the firm workspace",
+		Name: "Managing Partner", Description: "Full firm control and staff onboarding",
 		Protected: true, Permissions: AllPermissions(),
 	},
 	{
-		Name: "Partner", Description: "Senior advocate — firm management",
+		Name: "Partner", Description: "Advocate partner — full feature access",
 		Permissions: []string{
 			PermMattersCreate, PermMattersViewOwn, PermMattersViewAll, PermMattersEdit, PermMattersDelete,
 			PermDocumentsUpload, PermDocumentsView, PermDocumentsDownload, PermDocumentsDelete,
 			PermResearchQuery, PermResearchReason, PermDraftingCreate,
-			PermClientsView, PermClientsCreate, PermClientsEdit, PermClientsAdvanceStage,
-			PermBillingView, PermBillingManage,
-			PermCalendarViewShared, PermCalendarCreateShared, PermCalendarEditShared, PermCalendarDeleteShared,
-			PermCommsView, PermCommsSend,
+			PermClientsView, PermClientsCreate, PermClientsEdit, PermClientsAdvanceStage, PermClientsManage,
 			PermTasksCreate, PermTasksAssign, PermTasksViewOwn, PermTasksViewAll,
 			PermRecordingsCreate, PermRecordingsViewOwn, PermRecordingsViewAll,
-			PermUsersInvite, PermUsersView, PermRolesManage, PermKDPAViewAudit,
+			PermBillingView, PermBillingManage,
+			PermCalendarViewShared, PermCalendarCreateShared, PermCalendarEditShared, PermCalendarDeleteShared,
+			PermCommsView, PermCommsSend, PermUsersView,
 		},
 	},
 	{
-		Name: "Associate", Description: "Advocate handling files",
+		Name: "Associate", Description: "Advocate handling files & research",
 		Permissions: []string{
 			PermMattersCreate, PermMattersViewOwn, PermMattersViewAll, PermMattersEdit,
 			PermDocumentsUpload, PermDocumentsView, PermDocumentsDownload,
 			PermResearchQuery, PermResearchReason, PermDraftingCreate,
-			PermClientsView, PermClientsCreate, PermClientsEdit, PermClientsAdvanceStage,
+			PermRecordingsCreate, PermRecordingsViewOwn,
 			PermCalendarViewShared, PermCalendarCreateShared, PermCalendarEditShared,
 			PermCommsView, PermCommsSend,
-			PermTasksCreate, PermTasksViewOwn, PermTasksViewAll,
-			PermRecordingsCreate, PermRecordingsViewOwn,
 		},
 	},
 	{
-		Name: "Paralegal", Description: "Support staff — limited access",
+		Name: "Secretary", Description: "Firm secretary — files, clients & scheduling",
 		Permissions: []string{
-			PermMattersViewOwn,
-			PermDocumentsUpload, PermDocumentsView,
-			PermResearchQuery,
-			PermClientsView,
+			PermMattersViewOwn, PermMattersViewAll, PermMattersCreate, PermMattersEdit,
+			PermDocumentsUpload, PermDocumentsView, PermDocumentsDownload,
+			PermClientsView, PermClientsCreate, PermClientsEdit, PermClientsAdvanceStage, PermClientsManage,
+			PermCalendarViewShared, PermCalendarCreateShared, PermCalendarEditShared,
+			PermCommsView, PermCommsSend,
+		},
+	},
+	{
+		Name: "Clerk", Description: "Court/office clerk — files & scheduling",
+		Permissions: []string{
+			PermMattersViewOwn, PermMattersViewAll, PermMattersCreate, PermMattersEdit,
+			PermDocumentsUpload, PermDocumentsView, PermDocumentsDownload,
+			PermRecordingsCreate, PermRecordingsViewOwn,
+			PermCalendarViewShared, PermCalendarCreateShared,
+			PermCommsView,
+		},
+	},
+	{
+		Name: "Intern", Description: "Pupil/intern — read-mostly access",
+		Permissions: []string{
+			PermMattersViewOwn, PermMattersViewAll,
+			PermDocumentsView, PermDocumentsDownload,
 			PermCalendarViewShared,
 			PermCommsView,
-			PermTasksViewOwn,
-			PermRecordingsCreate, PermRecordingsViewOwn,
-		},
-	},
-	{
-		Name: "Billing Clerk", Description: "Finance & invoicing",
-		Permissions: []string{
-			PermBillingView, PermBillingManage,
-			PermMattersViewAll, PermClientsView,
-			PermCalendarViewShared,
 		},
 	},
 }

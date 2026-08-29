@@ -16,11 +16,11 @@ const STAFF_NAV = [
   { href: "/calendar", label: "Calendar", icon: "🗓" },
   { href: "/recordings", label: "Recordings", icon: "🎙", perm: "recordings.view_own" },
   { href: "/archives", label: "Archives", icon: "🗎" },
-  { href: "/research", label: "AI Research", icon: "🔍" },
-  { href: "/drafting", label: "Drafts", icon: "✎" },
+  { href: "/research", label: "AI Research", icon: "🔍", perm: "research.query" },
+  { href: "/drafting", label: "Drafts", icon: "✎", perm: "drafting.create" },
   { href: "/inbox", label: "Communications", icon: "✉" },
   { href: "/e-services", label: "e-Services", icon: "🏛" },
-  { href: "/billing", label: "Billing", icon: "₿" },
+  { href: "/billing", label: "Billing", icon: "₿", perm: "billing.view" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 

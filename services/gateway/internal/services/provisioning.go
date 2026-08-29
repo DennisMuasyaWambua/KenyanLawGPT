@@ -127,11 +127,11 @@ func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, i
 		owner.PasswordHash = hash
 	}
 	if err := database.WithTenant(ctx, tenant.ID, schema, func(tx pgx.Tx) error {
-		// The 0005 migration seeded the protected Owner role (all permissions)
-		// into the fresh schema; assign the owner to it.
-		ownerRole, err := repository.RoleByName(ctx, tx, "Owner")
+		// Migrations seed the protected top role (0005 creates it; 0010 renames
+		// it to "Managing Partner"); assign the firm creator to it.
+		ownerRole, err := repository.RoleByName(ctx, tx, "Managing Partner")
 		if err != nil {
-			return fmt.Errorf("owner role: %w", err)
+			return fmt.Errorf("managing partner role: %w", err)
 		}
 		owner.Role = ownerRole.Name
 		owner.RoleID = &ownerRole.ID

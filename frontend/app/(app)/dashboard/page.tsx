@@ -3,22 +3,28 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, fmtKES } from "@/lib/api";
 import { BRAND } from "@/lib/brand";
+import { usePermissions } from "@/lib/usePermissions";
 
 export default function Dashboard() {
+  const { can, permissions } = usePermissions();
   const { data } = useQuery({ queryKey: ["dashboard"], queryFn: () => api("/api/v1/dashboard") });
   const { data: notif } = useQuery({
     queryKey: ["notifications"],
     queryFn: () => api("/api/v1/notifications"),
   });
   const s = data?.stats || {};
-  const cards = [
+  // Cards are gated by permission so the dashboard adapts to the designation:
+  // interns/associates/clerks -> matters, court dates, deadlines; secretary adds
+  // clients; partners/managing partner also see billing.
+  const allCards = [
     { label: "Active matters", value: s.open_files ?? "—" },
     { label: "Court dates (7 days)", value: s.court_dates_7d ?? "—" },
     { label: "Deadlines (7 days)", value: s.deadlines_7d ?? "—" },
-    { label: "Outstanding fees", value: s.outstanding_kes != null ? fmtKES(s.outstanding_kes) : "—" },
-    { label: "Collected (30 days)", value: s.collected_30d_kes != null ? fmtKES(s.collected_30d_kes) : "—" },
-    { label: "Clients", value: s.clients ?? "—" },
+    { label: "Outstanding fees", value: s.outstanding_kes != null ? fmtKES(s.outstanding_kes) : "—", perm: "billing.view" },
+    { label: "Collected (30 days)", value: s.collected_30d_kes != null ? fmtKES(s.collected_30d_kes) : "—", perm: "billing.view" },
+    { label: "Clients", value: s.clients ?? "—", perm: "clients.view" },
   ];
+  const cards = allCards.filter((c) => !c.perm || permissions.length === 0 || can(c.perm));
   return (
     <div className="relative">
       {/* Faint firm watermark behind the dashboard content. */}

@@ -22,5 +22,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
+# public/ is NOT included in Next's standalone output — copy it so /logo.jpeg
+# (sidebar/login logo + dashboard watermark) and other static assets serve.
+COPY --from=build /app/public ./public
 EXPOSE 3000
 CMD ["node", "server.js"]

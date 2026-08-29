@@ -24,7 +24,7 @@ export default function Dashboard() {
       {/* Faint firm watermark behind the dashboard content. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 z-0 flex select-none flex-col items-center justify-center opacity-[0.04]"
+        className="pointer-events-none absolute inset-0 z-0 flex select-none flex-col items-center justify-center opacity-[0.07]"
       >
         <img src={BRAND.logo} alt="" className="w-2/3 max-w-lg" />
         <p className="mt-4 font-display text-4xl font-bold text-navy">{BRAND.name}</p>

@@ -97,11 +97,11 @@ func TestGoogleLoginUnverifiedEmail(t *testing.T) {
 	}
 }
 
-func TestGoogleSignupMissingCredential(t *testing.T) {
+func TestGoogleSignupDisabled(t *testing.T) {
 	s := testServer()
 	w := call(http.MethodPost, "/gs", "/gs", `{}`, s.GoogleSignup, nil, nil)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("public signup is disabled; want 403, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

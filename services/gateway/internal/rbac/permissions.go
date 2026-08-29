@@ -175,7 +175,7 @@ var DefaultTemplates = []RoleTemplate{
 			PermMattersCreate, PermMattersViewOwn, PermMattersViewAll, PermMattersEdit, PermMattersDelete,
 			PermDocumentsUpload, PermDocumentsView, PermDocumentsDownload, PermDocumentsDelete,
 			PermResearchQuery, PermResearchReason, PermDraftingCreate,
-			PermClientsView, PermClientsCreate, PermClientsEdit, PermClientsAdvanceStage, PermClientsManage,
+			PermClientsView, PermClientsCreate, PermClientsEdit, PermClientsAdvanceStage,
 			PermTasksCreate, PermTasksAssign, PermTasksViewOwn, PermTasksViewAll,
 			PermRecordingsCreate, PermRecordingsViewOwn, PermRecordingsViewAll,
 			PermBillingView, PermBillingManage,
@@ -201,7 +201,7 @@ var DefaultTemplates = []RoleTemplate{
 		Permissions: []string{
 			PermMattersViewOwn, PermMattersViewAll, PermMattersCreate, PermMattersEdit,
 			PermDocumentsUpload, PermDocumentsView, PermDocumentsDownload,
-			PermClientsView, PermClientsCreate, PermClientsEdit, PermClientsAdvanceStage, PermClientsManage,
+			PermClientsView, PermClientsCreate, PermClientsEdit, PermClientsAdvanceStage,
 			PermCalendarViewShared, PermCalendarCreateShared, PermCalendarEditShared,
 			PermCommsView, PermCommsSend,
 		},

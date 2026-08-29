@@ -14,13 +14,13 @@ func TestCatalogValidation(t *testing.T) {
 	}
 }
 
-func TestOwnerTemplateHasEveryPermission(t *testing.T) {
-	owner := DefaultTemplates[0]
-	if owner.Name != "Owner" || !owner.Protected {
-		t.Fatalf("first template must be the protected Owner, got %+v", owner)
+func TestManagingPartnerTemplateHasEveryPermission(t *testing.T) {
+	top := DefaultTemplates[0]
+	if top.Name != "Managing Partner" || !top.Protected {
+		t.Fatalf("first template must be the protected Managing Partner, got %+v", top)
 	}
-	if len(owner.Permissions) != len(Catalog) {
-		t.Fatalf("Owner must hold all %d permissions, has %d", len(Catalog), len(owner.Permissions))
+	if len(top.Permissions) != len(Catalog) {
+		t.Fatalf("Managing Partner must hold all %d permissions, has %d", len(Catalog), len(top.Permissions))
 	}
 }
 

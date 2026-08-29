@@ -31,7 +31,7 @@ const STEP_LABEL: Record<string, string> = {
   DONE: "Done",
 };
 
-function StatusRow({ doc, onRetry }: { doc: IngestDoc; onRetry?: (id: string) => void }) {
+function StatusRow({ doc, onRetry, onOpen }: { doc: IngestDoc; onRetry?: (id: string) => void; onOpen?: (doc: IngestDoc) => void }) {
   const failed = doc.stage === "FAILED";
   const done = doc.stage === "DONE";
   const activeIdx = Math.max(0, STEPS.indexOf(doc.stage));
@@ -50,6 +50,10 @@ function StatusRow({ doc, onRetry }: { doc: IngestDoc; onRetry?: (id: string) =>
         >
           {failed ? "Failed" : done ? "✓ Ingested" : `${doc.progress_pct}%`}
         </span>
+        {onOpen && done && (
+          <button onClick={() => onOpen(doc)} title="Open comments"
+            className="text-xs font-semibold text-navy hover:text-gold-dim">💬 Comments</button>
+        )}
       </div>
 
       {!failed && (
@@ -98,11 +102,13 @@ export default function IngestionStatus({
   archives,
   onUpload,
   onRetry,
+  onOpen,
   uploading,
 }: {
   archives: IngestDoc[];
   onUpload?: (files: FileList) => void;
   onRetry?: (id: string) => void;
+  onOpen?: (doc: IngestDoc) => void;
   uploading?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -143,7 +149,7 @@ export default function IngestionStatus({
           knowledge graph.
         </div>
       ) : (
-        archives.map((d) => <StatusRow key={d.id} doc={d} onRetry={onRetry} />)
+        archives.map((d) => <StatusRow key={d.id} doc={d} onRetry={onRetry} onOpen={onOpen} />)
       )}
     </div>
   );

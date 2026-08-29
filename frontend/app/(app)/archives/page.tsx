@@ -42,6 +42,7 @@ export default function ArchivesPage() {
   const [docKind, setDocKind] = useState("statute");
   const [live, setLive] = useState<LiveUpload[]>([]);
   const [section, setSection] = useState("all");
+  const [openDoc, setOpenDoc] = useState<IngestDoc | null>(null);
 
   const { data: filesData } = useQuery({ queryKey: ["files"], queryFn: () => api("/api/v1/files") });
 
@@ -188,11 +189,61 @@ export default function ArchivesPage() {
                 document{activeSection.kind ? ` and set its type to “${activeSection.kind}”` : ""}.
               </p>
             ) : (
-              <IngestionStatus archives={shownDocs} onRetry={(id) => retry.mutate(id)} />
+              <IngestionStatus archives={shownDocs} onRetry={(id) => retry.mutate(id)} onOpen={setOpenDoc} />
             )}
           </div>
         </>
       )}
+
+      {openDoc && <CommentsDrawer doc={openDoc} onClose={() => setOpenDoc(null)} />}
+    </div>
+  );
+}
+
+function CommentsDrawer({ doc, onClose }: { doc: IngestDoc; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [body, setBody] = useState("");
+  const { data } = useQuery({
+    queryKey: ["archive-comments", doc.id],
+    queryFn: () => api(`/api/v1/archives/${doc.id}/comments`),
+  });
+  const comments = data?.comments || [];
+  const add = useMutation({
+    mutationFn: () => api(`/api/v1/archives/${doc.id}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
+    onSuccess: () => { setBody(""); qc.invalidateQueries({ queryKey: ["archive-comments", doc.id] }); },
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-navy/40" onClick={onClose}>
+      <div className="flex h-full w-full max-w-md flex-col bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-navy/10 p-4">
+          <div className="min-w-0">
+            <h3 className="truncate font-display text-lg font-bold text-navy">{doc.filename}</h3>
+            <p className="text-xs text-ink/50">Document discussion</p>
+          </div>
+          <button onClick={onClose} className="shrink-0 text-lg text-ink/50 hover:text-navy">✕</button>
+        </div>
+        <div className="flex-1 space-y-3 overflow-y-auto p-4">
+          {comments.length === 0 && <p className="text-sm text-ink/50">No comments yet — start the discussion.</p>}
+          {comments.map((c: any) => (
+            <div key={c.id} className="rounded-md border border-navy/10 bg-navy/5 p-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-navy">{c.author_name || "Someone"}</span>
+                <span className="text-ink/40">{fmtDate(c.created_at)}</span>
+              </div>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-ink/80">{c.body}</p>
+            </div>
+          ))}
+        </div>
+        <form className="border-t border-navy/10 p-3"
+          onSubmit={(e) => { e.preventDefault(); if (body.trim()) add.mutate(); }}>
+          <textarea className="input" rows={3} placeholder="Add a comment…" value={body}
+            onChange={(e) => setBody(e.target.value)} />
+          <button className="btn-gold mt-2 w-full" disabled={!body.trim() || add.isPending}>
+            {add.isPending ? "Posting…" : "Post comment"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

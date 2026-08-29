@@ -1,73 +1,57 @@
 "use client";
 
-import { useState } from "react";
-
-// Kenyan government e-services the firm uses. These portals generally send
-// X-Frame-Options / frame-ancestors headers that block embedding, so we embed
-// in an iframe AND always offer a launch-in-new-tab fallback.
+// Kenyan government e-services. These portals send X-Frame-Options / require
+// their own authenticated session, so they cannot be embedded in an iframe —
+// we launch them in a new tab instead.
 const PORTALS = [
   {
-    key: "efiling",
     name: "Judiciary e-Filing",
+    tag: "Courts",
     url: "https://efiling.court.go.ke",
-    desc: "File and track court documents on the Judiciary's e-Filing portal.",
+    desc: "File and track court documents, pay court fees and serve pleadings on the Judiciary's e-Filing portal.",
   },
   {
-    key: "ardhisasa",
     name: "ArdhiSasa (Lands)",
+    tag: "Lands",
     url: "https://ardhisasa.lands.go.ke",
-    desc: "Land searches, transfers and registration on the Ministry of Lands portal.",
+    desc: "Land searches, transfers, subdivisions and registration on the Ministry of Lands portal.",
   },
   {
-    key: "brs",
     name: "Business Registration (BRS)",
+    tag: "Companies",
     url: "https://brs.go.ke",
-    desc: "Company & business name search and registration (Business Registration Service).",
+    desc: "Company and business-name search, registration and compliance filings (Business Registration Service).",
   },
 ] as const;
 
 export default function EServicesPage() {
-  const [active, setActive] = useState<(typeof PORTALS)[number]["key"]>("efiling");
-  const portal = PORTALS.find((p) => p.key === active)!;
-
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-display text-3xl font-bold text-navy">e-Services</h2>
-        <a href={portal.url} target="_blank" rel="noopener noreferrer" className="btn-gold">
-          Open {portal.name} in new tab ↗
-        </a>
-      </div>
+    <div>
+      <h2 className="font-display text-3xl font-bold text-navy">e-Services</h2>
+      <p className="mt-1 max-w-2xl text-sm text-ink/60">
+        Quick access to the Kenyan government portals your firm uses. Each requires its own login and
+        blocks embedding, so they open securely in a new tab.
+      </p>
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
         {PORTALS.map((p) => (
-          <button
-            key={p.key}
-            onClick={() => setActive(p.key)}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-              active === p.key ? "bg-navy text-white" : "bg-white text-navy border border-navy/20 hover:border-gold"
-            }`}
+          <a
+            key={p.url}
+            href={p.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="card group flex flex-col transition hover:border-gold hover:shadow-md"
           >
-            {p.name}
-          </button>
+            <span className="badge-private w-fit">{p.tag}</span>
+            <h3 className="mt-3 font-display text-lg font-bold text-navy">{p.name}</h3>
+            <p className="mt-1 flex-1 text-sm text-ink/60">{p.desc}</p>
+            <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-gold-dim group-hover:underline">
+              Open {p.name} ↗
+            </span>
+            <span className="mt-1 truncate text-xs text-ink/40">{p.url.replace("https://", "")}</span>
+          </a>
         ))}
       </div>
-
-      <p className="mt-2 text-sm text-ink/60">{portal.desc}</p>
-
-      <div className="mt-3 flex-1 overflow-hidden rounded-lg border border-navy/10 bg-white">
-        <iframe
-          key={portal.key}
-          src={portal.url}
-          title={portal.name}
-          className="h-full w-full"
-          referrerPolicy="no-referrer"
-          sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-top-navigation"
-        />
-      </div>
-      <p className="mt-2 text-center text-xs text-ink/40">
-        If the portal doesn&rsquo;t load above, it blocks embedding — use the “Open in new tab” button.
-      </p>
     </div>
   );
 }

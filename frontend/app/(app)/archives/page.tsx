@@ -2,12 +2,24 @@
 
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, uploadArchive } from "@/lib/api";
+import { api, uploadArchive, fmtDate } from "@/lib/api";
 import IngestionStatus, { IngestDoc } from "@/components/IngestionStatus";
 
-const DOC_KINDS = ["other", "contract", "pleading", "correspondence", "evidence", "precedent_note"];
+const DOC_KINDS = [
+  "other", "statute", "authority", "research",
+  "contract", "pleading", "correspondence", "evidence", "precedent_note",
+];
 
-// Persisted archives expose an ingest_status; map it onto the step-based view.
+// Archive sections. The three doc-kind sections filter uploaded archives by
+// doc_kind; "Closed files" lists files whose matter has been closed.
+const SECTIONS: { key: string; label: string; kind: string | null }[] = [
+  { key: "all", label: "All", kind: null },
+  { key: "statute", label: "Statutes", kind: "statute" },
+  { key: "research", label: "Researches", kind: "research" },
+  { key: "authority", label: "Authorities", kind: "authority" },
+  { key: "closed", label: "Closed files", kind: null },
+];
+
 function statusToStage(s: string): { stage: string; progress_pct: number } {
   switch (s) {
     case "ingested":
@@ -27,16 +39,16 @@ export default function ArchivesPage() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileId, setFileId] = useState("");
-  const [docKind, setDocKind] = useState("other");
+  const [docKind, setDocKind] = useState("statute");
   const [live, setLive] = useState<LiveUpload[]>([]);
+  const [section, setSection] = useState("all");
 
   const { data: filesData } = useQuery({ queryKey: ["files"], queryFn: () => api("/api/v1/files") });
 
   const { data: persisted = [] } = useQuery<IngestDoc[]>({
-    queryKey: ["archives", fileId],
+    queryKey: ["archives"],
     queryFn: async () => {
-      const q = fileId ? `?file_id=${fileId}` : "";
-      const r = await api<{ archives: any[] }>(`/api/v1/archives${q}`);
+      const r = await api<{ archives: any[] }>(`/api/v1/archives`);
       return (r.archives || []).map((d) => ({
         id: d.id,
         filename: d.filename,
@@ -68,7 +80,6 @@ export default function ArchivesPage() {
       }
       qc.invalidateQueries({ queryKey: ["archives"] });
     }
-    // Clear finished live rows shortly after; the persisted list takes over.
     setTimeout(() => setLive((prev) => prev.filter((u) => u.stage !== "DONE")), 2500);
   }
 
@@ -77,51 +88,111 @@ export default function ArchivesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["archives"] }),
   });
 
-  // Live uploads sit above the persisted list (dedup by not showing DONE twice).
+  function selectSection(key: string) {
+    setSection(key);
+    const s = SECTIONS.find((x) => x.key === key);
+    if (s?.kind) setDocKind(s.kind);
+  }
+
+  const activeSection = SECTIONS.find((s) => s.key === section)!;
   const allDocs: IngestDoc[] = [...live.filter((u) => u.stage !== "DONE"), ...persisted];
+  const shownDocs = activeSection.kind ? allDocs.filter((d) => d.doc_kind === activeSection.kind) : allDocs;
+  const closedFiles = (filesData?.files || []).filter((f: any) => f.status === "closed");
 
   return (
     <div>
       <h2 className="font-display text-3xl font-bold text-navy">Archives</h2>
       <p className="mt-1 text-sm text-ink/60">
-        Upload pleadings, contracts and notes, or client-conversation recordings (auto-transcribed,
-        multilingual). Attach to a file so the content becomes per-case context for AI research.
-        Everything is parsed, embedded and linked into your firm&rsquo;s private knowledge graph —
-        isolated from every other firm.
+        Organise firm knowledge into statutes, researches and authorities, and review closed files.
+        Uploaded documents are parsed, embedded and linked into your firm&rsquo;s private knowledge
+        graph — isolated from every other firm.
       </p>
 
-      <div className="mt-6 card flex flex-col gap-3 border-dashed sm:flex-row sm:items-end">
-        <div className="flex-1">
-          <label className="label">File (per-case)</label>
-          <select className="input" value={fileId} onChange={(e) => setFileId(e.target.value)}>
-            <option value="">Unassigned</option>
-            {(filesData?.files || []).map((m: any) => (
-              <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex-1">
-          <label className="label">Type</label>
-          <select className="input" value={docKind} onChange={(e) => setDocKind(e.target.value)}>
-            {DOC_KINDS.map((k) => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
-          </select>
-        </div>
-        <input
-          ref={fileRef}
-          type="file"
-          multiple
-          accept=".pdf,.docx,.doc,.txt,.md,audio/*,.mp3,.wav,.m4a,.ogg,.flac,.webm"
-          className="hidden"
-          onChange={(e) => e.target.files && handleFiles(e.target.files)}
-        />
-        <button className="btn-gold shrink-0" onClick={() => fileRef.current?.click()}>
-          Upload files
-        </button>
+      {/* Section tabs */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => selectSection(s.key)}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              section === s.key ? "bg-navy text-white" : "bg-white text-navy border border-navy/20 hover:border-gold"
+            }`}
+          >
+            {s.label}
+            {s.key === "closed" && closedFiles.length > 0 && (
+              <span className="ml-1 text-xs opacity-70">({closedFiles.length})</span>
+            )}
+          </button>
+        ))}
       </div>
 
-      <div className="mt-6">
-        <IngestionStatus archives={allDocs} onRetry={(id) => retry.mutate(id)} />
-      </div>
+      {section === "closed" ? (
+        <div className="mt-6 card overflow-x-auto !p-0">
+          <table className="w-full text-sm">
+            <thead className="bg-navy/5 text-left text-xs uppercase tracking-wide text-navy/60">
+              <tr>
+                <th className="p-3">Reference</th><th className="p-3">Title</th>
+                <th className="p-3">Court</th><th className="p-3">Closed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {closedFiles.map((f: any) => (
+                <tr key={f.id} className="border-t border-navy/5">
+                  <td className="p-3 font-medium">{f.reference}</td>
+                  <td className="p-3">{f.title}</td>
+                  <td className="p-3">{f.court || "—"}</td>
+                  <td className="p-3">{f.closed_at ? fmtDate(f.closed_at) : "—"}</td>
+                </tr>
+              ))}
+              {closedFiles.length === 0 && (
+                <tr><td colSpan={4} className="p-6 text-center text-ink/50">No closed files yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <>
+          <div className="mt-6 card flex flex-col gap-3 border-dashed sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <label className="label">File (per-case, optional)</label>
+              <select className="input" value={fileId} onChange={(e) => setFileId(e.target.value)}>
+                <option value="">Unassigned</option>
+                {(filesData?.files || []).map((m: any) => (
+                  <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="label">Type</label>
+              <select className="input" value={docKind} onChange={(e) => setDocKind(e.target.value)}>
+                {DOC_KINDS.map((k) => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
+              </select>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              accept=".pdf,.docx,.doc,.txt,.md,audio/*,.mp3,.wav,.m4a,.ogg,.flac,.webm"
+              className="hidden"
+              onChange={(e) => e.target.files && handleFiles(e.target.files)}
+            />
+            <button className="btn-gold shrink-0" onClick={() => fileRef.current?.click()}>
+              Upload files
+            </button>
+          </div>
+
+          <div className="mt-6">
+            {shownDocs.length === 0 ? (
+              <p className="text-sm text-ink/50">
+                No {activeSection.key === "all" ? "documents" : activeSection.label.toLowerCase()} yet — upload a
+                document{activeSection.kind ? ` and set its type to “${activeSection.kind}”` : ""}.
+              </p>
+            ) : (
+              <IngestionStatus archives={shownDocs} onRetry={(id) => retry.mutate(id)} />
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

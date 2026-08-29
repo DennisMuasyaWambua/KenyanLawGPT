@@ -91,7 +91,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 					// already permits 'sms' so this branch lights up once they are.
 					logging.L(ctx).Debug("sms calendar reminder skipped (no user phone)", "reminder", rem.ReminderID)
 				default: // email
-					notifyUser(ctx, tx, mail, rem.OwnerID, "C. Karwitha & Co. Advocates calendar reminder", body)
+					notifyUser(ctx, tx, mail, rem.OwnerID, "C. Karwitha C.K Advocates calendar reminder", body)
 				}
 				if err := repository.MarkReminderSent(ctx, tx, rem.ReminderID); err != nil {
 					return err
@@ -128,7 +128,7 @@ func notifyFile(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, mail
 		ID: uuid.NewString(), UserID: target, Kind: "reminder", Body: body,
 	})
 	if u, err := repository.UserByID(ctx, tx, target); err == nil {
-		if err := mail.Send(ctx, u.Email, "C. Karwitha & Co. Advocates reminder", body); err != nil {
+		if err := mail.Send(ctx, u.Email, "C. Karwitha C.K Advocates reminder", body); err != nil {
 			logging.L(ctx).Warn("reminder email failed", "err", err)
 		}
 	}

@@ -186,7 +186,7 @@ func (s *Server) STKPush(c *gin.Context) {
 	// Tenant slug rides on the callback URL so the webhook settles in the
 	// right schema without trusting the payload.
 	callback := s.Cfg.DarajaCallbackURL + "?tenant=" + tenant.Slug
-	resp, err := s.Daraja.STKPush(c.Request.Context(), in.Phone, amount, invoice.Number, "C. Karwitha & Co. Advocates invoice "+invoice.Number, callback)
+	resp, err := s.Daraja.STKPush(c.Request.Context(), in.Phone, amount, invoice.Number, "C. Karwitha C.K Advocates invoice "+invoice.Number, callback)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "daraja request failed", "detail": err.Error()})
 		return

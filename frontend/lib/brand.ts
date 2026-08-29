@@ -3,9 +3,9 @@
 // their workspace (rendered from the tenant slug/name, not from BRAND).
 export const BRAND = {
   /** Full legal name — used for the browser tab title and the dashboard watermark. */
-  name: "C. Karwitha & Co. Advocates",
+  name: "C. Karwitha C.K Advocates",
   /** Compact wordmark for tight spaces (sidebar, headers). */
-  short: "C. Karwitha & Co.",
+  short: "C. Karwitha C.K",
   /** Subtitle under the wordmark. */
   sub: "Advocates",
   /** Public path to the letterhead logo (served from /public). */

@@ -174,7 +174,7 @@ class ReasoningEngine:
             "authority that is no longer good law. Cite sources as [n]."
         )
         system = (
-            "You are C. Karwitha & Co. Advocates' reasoning engine for Kenyan law. Be precise about "
+            "You are C. Karwitha C.K Advocates' reasoning engine for Kenyan law. Be precise about "
             "the doctrinal chain and about current vs superseded authority. "
             + CONFIDENTIALITY_PREAMBLE
         )

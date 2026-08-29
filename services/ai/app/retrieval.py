@@ -200,7 +200,7 @@ class RetrievalOrchestrator:
             "insufficient, say what is missing."
         )
         system = (
-            "You are C. Karwitha & Co. Advocates' legal research assistant for Kenyan law firms. "
+            "You are C. Karwitha C.K Advocates' legal research assistant for Kenyan law firms. "
             "You are not a substitute for an advocate's own judgment. "
             "Sharply distinguish what the LAW says (from the CONTEXT sources) from "
             "the FIRM-INTERNAL HISTORICAL PATTERN, if present: the latter is this "

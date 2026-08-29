@@ -20,6 +20,7 @@ import asyncio
 import logging
 
 from minio import Minio
+from minio.error import S3Error
 
 from .config import Config
 from .db import tenant_tx
@@ -108,8 +109,23 @@ class RecordingProcessor:
             pending = await conn.fetch(
                 "SELECT id::text AS id, object_key, filename, mime_type "
                 "FROM meeting_recordings WHERE status = 'transcribing' ORDER BY created_at LIMIT 5")
+            # Safety net: a recording whose browser uploaded the audio but never
+            # confirmed via POST /uploaded is stuck in 'recording'. After a grace
+            # window (so we don't race a still-in-progress upload) pick it up too,
+            # but only once the audio is actually present in storage.
+            stuck = await conn.fetch(
+                "SELECT id::text AS id, object_key, filename, mime_type "
+                "FROM meeting_recordings WHERE status = 'recording' "
+                "AND created_at < now() - interval '2 minutes' ORDER BY created_at LIMIT 5")
         handled = 0
         for rec in pending:
+            await self._process_one(tenant_id, rec["id"], rec["object_key"], rec["filename"], rec["mime_type"])
+            handled += 1
+        for rec in stuck:
+            if not await self._object_exists(rec["object_key"]):
+                continue  # still recording, or audio never landed — leave as-is
+            log.info("recovering stuck recording %s (uploaded but not confirmed)", rec["id"])
+            await self._update(tenant_id, rec["id"], status="transcribing")
             await self._process_one(tenant_id, rec["id"], rec["object_key"], rec["filename"], rec["mime_type"])
             handled += 1
         return handled
@@ -175,3 +191,14 @@ class RecordingProcessor:
                 resp.release_conn()
 
         return await asyncio.to_thread(_get)
+
+    async def _object_exists(self, object_key: str) -> bool:
+        def _stat() -> bool:
+            try:
+                self._minio.stat_object(self.cfg.s3_bucket, object_key)
+                return True
+            except S3Error as exc:
+                if exc.code in ("NoSuchKey", "NoSuchObject", "NotFound"):
+                    return False
+                raise
+        return await asyncio.to_thread(_stat)

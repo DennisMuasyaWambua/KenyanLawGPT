@@ -73,6 +73,12 @@ func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, i
 	if in.Plan == "" {
 		in.Plan = "starter"
 	}
+	// Block duplicate law firms (same name, case-insensitive).
+	if exists, err := repository.TenantNameExists(ctx, database.Pool, in.FirmName); err != nil {
+		return nil, nil, fmt.Errorf("firm name check: %w", err)
+	} else if exists {
+		return nil, nil, fmt.Errorf("a firm named %q already exists", in.FirmName)
+	}
 	tenantID := uuid.New()
 	schema := "tenant_" + strings.ReplaceAll(tenantID.String(), "-", "")
 	tenant := &repository.Tenant{

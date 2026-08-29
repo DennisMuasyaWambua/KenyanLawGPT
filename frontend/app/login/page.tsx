@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { getTenant, setSession } from "@/lib/api";
 import GoogleButton from "@/components/GoogleButton";
 import { BRAND } from "@/lib/brand";
@@ -101,7 +100,7 @@ export default function LoginPage() {
           <GoogleButton text="signin_with" onCredential={googleLogin} />
 
           <p className="text-center text-xs text-ink/50">
-            New here? <Link href="/signup" className="text-gold underline">Create a firm workspace</Link>
+            Need access? Ask a partner at your firm to onboard you.
           </p>
         </form>
       </div>

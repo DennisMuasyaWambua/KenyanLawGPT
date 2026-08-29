@@ -81,3 +81,13 @@ func DeleteTenant(ctx context.Context, pool *pgxpool.Pool, id string) error {
 	_, err := pool.Exec(ctx, "DELETE FROM public.tenants WHERE id = $1", id)
 	return err
 }
+
+// TenantNameExists reports whether a (non-deleted) firm with this name already
+// exists — used to block duplicate law firms at creation time.
+func TenantNameExists(ctx context.Context, pool *pgxpool.Pool, name string) (bool, error) {
+	var exists bool
+	err := pool.QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM public.tenants WHERE lower(name) = lower($1) AND status <> 'deleted')",
+		strings.TrimSpace(name)).Scan(&exists)
+	return exists, err
+}

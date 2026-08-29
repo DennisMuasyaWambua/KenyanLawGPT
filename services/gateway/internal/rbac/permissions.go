@@ -170,7 +170,7 @@ var DefaultTemplates = []RoleTemplate{
 		Protected: true, Permissions: AllPermissions(),
 	},
 	{
-		Name: "Partner", Description: "Advocate partner — full feature access",
+		Name: "Partner", Description: "Advocate partner — full feature access + staff onboarding",
 		Permissions: []string{
 			PermMattersCreate, PermMattersViewOwn, PermMattersViewAll, PermMattersEdit, PermMattersDelete,
 			PermDocumentsUpload, PermDocumentsView, PermDocumentsDownload, PermDocumentsDelete,
@@ -180,7 +180,9 @@ var DefaultTemplates = []RoleTemplate{
 			PermRecordingsCreate, PermRecordingsViewOwn, PermRecordingsViewAll,
 			PermBillingView, PermBillingManage,
 			PermCalendarViewShared, PermCalendarCreateShared, PermCalendarEditShared, PermCalendarDeleteShared,
-			PermCommsView, PermCommsSend, PermUsersView,
+			PermCommsView, PermCommsSend,
+			// Staff onboarding & management (Partner + Managing Partner).
+			PermUsersView, PermUsersInvite, PermUsersManageRoles, PermUsersRemove, PermRolesManage,
 		},
 	},
 	{

@@ -11,23 +11,13 @@ import (
 	"github.com/wakiliai/gateway/internal/auth"
 	"github.com/wakiliai/gateway/internal/integrations/google"
 	"github.com/wakiliai/gateway/internal/repository"
-	"github.com/wakiliai/gateway/internal/services"
 )
 
-// Signup provisions a new firm (tenant) — the one endpoint that runs outside
-// tenant context.
+// Signup is disabled. Firms are provisioned only via the super-admin control
+// center; staff are onboarded by a Partner/Managing Partner. This prevents
+// duplicate law firms from public self-registration.
 func (s *Server) Signup(c *gin.Context) {
-	var in services.ProvisionInput
-	if err := c.ShouldBindJSON(&in); err != nil {
-		badRequest(c, err.Error())
-		return
-	}
-	tenant, owner, err := services.ProvisionTenant(c.Request.Context(), s.DB, s.Cfg, &in)
-	if err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusCreated, gin.H{"tenant": tenant, "owner": gin.H{"id": owner.ID, "email": owner.Email}})
+	c.JSON(http.StatusForbidden, gin.H{"error": "public sign-up is disabled — ask a partner to onboard you"})
 }
 
 type loginInput struct {
@@ -157,42 +147,10 @@ func (s *Server) GoogleLogin(c *gin.Context) {
 	}
 }
 
-// GoogleSignup provisions a new firm whose owner authenticates with Google (no
-// password). Runs outside tenant context like Signup. When firm_name/slug are
-// omitted, a personal (solo) workspace is auto-provisioned. The client then
-// calls GoogleLogin with the returned slug to obtain tokens.
+// GoogleSignup is disabled for the same reason as Signup — no public firm
+// self-registration.
 func (s *Server) GoogleSignup(c *gin.Context) {
-	var in struct {
-		Credential      string `json:"credential" binding:"required"`
-		FirmName        string `json:"firm_name"`
-		Slug            string `json:"slug"`
-		Plan            string `json:"plan"`
-		DataResidencyKE bool   `json:"data_residency_ke"`
-	}
-	if err := c.ShouldBindJSON(&in); err != nil {
-		badRequest(c, err.Error())
-		return
-	}
-	ident, err := google.Verify(c.Request.Context(), in.Credential, s.Cfg.GoogleClientID)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid Google credential"})
-		return
-	}
-	if !ident.EmailVerified {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Google email is not verified"})
-		return
-	}
-	prov := &services.ProvisionInput{
-		FirmName: in.FirmName, Slug: in.Slug, Plan: in.Plan,
-		DataResidencyKE: in.DataResidencyKE,
-		OwnerName:       ident.Name, OwnerEmail: ident.Email, GoogleSub: ident.Sub,
-	}
-	tenant, owner, err := services.ProvisionTenant(c.Request.Context(), s.DB, s.Cfg, prov)
-	if err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusCreated, gin.H{"tenant": tenant, "owner": gin.H{"id": owner.ID, "email": owner.Email}})
+	c.JSON(http.StatusForbidden, gin.H{"error": "public sign-up is disabled — ask a partner to onboard you"})
 }
 
 // Refresh rotates the refresh token: the presented token is atomically

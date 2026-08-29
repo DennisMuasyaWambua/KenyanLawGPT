@@ -3,12 +3,17 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fmtDate, fmtKES } from "@/lib/api";
+import { aroQuote, ARO_SCALES } from "@/lib/aro";
 
 export default function BillingPage() {
   const qc = useQueryClient();
   const [payingInvoice, setPayingInvoice] = useState<any>(null);
   const [phone, setPhone] = useState("2547");
   const [payMsg, setPayMsg] = useState("");
+  const [aroScale, setAroScale] = useState("sale");
+  const [aroValue, setAroValue] = useState("");
+  const [aroFileId, setAroFileId] = useState("");
+  const [aroErr, setAroErr] = useState("");
 
   const { data: invoicesData } = useQuery({ queryKey: ["invoices"], queryFn: () => api("/api/v1/invoices") });
   const { data: timeData } = useQuery({
@@ -41,6 +46,30 @@ export default function BillingPage() {
     onError: (e) => setPayMsg((e as Error).message),
   });
 
+  const quote = aroQuote(aroScale, Number(aroValue));
+  const aroFile = (filesData?.files || []).find((f: any) => f.id === aroFileId);
+  const createAroInvoice = useMutation({
+    mutationFn: () => {
+      const scale = ARO_SCALES.find((s) => s.key === aroScale)!;
+      return api("/api/v1/invoices", {
+        method: "POST",
+        body: JSON.stringify({
+          client_id: aroFile?.client_id,
+          file_id: aroFileId || null,
+          items: [{
+            description: `${scale.name} — ARO 2014 (value ${fmtKES(Number(aroValue))})`,
+            quantity: 1, unit_kes: quote?.fee,
+          }],
+        }),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      setAroValue(""); setAroFileId(""); setAroErr("");
+    },
+    onError: (e) => setAroErr((e as Error).message),
+  });
+
   const unbilledByFile: Record<string, { minutes: number; file?: any }> = {};
   for (const t of timeData?.time_entries || []) {
     unbilledByFile[t.file_id] = unbilledByFile[t.file_id] || { minutes: 0 };
@@ -51,6 +80,59 @@ export default function BillingPage() {
   return (
     <div>
       <h2 className="font-display text-3xl font-bold text-navy">Billing</h2>
+
+      {/* Advocates Remuneration Order 2014 fee calculator */}
+      <div className="card mt-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-display text-lg font-bold text-navy">ARO 2014 fee calculator</h3>
+          <span className="badge-public">Advocates Remuneration Order 2014</span>
+        </div>
+        <p className="mt-1 text-xs text-ink/50">
+          Auto-suggests the advocate&rsquo;s fee from the ARO scales. Figures are representative —
+          verify against the current gazette before issuing.
+        </p>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+          <select className="input" value={aroScale} onChange={(e) => setAroScale(e.target.value)}>
+            {ARO_SCALES.map((s) => <option key={s.key} value={s.key}>{s.name}</option>)}
+          </select>
+          <input className="input" type="number" min="0" placeholder="Value / amount (KES)"
+            value={aroValue} onChange={(e) => setAroValue(e.target.value)} />
+          <select className="input" value={aroFileId} onChange={(e) => setAroFileId(e.target.value)}>
+            <option value="">Attach to file…</option>
+            {(filesData?.files || []).map((f: any) => (
+              <option key={f.id} value={f.id}>{f.reference} — {f.title}</option>
+            ))}
+          </select>
+          <button className="btn-gold" disabled={!quote || !aroFile?.client_id || createAroInvoice.isPending}
+            onClick={() => { setAroErr(""); createAroInvoice.mutate(); }}>
+            {createAroInvoice.isPending ? "Creating…" : "Create invoice"}
+          </button>
+        </div>
+        {quote && (
+          <div className="mt-3 rounded-md border border-navy/10 bg-navy/5 p-3 text-sm">
+            <div className="flex justify-between font-semibold text-navy">
+              <span>Suggested fee {quote.minApplied && <span className="text-xs font-normal text-ink/50">(minimum applied)</span>}</span>
+              <span>{fmtKES(quote.fee)}</span>
+            </div>
+            <p className="mt-1 text-xs text-ink/50">{quote.scale.note}</p>
+            <table className="mt-2 w-full text-xs text-ink/60">
+              <tbody>
+                {quote.lines.map((l, i) => (
+                  <tr key={i}>
+                    <td className="py-0.5">{l.label}</td>
+                    <td className="py-0.5 text-right">{fmtKES(l.portion)} × {(l.rate * 100).toFixed(2)}%</td>
+                    <td className="py-0.5 text-right">{fmtKES(l.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {aroFileId && !aroFile?.client_id && (
+              <p className="mt-2 text-xs text-amber-700">This file has no client attached — assign a client to invoice it.</p>
+            )}
+          </div>
+        )}
+        {aroErr && <p className="mt-2 text-sm text-red-600">{aroErr}</p>}
+      </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="card">

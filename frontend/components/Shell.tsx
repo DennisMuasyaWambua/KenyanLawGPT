@@ -19,6 +19,7 @@ const STAFF_NAV = [
   { href: "/research", label: "AI Research", icon: "🔍" },
   { href: "/drafting", label: "Drafts", icon: "✎" },
   { href: "/inbox", label: "Communications", icon: "✉" },
+  { href: "/e-services", label: "e-Services", icon: "🏛" },
   { href: "/billing", label: "Billing", icon: "₿" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];

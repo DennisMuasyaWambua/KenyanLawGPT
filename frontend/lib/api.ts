@@ -125,7 +125,7 @@ export async function streamDraft(
 // recording attached to a file becomes per-case context for the AI.
 export async function uploadArchive(
   file: File,
-  opts: { fileId?: string | null; docKind?: string },
+  opts: { fileId?: string | null; docKind?: string; replacesId?: string | null },
   onStage?: (stage: string, pct: number, msg?: string) => void
 ): Promise<{ archive_id: string; ingest_status: string }> {
   onStage?.("QUEUED", 5);
@@ -139,6 +139,7 @@ export async function uploadArchive(
         size_bytes: file.size,
         file_id: opts.fileId || null,
         doc_kind: opts.docKind || "other",
+        replaces_id: opts.replacesId || null,
       }),
     }
   );

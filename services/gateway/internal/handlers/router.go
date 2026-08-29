@@ -125,6 +125,9 @@ func (s *Server) Register(r *gin.Engine) {
 	member.GET("/archives/:id/download", perm(rbac.PermDocumentsDownload), s.DownloadArchive)
 	member.GET("/archives/:id/comments", perm(rbac.PermDocumentsView), s.ListArchiveComments)
 	member.POST("/archives/:id/comments", perm(rbac.PermDocumentsView), s.AddArchiveComment)
+	member.GET("/archives/:id/versions", perm(rbac.PermDocumentsView), s.GetArchiveVersions)
+	member.GET("/archives/:id/shares", perm(rbac.PermDocumentsView), s.GetArchiveShares)
+	member.PUT("/archives/:id/shares", perm(rbac.PermDocumentsUpload), s.SetArchiveShares)
 	member.GET("/drafts", perm(rbac.PermDocumentsView), s.ListDrafts)
 
 	member.POST("/research/query", perm(rbac.PermResearchQuery), s.ResearchQuery)

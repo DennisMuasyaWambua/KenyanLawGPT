@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, uploadArchive, fmtDate } from "@/lib/api";
 import IngestionStatus, { IngestDoc } from "@/components/IngestionStatus";
@@ -195,23 +195,51 @@ export default function ArchivesPage() {
         </>
       )}
 
-      {openDoc && <CommentsDrawer doc={openDoc} onClose={() => setOpenDoc(null)} />}
+      {openDoc && <DocumentDrawer doc={openDoc} onClose={() => setOpenDoc(null)} />}
     </div>
   );
 }
 
-function CommentsDrawer({ doc, onClose }: { doc: IngestDoc; onClose: () => void }) {
+function DocumentDrawer({ doc, onClose }: { doc: IngestDoc; onClose: () => void }) {
   const qc = useQueryClient();
+  const verRef = useRef<HTMLInputElement>(null);
   const [body, setBody] = useState("");
-  const { data } = useQuery({
-    queryKey: ["archive-comments", doc.id],
-    queryFn: () => api(`/api/v1/archives/${doc.id}/comments`),
-  });
-  const comments = data?.comments || [];
-  const add = useMutation({
+  const [uploading, setUploading] = useState(false);
+  const [restricted, setRestricted] = useState(false);
+  const [shared, setShared] = useState<string[]>([]);
+
+  const { data: verData } = useQuery({ queryKey: ["archive-versions", doc.id], queryFn: () => api(`/api/v1/archives/${doc.id}/versions`) });
+  const versions = verData?.versions || [];
+  const { data: shareData } = useQuery({ queryKey: ["archive-shares", doc.id], queryFn: () => api(`/api/v1/archives/${doc.id}/shares`) });
+  const { data: comData } = useQuery({ queryKey: ["archive-comments", doc.id], queryFn: () => api(`/api/v1/archives/${doc.id}/comments`) });
+  const comments = comData?.comments || [];
+  const users = (shareData?.users || []).filter((u: any) => u.role !== "client");
+
+  useEffect(() => {
+    if (shareData) { setRestricted(!!shareData.restricted); setShared(shareData.shared_user_ids || []); }
+  }, [shareData]);
+
+  const addComment = useMutation({
     mutationFn: () => api(`/api/v1/archives/${doc.id}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
     onSuccess: () => { setBody(""); qc.invalidateQueries({ queryKey: ["archive-comments", doc.id] }); },
   });
+  const saveShares = useMutation({
+    mutationFn: () => api(`/api/v1/archives/${doc.id}/shares`, { method: "PUT", body: JSON.stringify({ restricted, user_ids: restricted ? shared : [] }) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["archive-shares", doc.id] }); qc.invalidateQueries({ queryKey: ["archives"] }); },
+  });
+
+  async function newVersion(files: FileList) {
+    if (!files[0]) return;
+    setUploading(true);
+    try {
+      await uploadArchive(files[0], { replacesId: doc.id });
+      qc.invalidateQueries({ queryKey: ["archives"] });
+      onClose();
+    } finally { setUploading(false); }
+  }
+
+  const toggleShared = (id: string) =>
+    setShared((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-navy/40" onClick={onClose}>
@@ -219,28 +247,79 @@ function CommentsDrawer({ doc, onClose }: { doc: IngestDoc; onClose: () => void 
         <div className="flex items-center justify-between border-b border-navy/10 p-4">
           <div className="min-w-0">
             <h3 className="truncate font-display text-lg font-bold text-navy">{doc.filename}</h3>
-            <p className="text-xs text-ink/50">Document discussion</p>
+            <p className="text-xs text-ink/50">Document collaboration</p>
           </div>
           <button onClick={onClose} className="shrink-0 text-lg text-ink/50 hover:text-navy">✕</button>
         </div>
-        <div className="flex-1 space-y-3 overflow-y-auto p-4">
-          {comments.length === 0 && <p className="text-sm text-ink/50">No comments yet — start the discussion.</p>}
-          {comments.map((c: any) => (
-            <div key={c.id} className="rounded-md border border-navy/10 bg-navy/5 p-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-navy">{c.author_name || "Someone"}</span>
-                <span className="text-ink/40">{fmtDate(c.created_at)}</span>
-              </div>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-ink/80">{c.body}</p>
+
+        <div className="flex-1 space-y-5 overflow-y-auto p-4">
+          <section>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold uppercase tracking-wide text-navy/60">Version history</h4>
+              <button onClick={() => verRef.current?.click()} disabled={uploading}
+                className="text-xs font-semibold text-gold-dim hover:underline">{uploading ? "Uploading…" : "+ New version"}</button>
+              <input ref={verRef} type="file" className="hidden"
+                accept=".pdf,.docx,.doc,.txt,.md,audio/*" onChange={(e) => e.target.files && newVersion(e.target.files)} />
             </div>
-          ))}
+            <div className="mt-2 space-y-1">
+              {versions.map((v: any, i: number) => (
+                <div key={v.id} className="flex items-center justify-between rounded-md border border-navy/10 px-2 py-1 text-xs">
+                  <span className="truncate">v{v.version} · {v.filename}</span>
+                  <span className="text-ink/40">{i === 0 ? "current" : fmtDate(v.created_at)}</span>
+                </div>
+              ))}
+              {versions.length <= 1 && <p className="text-xs text-ink/40">One version. Upload a new version to keep history.</p>}
+            </div>
+          </section>
+
+          <section>
+            <h4 className="text-xs font-bold uppercase tracking-wide text-navy/60">Access</h4>
+            <label className="mt-2 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={restricted} onChange={(e) => setRestricted(e.target.checked)} />
+              Restrict this document to specific people
+            </label>
+            {restricted && (
+              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-md border border-navy/10 p-2">
+                {users.length === 0 && <p className="text-xs text-ink/40">No other members to share with.</p>}
+                {users.map((u: any) => (
+                  <label key={u.id} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={shared.includes(u.id)} onChange={() => toggleShared(u.id)} />
+                    <span className="truncate">{u.full_name || u.email}</span>
+                    <span className="ml-auto text-[11px] text-ink/40">{u.role}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <button onClick={() => saveShares.mutate()} disabled={saveShares.isPending}
+              className="mt-2 rounded-md border border-navy/20 px-3 py-1 text-xs font-semibold text-navy transition hover:border-gold hover:text-gold-dim">
+              {saveShares.isPending ? "Saving…" : "Save access"}
+            </button>
+            <p className="mt-1 text-[11px] text-ink/40">Restricted documents are visible only to the uploader, the people you pick, and the Managing Partner.</p>
+          </section>
+
+          <section>
+            <h4 className="text-xs font-bold uppercase tracking-wide text-navy/60">Discussion</h4>
+            <div className="mt-2 space-y-2">
+              {comments.length === 0 && <p className="text-sm text-ink/50">No comments yet — start the discussion.</p>}
+              {comments.map((c: any) => (
+                <div key={c.id} className="rounded-md border border-navy/10 bg-navy/5 p-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-navy">{c.author_name || "Someone"}</span>
+                    <span className="text-ink/40">{fmtDate(c.created_at)}</span>
+                  </div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-ink/80">{c.body}</p>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
+
         <form className="border-t border-navy/10 p-3"
-          onSubmit={(e) => { e.preventDefault(); if (body.trim()) add.mutate(); }}>
-          <textarea className="input" rows={3} placeholder="Add a comment…" value={body}
+          onSubmit={(e) => { e.preventDefault(); if (body.trim()) addComment.mutate(); }}>
+          <textarea className="input" rows={2} placeholder="Add a comment…" value={body}
             onChange={(e) => setBody(e.target.value)} />
-          <button className="btn-gold mt-2 w-full" disabled={!body.trim() || add.isPending}>
-            {add.isPending ? "Posting…" : "Post comment"}
+          <button className="btn-gold mt-2 w-full" disabled={!body.trim() || addComment.isPending}>
+            {addComment.isPending ? "Posting…" : "Post comment"}
           </button>
         </form>
       </div>

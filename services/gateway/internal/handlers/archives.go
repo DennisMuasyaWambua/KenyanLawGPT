@@ -21,11 +21,12 @@ import (
 // issuer of signed URLs — the AI service and frontend never hold S3 creds.
 func (s *Server) PresignUpload(c *gin.Context) {
 	var in struct {
-		Filename string  `json:"filename" binding:"required"`
-		MimeType string  `json:"mime_type"`
-		SizeB    int64   `json:"size_bytes"`
-		FileID *string `json:"file_id"`
-		DocKind  string  `json:"doc_kind"`
+		Filename   string  `json:"filename" binding:"required"`
+		MimeType   string  `json:"mime_type"`
+		SizeB      int64   `json:"size_bytes"`
+		FileID     *string `json:"file_id"`
+		DocKind    string  `json:"doc_kind"`
+		ReplacesID string  `json:"replaces_id"` // upload as a new version of this document
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, err.Error())
@@ -48,6 +49,26 @@ func (s *Server) PresignUpload(c *gin.Context) {
 		UploadedBy: s.claims(c).UserID(), IngestStatus: "pending",
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
+		if in.ReplacesID != "" {
+			old, err := repository.ArchiveByID(c.Request.Context(), tx, in.ReplacesID)
+			if err != nil {
+				return err
+			}
+			doc.Version = old.Version + 1
+			doc.PreviousID = &old.ID
+			doc.DocKind = old.DocKind
+			doc.Restricted = old.Restricted
+			if doc.FileID == nil {
+				doc.FileID = old.FileID
+			}
+			if err := repository.InsertArchive(c.Request.Context(), tx, doc); err != nil {
+				return err
+			}
+			if uids, e := repository.ListArchiveShareUserIDs(c.Request.Context(), tx, old.ID); e == nil && len(uids) > 0 {
+				_ = repository.ReplaceArchiveShares(c.Request.Context(), tx, doc.ID, uids)
+			}
+			return repository.MarkSuperseded(c.Request.Context(), tx, old.ID)
+		}
 		return repository.InsertArchive(c.Request.Context(), tx, doc)
 	}) {
 		c.JSON(http.StatusCreated, gin.H{"archive": doc, "upload_url": uploadURL})
@@ -119,7 +140,7 @@ func (s *Server) markIngest(c *gin.Context, docID, status string) {
 func (s *Server) ListArchives(c *gin.Context) {
 	var docs []repository.Archive
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		d, err := repository.ListArchives(c.Request.Context(), tx, c.Query("file_id"))
+		d, err := repository.ListArchives(c.Request.Context(), tx, c.Query("file_id"), s.claims(c).UserID(), s.isSenior(c))
 		docs = d
 		return err
 	}) {
@@ -130,11 +151,24 @@ func (s *Server) ListArchives(c *gin.Context) {
 func (s *Server) DownloadArchive(c *gin.Context) {
 	tenant := s.tenant(c)
 	var doc *repository.Archive
+	allowed := true
 	if !s.withTenant(c, func(tx pgx.Tx) error {
+		ok, err := repository.CanAccessArchive(c.Request.Context(), tx, c.Param("id"), s.claims(c).UserID(), s.isSenior(c))
+		if err != nil {
+			return err
+		}
+		if !ok {
+			allowed = false
+			return nil
+		}
 		d, err := repository.ArchiveByID(c.Request.Context(), tx, c.Param("id"))
 		doc = d
 		return err
 	}) {
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "you don't have access to this document"})
 		return
 	}
 	url, err := s.Store.PresignGet(c.Request.Context(), tenant.ID, doc.ObjectKey)
@@ -143,6 +177,12 @@ func (s *Server) DownloadArchive(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"download_url": url, "filename": doc.Filename})
+}
+
+// isSenior reports whether the caller is the Managing Partner (sees all
+// documents, including restricted ones).
+func (s *Server) isSenior(c *gin.Context) bool {
+	return s.claims(c).Role() == "Managing Partner"
 }
 
 func (s *Server) ListDrafts(c *gin.Context) {

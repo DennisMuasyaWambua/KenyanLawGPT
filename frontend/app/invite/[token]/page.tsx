@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { setSession } from "@/lib/api";
 import GoogleButton from "@/components/GoogleButton";
+import { BRAND } from "@/lib/brand";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
@@ -17,6 +18,7 @@ export default function InviteAcceptPage() {
   const [invite, setInvite] = useState<any>(null);
   const [firmName, setFirmName] = useState("");
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -62,9 +64,8 @@ export default function InviteAcceptPage() {
     <main className="flex min-h-screen items-center justify-center bg-navy p-6">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <h1 className="font-display text-4xl font-bold text-white">
-            Advocat<span className="text-gold">us</span>
-          </h1>
+          <img src={BRAND.logo} alt={BRAND.name} className="mx-auto mb-3 h-16 w-16 rounded-md bg-white object-contain p-1" />
+          <h1 className="font-display text-2xl font-bold text-white">{BRAND.short}</h1>
           <p className="mt-2 text-sm text-white/60">
             {invite ? `Join ${firmName || firm} as ${invite.role}` : "Accept your invite"}
           </p>
@@ -84,13 +85,18 @@ export default function InviteAcceptPage() {
                 className="space-y-3"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  accept({ full_name: fullName, password });
+                  accept({ full_name: fullName, phone, password });
                 }}
               >
                 <div>
                   <label className="label">Full name</label>
                   <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)}
                     placeholder="Your name" required />
+                </div>
+                <div>
+                  <label className="label">Phone (for WhatsApp/SMS reminders)</label>
+                  <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)}
+                    placeholder="2547XXXXXXXX" />
                 </div>
                 <div>
                   <label className="label">Set a password</label>
@@ -108,7 +114,7 @@ export default function InviteAcceptPage() {
               </div>
               <GoogleButton
                 text="continue_with"
-                onCredential={(credential) => accept({ full_name: fullName, credential })}
+                onCredential={(credential) => accept({ full_name: fullName, phone, credential })}
               />
             </>
           )}

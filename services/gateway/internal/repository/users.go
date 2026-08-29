@@ -15,6 +15,7 @@ type User struct {
 	RoleID       *string    `json:"role_id,omitempty"` // firm-scoped role; NULL for portal clients
 	Status       string     `json:"status"`
 	ClientID     *string    `json:"client_id,omitempty"` // set for portal users
+	Phone        string     `json:"phone"`               // for WhatsApp/SMS reminders
 	PasswordHash string     `json:"-"`                   // "" for Google-only accounts
 	GoogleSub    *string    `json:"-"`
 	AuthProvider string     `json:"auth_provider"`
@@ -25,12 +26,12 @@ type User struct {
 // password_hash is nullable (Google accounts have none); COALESCE keeps the
 // scan into a plain string. An empty PasswordHash never matches CheckPassword.
 const userCols = "id, email, full_name, role, role_id, status, client_id, COALESCE(password_hash,''), " +
-	"google_sub, auth_provider, created_at, last_login_at"
+	"google_sub, auth_provider, created_at, last_login_at, COALESCE(phone,'')"
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.RoleID, &u.Status, &u.ClientID,
-		&u.PasswordHash, &u.GoogleSub, &u.AuthProvider, &u.CreatedAt, &u.LastLoginAt); err != nil {
+		&u.PasswordHash, &u.GoogleSub, &u.AuthProvider, &u.CreatedAt, &u.LastLoginAt, &u.Phone); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -71,9 +72,9 @@ func InsertUser(ctx context.Context, tx pgx.Tx, u *User) error {
 		provider = "password"
 	}
 	_, err := tx.Exec(ctx,
-		`INSERT INTO users (id, email, full_name, role, role_id, status, client_id, password_hash, google_sub, auth_provider)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9,$10)`,
-		u.ID, u.Email, u.FullName, u.Role, u.RoleID, u.Status, u.ClientID, u.PasswordHash, u.GoogleSub, provider)
+		`INSERT INTO users (id, email, full_name, role, role_id, status, client_id, password_hash, google_sub, auth_provider, phone)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9,$10,$11)`,
+		u.ID, u.Email, u.FullName, u.Role, u.RoleID, u.Status, u.ClientID, u.PasswordHash, u.GoogleSub, provider, u.Phone)
 	return err
 }
 

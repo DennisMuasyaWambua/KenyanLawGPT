@@ -51,6 +51,14 @@ type Config struct {
 	ATSenderID string
 	ATBaseURL  string
 
+	// Meta WhatsApp Cloud API (calendar reminders). Empty => SMS fallback.
+	WhatsAppBaseURL    string
+	WhatsAppAPIVersion string
+	WhatsAppPhoneID    string
+	WhatsAppToken      string
+	WhatsAppTemplate   string
+	WhatsAppLang       string
+
 	DarajaBaseURL        string
 	DarajaConsumerKey    string
 	DarajaConsumerSecret string
@@ -138,6 +146,13 @@ func Load() *Config {
 		ATAPIKey:   env("AT_API_KEY", ""),
 		ATSenderID: env("AT_SENDER_ID", "WAKILI"),
 		ATBaseURL:  env("AT_BASE_URL", "https://api.sandbox.africastalking.com"),
+
+		WhatsAppBaseURL:    env("WHATSAPP_BASE_URL", "https://graph.facebook.com"),
+		WhatsAppAPIVersion: env("WHATSAPP_API_VERSION", "v21.0"),
+		WhatsAppPhoneID:    env("WHATSAPP_PHONE_ID", ""),
+		WhatsAppToken:      env("WHATSAPP_TOKEN", ""),
+		WhatsAppTemplate:   env("WHATSAPP_TEMPLATE", ""),
+		WhatsAppLang:       env("WHATSAPP_LANG", "en"),
 
 		DarajaBaseURL:        env("DARAJA_BASE_URL", "https://sandbox.safaricom.co.ke"),
 		DarajaConsumerKey:    env("DARAJA_CONSUMER_KEY", ""),

@@ -92,6 +92,7 @@ func (s *Server) GetInvite(c *gin.Context) {
 func (s *Server) AcceptInvite(c *gin.Context) {
 	var in struct {
 		FullName   string `json:"full_name"`
+		Phone      string `json:"phone"` // for WhatsApp/SMS reminders
 		Password   string `json:"password"`
 		Credential string `json:"credential"` // Google id token (alternative to password)
 	}
@@ -129,7 +130,7 @@ func (s *Server) AcceptInvite(c *gin.Context) {
 			fullName = inv.FullName
 		}
 		u := &repository.User{
-			ID: uuid.NewString(), Email: inv.Email, FullName: fullName,
+			ID: uuid.NewString(), Email: inv.Email, FullName: fullName, Phone: strings.TrimSpace(in.Phone),
 			Role: inv.Role, RoleID: inv.RoleID, Status: "active", AuthProvider: "password",
 		}
 		if ident != nil {

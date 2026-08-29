@@ -17,6 +17,7 @@ import (
 	"github.com/wakiliai/gateway/internal/integrations/email"
 	"github.com/wakiliai/gateway/internal/integrations/judiciary"
 	"github.com/wakiliai/gateway/internal/integrations/mpesa"
+	"github.com/wakiliai/gateway/internal/integrations/whatsapp"
 	"github.com/wakiliai/gateway/internal/logging"
 	"github.com/wakiliai/gateway/internal/services"
 	"github.com/wakiliai/gateway/internal/storage"
@@ -63,12 +64,13 @@ func main() {
 	mail := email.New(cfg)
 	daraja := mpesa.New(cfg)
 	jud := judiciary.New(cfg, rdb)
+	wa := whatsapp.New(cfg)
 
 	if err := services.EnsurePlatformAdmin(ctx, database, cfg.PlatformAdminEmail, cfg.PlatformAdminPassword); err != nil {
 		log.Warn("ensure platform admin failed", "err", err)
 	}
 
-	go services.RunReminderLoop(ctx, database, cfg, sms, mail)
+	go services.RunReminderLoop(ctx, database, cfg, sms, mail, wa)
 	go services.RunReconcileLoop(ctx, database, cfg, daraja)
 
 	if cfg.Env == "prod" {

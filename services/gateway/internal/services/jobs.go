@@ -14,6 +14,7 @@ import (
 	"github.com/wakiliai/gateway/internal/integrations/africastalking"
 	"github.com/wakiliai/gateway/internal/integrations/email"
 	"github.com/wakiliai/gateway/internal/integrations/mpesa"
+	"github.com/wakiliai/gateway/internal/integrations/whatsapp"
 	"github.com/wakiliai/gateway/internal/logging"
 	"github.com/wakiliai/gateway/internal/metrics"
 	"github.com/wakiliai/gateway/internal/repository"
@@ -22,7 +23,7 @@ import (
 // RunReminderLoop scans every active tenant for upcoming court dates and
 // deadlines and fans out SMS (Africa's Talking) + email + in-app
 // notifications, marking each item reminded exactly once.
-func RunReminderLoop(ctx context.Context, database *db.DB, cfg *config.Config, sms *africastalking.Client, mail email.Provider) {
+func RunReminderLoop(ctx context.Context, database *db.DB, cfg *config.Config, sms *africastalking.Client, mail email.Provider, wa *whatsapp.Client) {
 	ticker := time.NewTicker(cfg.RemindersInterval)
 	defer ticker.Stop()
 	for {
@@ -30,12 +31,12 @@ func RunReminderLoop(ctx context.Context, database *db.DB, cfg *config.Config, s
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			runRemindersOnce(ctx, database, sms, mail)
+			runRemindersOnce(ctx, database, sms, mail, wa)
 		}
 	}
 }
 
-func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.Client, mail email.Provider) {
+func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.Client, mail email.Provider, wa *whatsapp.Client) {
 	tenants, err := repository.ListActiveTenants(ctx, database.Pool)
 	if err != nil {
 		logging.L(ctx).Error("reminders: list tenants", "err", err)
@@ -55,7 +56,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 				}
 				body := fmt.Sprintf("Court date reminder: %s (%s) on %s at %s. Purpose: %s",
 					m.Title, m.Reference, cd.Date.Format("Mon 02 Jan 2006 15:04"), cd.Courtroom, cd.Purpose)
-				notifyFile(ctx, tx, sms, mail, m, body)
+				notifyFile(ctx, tx, sms, mail, wa, m, body)
 				if err := repository.MarkReminded(ctx, tx, "court_dates", cd.ID); err != nil {
 					return err
 				}
@@ -68,7 +69,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 				}
 				body := fmt.Sprintf("Deadline reminder: %q for %s (%s) due %s",
 					d.Title, m.Title, m.Reference, d.DueAt.Format("Mon 02 Jan 2006 15:04"))
-				notifyFile(ctx, tx, sms, mail, m, body)
+				notifyFile(ctx, tx, sms, mail, wa, m, body)
 				if err := repository.MarkReminded(ctx, tx, "deadlines", d.ID); err != nil {
 					return err
 				}
@@ -85,14 +86,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 				if rem.Location != "" {
 					body += " · " + rem.Location
 				}
-				switch rem.Channel {
-				case "sms":
-					// Per-user phone numbers aren't collected yet; the schema
-					// already permits 'sms' so this branch lights up once they are.
-					logging.L(ctx).Debug("sms calendar reminder skipped (no user phone)", "reminder", rem.ReminderID)
-				default: // email
-					notifyUser(ctx, tx, mail, rem.OwnerID, "C. Karwitha C.K Advocates calendar reminder", body)
-				}
+				notifyUser(ctx, tx, mail, sms, wa, rem.OwnerID, "C. Karwitha C.K Advocates calendar reminder", body)
 				if err := repository.MarkReminderSent(ctx, tx, rem.ReminderID); err != nil {
 					return err
 				}
@@ -106,20 +100,47 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 	}
 }
 
-// notifyUser fans a message to a single user via in-app notification + email.
-func notifyUser(ctx context.Context, tx pgx.Tx, mail email.Provider, userID, subject, body string) {
+// notifyUser sends a reminder to one staff member: in-app always, then WhatsApp
+// (preferred) or SMS to their phone, with email as the fallback channel.
+func notifyUser(ctx context.Context, tx pgx.Tx, mail email.Provider, sms *africastalking.Client, wa *whatsapp.Client, userID, subject, body string) {
 	_ = repository.InsertNotification(ctx, tx, &repository.Notification{
 		ID: uuid.NewString(), UserID: userID, Kind: "reminder", Body: body,
 	})
-	if u, err := repository.UserByID(ctx, tx, userID); err == nil {
+	u, err := repository.UserByID(ctx, tx, userID)
+	if err != nil {
+		return
+	}
+	if deliverReminder(ctx, wa, sms, u.Phone, body) == "" {
 		if err := mail.Send(ctx, u.Email, subject, body); err != nil {
 			logging.L(ctx).Warn("reminder email failed", "err", err)
 		}
 	}
 }
 
-func notifyFile(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, mail email.Provider, m *repository.File, body string) {
-	// In-app notification for the assigned advocate (or file creator).
+// deliverReminder sends to `phone`, preferring WhatsApp (Meta Cloud API) then
+// SMS. Returns the channel used ("whatsapp"/"sms") or "" when nothing was sent.
+func deliverReminder(ctx context.Context, wa *whatsapp.Client, sms *africastalking.Client, phone, body string) string {
+	if phone == "" {
+		return ""
+	}
+	if wa.Enabled() {
+		if err := wa.Send(ctx, phone, body); err == nil {
+			return "whatsapp"
+		} else {
+			logging.L(ctx).Warn("whatsapp reminder failed; falling back to sms", "err", err)
+		}
+	}
+	if sms != nil {
+		if _, err := sms.Send(ctx, phone, body); err == nil {
+			return "sms"
+		}
+	}
+	return ""
+}
+
+func notifyFile(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, mail email.Provider, wa *whatsapp.Client, m *repository.File, body string) {
+	// In-app notification for the assigned advocate (or file creator), plus
+	// WhatsApp/SMS to their phone if set, with email as the fallback.
 	target := m.CreatedBy
 	if m.AssignedTo != nil {
 		target = *m.AssignedTo
@@ -128,21 +149,30 @@ func notifyFile(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, mail
 		ID: uuid.NewString(), UserID: target, Kind: "reminder", Body: body,
 	})
 	if u, err := repository.UserByID(ctx, tx, target); err == nil {
-		if err := mail.Send(ctx, u.Email, "C. Karwitha C.K Advocates reminder", body); err != nil {
-			logging.L(ctx).Warn("reminder email failed", "err", err)
+		if deliverReminder(ctx, wa, sms, u.Phone, body) == "" {
+			if err := mail.Send(ctx, u.Email, "C. Karwitha C.K Advocates reminder", body); err != nil {
+				logging.L(ctx).Warn("reminder email failed", "err", err)
+			}
 		}
 	}
-	// SMS to the client, if we have a consented phone number on file.
+	// Client reminder (consented phone): prefer WhatsApp, fall back to SMS.
 	if m.ClientID != nil {
 		if cl, err := repository.ClientByID(ctx, tx, *m.ClientID); err == nil && cl.Phone != "" && cl.KDPAConsent {
-			res, err := sms.Send(ctx, cl.Phone, body)
-			status, ref := "failed", ""
-			if err == nil {
-				status, ref = res.Status, res.MessageID
+			channel, status, ref := "", "failed", ""
+			if wa.Enabled() {
+				if err := wa.Send(ctx, cl.Phone, body); err == nil {
+					channel, status = "whatsapp", "sent"
+				}
+			}
+			if channel == "" {
+				channel = "sms"
+				if res, err := sms.Send(ctx, cl.Phone, body); err == nil {
+					status, ref = res.Status, res.MessageID
+				}
 			}
 			_ = repository.InsertMessage(ctx, tx, &repository.Message{
 				ID: uuid.NewString(), FileID: &m.ID, ClientID: m.ClientID,
-				Channel: "sms", Direction: "outbound", ToAddr: cl.Phone, FromAddr: "WAKILI",
+				Channel: channel, Direction: "outbound", ToAddr: cl.Phone, FromAddr: "WAKILI",
 				Body: body, Status: status, ProviderRef: ref,
 			})
 		}

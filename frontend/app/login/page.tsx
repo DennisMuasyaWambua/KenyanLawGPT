@@ -11,7 +11,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [slug, setSlug] = useState(getTenant() || "mwangi-advocates");
+  const [slug, setSlug] = useState(getTenant() || process.env.NEXT_PUBLIC_DEFAULT_TENANT || "ckarwitha");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -78,12 +78,12 @@ export default function LoginPage() {
           <div>
             <label className="label">Firm (subdomain slug)</label>
             <input className="input" value={slug} onChange={(e) => setSlug(e.target.value)}
-              placeholder="mwangi-advocates" required />
+              placeholder="ckarwitha" required />
           </div>
           <div>
             <label className="label">Email</label>
             <input className="input" type="email" value={email}
-              onChange={(e) => setEmail(e.target.value)} placeholder="owner@mwangi-advocates.demo" required />
+              onChange={(e) => setEmail(e.target.value)} placeholder="you@firm.co.ke" required />
           </div>
           <div>
             <label className="label">Password</label>
@@ -102,10 +102,6 @@ export default function LoginPage() {
 
           <p className="text-center text-xs text-ink/50">
             New here? <Link href="/signup" className="text-gold underline">Create a firm workspace</Link>
-          </p>
-          <p className="text-center text-xs text-ink/50">
-            Demo firms: <code>mwangi-advocates</code> / <code>odhiambo-partners</code> — password{" "}
-            <code>DemoPass123!</code>
           </p>
         </form>
       </div>

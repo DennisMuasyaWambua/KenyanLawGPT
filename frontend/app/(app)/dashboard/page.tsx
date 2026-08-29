@@ -12,7 +12,7 @@ export default function Dashboard() {
   });
   const s = data?.stats || {};
   const cards = [
-    { label: "Open files", value: s.open_files ?? "—" },
+    { label: "Active matters", value: s.open_files ?? "—" },
     { label: "Court dates (7 days)", value: s.court_dates_7d ?? "—" },
     { label: "Deadlines (7 days)", value: s.deadlines_7d ?? "—" },
     { label: "Outstanding fees", value: s.outstanding_kes != null ? fmtKES(s.outstanding_kes) : "—" },

@@ -17,7 +17,7 @@ const STAFF_NAV = [
   { href: "/recordings", label: "Recordings", icon: "🎙", perm: "recordings.view_own" },
   { href: "/archives", label: "Archives", icon: "🗎" },
   { href: "/research", label: "AI Research", icon: "🔍" },
-  { href: "/drafting", label: "Drafting", icon: "✎" },
+  { href: "/drafting", label: "Drafts", icon: "✎" },
   { href: "/inbox", label: "Communications", icon: "✉" },
   { href: "/billing", label: "Billing", icon: "₿" },
   { href: "/settings", label: "Settings", icon: "⚙" },

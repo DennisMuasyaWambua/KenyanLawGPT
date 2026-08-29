@@ -87,15 +87,15 @@ export default function ClientsPage() {
       </div>
 
       {selected && (
-        <ClientDrawer id={selected} canAdvance={can("clients.advance_stage")} canCreateMatter={can("matters.create")}
+        <ClientDrawer id={selected} canAdvance={can("clients.advance_stage")} canCreateFile={can("matters.create")}
           onClose={() => setSelected(null)} />
       )}
     </div>
   );
 }
 
-function ClientDrawer({ id, canAdvance, canCreateMatter, onClose }: {
-  id: string; canAdvance: boolean; canCreateMatter: boolean; onClose: () => void;
+function ClientDrawer({ id, canAdvance, canCreateFile, onClose }: {
+  id: string; canAdvance: boolean; canCreateFile: boolean; onClose: () => void;
 }) {
   const qc = useQueryClient();
   const [err, setErr] = useState("");
@@ -116,8 +116,8 @@ function ClientDrawer({ id, canAdvance, canCreateMatter, onClose }: {
     mutationFn: (body: any) => api(`/api/v1/clients/${id}/advance`, { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => { setErr(""); refresh(); }, onError: (e) => setErr((e as Error).message),
   });
-  const openMatter = useMutation({
-    mutationFn: (body: any) => api("/api/v1/matters", { method: "POST", body: JSON.stringify(body) }),
+  const openFile = useMutation({
+    mutationFn: (body: any) => api("/api/v1/files", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => { setErr(""); refresh(); }, onError: (e) => setErr((e as Error).message),
   });
 
@@ -173,21 +173,21 @@ function ClientDrawer({ id, canAdvance, canCreateMatter, onClose }: {
           </div>
         )}
 
-        {canCreateMatter && (client.status === "engaged" || client.status === "active") && (
+        {canCreateFile && (client.status === "engaged" || client.status === "active") && (
           <form className="card mt-4 space-y-2"
             onSubmit={(e) => {
               e.preventDefault();
               const fd = new FormData(e.currentTarget);
-              openMatter.mutate({ client_id: id, reference: fd.get("reference"), title: fd.get("title"), practice_area: fd.get("practice_area") });
+              openFile.mutate({ client_id: id, reference: fd.get("reference"), title: fd.get("title"), practice_area: fd.get("practice_area") });
               (e.target as HTMLFormElement).reset();
             }}>
-            <p className="text-xs font-bold uppercase tracking-wide text-navy/60">Open a matter for this client</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-navy/60">Open a file for this client</p>
             <div className="grid grid-cols-2 gap-2">
               <input name="reference" className="input" placeholder="Ref e.g. EMP/2026/004" required />
               <input name="practice_area" className="input" placeholder="Practice area" />
             </div>
-            <input name="title" className="input" placeholder="Matter title" required />
-            <button className="btn-primary w-full text-sm" disabled={openMatter.isPending}>Open matter</button>
+            <input name="title" className="input" placeholder="File title" required />
+            <button className="btn-primary w-full text-sm" disabled={openFile.isPending}>Open file</button>
           </form>
         )}
 

@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from wakili.v1 import common_pb2 as wakili_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19wakili/v1/reasoning.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\x9e\x01\n\x10ReasoningRequest\x12(\n\x06tenant\x18\x01 \x01(\x0b\x32\x18.wakili.v1.TenantContext\x12\r\n\x05query\x18\x02 \x01(\t\x12\x10\n\x08max_hops\x18\x03 \x01(\x05\x12\x11\n\tmatter_id\x18\x04 \x01(\t\x12\x1a\n\x12include_superseded\x18\x05 \x01(\x08\x12\x10\n\x08trace_id\x18\x06 \x01(\t\"W\n\rReasoningStep\x12\x0b\n\x03hop\x18\x01 \x01(\x05\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x12\x10\n\x08node_ids\x18\x03 \x03(\t\x12\x12\n\nedge_types\x18\x04 \x03(\t\"\x85\x01\n\x0eReasoningTrace\x12\'\n\x05steps\x18\x01 \x03(\x0b\x32\x18.wakili.v1.ReasoningStep\x12(\n\x07\x63ontext\x18\x02 \x03(\x0b\x32\x17.wakili.v1.ContextChunk\x12\x0e\n\x06\x61nswer\x18\x03 \x01(\t\x12\x10\n\x08trace_id\x18\x04 \x01(\t2T\n\x10ReasoningService\x12@\n\x06Reason\x12\x1b.wakili.v1.ReasoningRequest\x1a\x19.wakili.v1.ReasoningTraceB3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19wakili/v1/reasoning.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\x9c\x01\n\x10ReasoningRequest\x12(\n\x06tenant\x18\x01 \x01(\x0b\x32\x18.wakili.v1.TenantContext\x12\r\n\x05query\x18\x02 \x01(\t\x12\x10\n\x08max_hops\x18\x03 \x01(\x05\x12\x0f\n\x07\x66ile_id\x18\x04 \x01(\t\x12\x1a\n\x12include_superseded\x18\x05 \x01(\x08\x12\x10\n\x08trace_id\x18\x06 \x01(\t\"W\n\rReasoningStep\x12\x0b\n\x03hop\x18\x01 \x01(\x05\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x12\x10\n\x08node_ids\x18\x03 \x03(\t\x12\x12\n\nedge_types\x18\x04 \x03(\t\"\x85\x01\n\x0eReasoningTrace\x12\'\n\x05steps\x18\x01 \x03(\x0b\x32\x18.wakili.v1.ReasoningStep\x12(\n\x07\x63ontext\x18\x02 \x03(\x0b\x32\x17.wakili.v1.ContextChunk\x12\x0e\n\x06\x61nswer\x18\x03 \x01(\t\x12\x10\n\x08trace_id\x18\x04 \x01(\t2T\n\x10ReasoningService\x12@\n\x06Reason\x12\x1b.wakili.v1.ReasoningRequest\x1a\x19.wakili.v1.ReasoningTraceB3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,11 +34,11 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1'
   _globals['_REASONINGREQUEST']._serialized_start=65
-  _globals['_REASONINGREQUEST']._serialized_end=223
-  _globals['_REASONINGSTEP']._serialized_start=225
-  _globals['_REASONINGSTEP']._serialized_end=312
-  _globals['_REASONINGTRACE']._serialized_start=315
-  _globals['_REASONINGTRACE']._serialized_end=448
-  _globals['_REASONINGSERVICE']._serialized_start=450
-  _globals['_REASONINGSERVICE']._serialized_end=534
+  _globals['_REASONINGREQUEST']._serialized_end=221
+  _globals['_REASONINGSTEP']._serialized_start=223
+  _globals['_REASONINGSTEP']._serialized_end=310
+  _globals['_REASONINGTRACE']._serialized_start=313
+  _globals['_REASONINGTRACE']._serialized_end=446
+  _globals['_REASONINGSERVICE']._serialized_start=448
+  _globals['_REASONINGSERVICE']._serialized_end=532
 # @@protoc_insertion_point(module_scope)

@@ -15,7 +15,7 @@ const DOC_TYPES = [
 
 export default function DraftingPage() {
   const [docType, setDocType] = useState("demand_letter");
-  const [matterId, setMatterId] = useState("");
+  const [fileId, setFileId] = useState("");
   const [instructions, setInstructions] = useState("");
   const [contextQuery, setContextQuery] = useState("");
   const [output, setOutput] = useState("");
@@ -56,12 +56,12 @@ export default function DraftingPage() {
     }
   }
 
-  const { data: mattersData } = useQuery({ queryKey: ["matters", ""], queryFn: () => api("/api/v1/matters") });
+  const { data: filesData } = useQuery({ queryKey: ["files", ""], queryFn: () => api("/api/v1/files") });
 
   async function start() {
     setOutput(""); setCitations([]); setError(""); setStreaming(true);
     await streamDraft(
-      { doc_type: docType, instructions, matter_id: matterId || undefined, context_query: contextQuery || undefined },
+      { doc_type: docType, instructions, file_id: fileId || undefined, context_query: contextQuery || undefined },
       (t) => {
         setOutput((o) => o + t);
         outRef.current?.scrollTo({ top: outRef.current.scrollHeight });
@@ -83,10 +83,10 @@ export default function DraftingPage() {
             </select>
           </div>
           <div>
-            <label className="label">Matter (grounds parties &amp; facts)</label>
-            <select className="input" value={matterId} onChange={(e) => setMatterId(e.target.value)}>
+            <label className="label">File (grounds parties &amp; facts)</label>
+            <select className="input" value={fileId} onChange={(e) => setFileId(e.target.value)}>
               <option value="">— none —</option>
-              {(mattersData?.matters || []).map((m: any) => (
+              {(filesData?.files || []).map((m: any) => (
                 <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>
               ))}
             </select>

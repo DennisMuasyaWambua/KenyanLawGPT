@@ -16,7 +16,7 @@ const vatRate = 0.16 // Kenyan VAT on legal services
 
 func (s *Server) CreateTimeEntry(c *gin.Context) {
 	var in struct {
-		MatterID    string  `json:"matter_id" binding:"required"`
+		FileID    string  `json:"file_id" binding:"required"`
 		Description string  `json:"description" binding:"required"`
 		Minutes     int     `json:"minutes" binding:"required,min=1"`
 		RateKES     float64 `json:"rate_kes" binding:"required"`
@@ -33,7 +33,7 @@ func (s *Server) CreateTimeEntry(c *gin.Context) {
 		}
 	}
 	t := &repository.TimeEntry{
-		ID: uuid.NewString(), MatterID: in.MatterID, UserID: s.claims(c).UserID(),
+		ID: uuid.NewString(), FileID: in.FileID, UserID: s.claims(c).UserID(),
 		Description: in.Description, Minutes: in.Minutes, RateKES: in.RateKES, EntryDate: entryDate,
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
@@ -46,7 +46,7 @@ func (s *Server) CreateTimeEntry(c *gin.Context) {
 func (s *Server) ListTimeEntries(c *gin.Context) {
 	var entries []repository.TimeEntry
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		e, err := repository.ListTimeEntries(c.Request.Context(), tx, c.Query("matter_id"), c.Query("unbilled") == "true")
+		e, err := repository.ListTimeEntries(c.Request.Context(), tx, c.Query("file_id"), c.Query("unbilled") == "true")
 		entries = e
 		return err
 	}) {
@@ -55,11 +55,11 @@ func (s *Server) ListTimeEntries(c *gin.Context) {
 }
 
 // CreateInvoice builds an invoice either from unbilled time entries for a
-// matter or from explicit line items.
+// file or from explicit line items.
 func (s *Server) CreateInvoice(c *gin.Context) {
 	var in struct {
 		ClientID       string `json:"client_id" binding:"required"`
-		MatterID       *string `json:"matter_id"`
+		FileID       *string `json:"file_id"`
 		FromTimeEntries bool   `json:"from_time_entries"`
 		DueDays        int     `json:"due_days"`
 		Items          []struct {
@@ -84,8 +84,8 @@ func (s *Server) CreateInvoice(c *gin.Context) {
 		invID := uuid.NewString()
 		var items []repository.InvoiceItem
 		subtotal := 0.0
-		if in.FromTimeEntries && in.MatterID != nil {
-			entries, err := repository.ListTimeEntries(c.Request.Context(), tx, *in.MatterID, true)
+		if in.FromTimeEntries && in.FileID != nil {
+			entries, err := repository.ListTimeEntries(c.Request.Context(), tx, *in.FileID, true)
 			if err != nil {
 				return err
 			}
@@ -115,7 +115,7 @@ func (s *Server) CreateInvoice(c *gin.Context) {
 		vat := math.Round(subtotal*vatRate*100) / 100
 		due := time.Now().AddDate(0, 0, in.DueDays)
 		invoice = &repository.Invoice{
-			ID: invID, Number: number, MatterID: in.MatterID, ClientID: in.ClientID,
+			ID: invID, Number: number, FileID: in.FileID, ClientID: in.ClientID,
 			Status: "sent", SubtotalKES: subtotal, VATKES: vat, TotalKES: subtotal + vat, DueAt: &due,
 		}
 		return repository.InsertInvoice(c.Request.Context(), tx, invoice, items)
@@ -186,7 +186,7 @@ func (s *Server) STKPush(c *gin.Context) {
 	// Tenant slug rides on the callback URL so the webhook settles in the
 	// right schema without trusting the payload.
 	callback := s.Cfg.DarajaCallbackURL + "?tenant=" + tenant.Slug
-	resp, err := s.Daraja.STKPush(c.Request.Context(), in.Phone, amount, invoice.Number, "WakiliAI invoice "+invoice.Number, callback)
+	resp, err := s.Daraja.STKPush(c.Request.Context(), in.Phone, amount, invoice.Number, "C. Karwitha & Co. Advocates invoice "+invoice.Number, callback)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "daraja request failed", "detail": err.Error()})
 		return

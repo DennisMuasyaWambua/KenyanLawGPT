@@ -17,7 +17,7 @@ message TenantContext {
 enum SourceType {
   SOURCE_TYPE_UNSPECIFIED = 0;
   SOURCE_TYPE_PUBLIC = 1;         // shared Kenyan public legal corpus
-  SOURCE_TYPE_TENANT_PRIVATE = 2; // this tenant's own documents/graph only
+  SOURCE_TYPE_TENANT_PRIVATE = 2; // this tenant's own archives/graph only
 }
 
 // Lifecycle status of a legal source; the retrieval layer prefers CURRENT
@@ -36,7 +36,7 @@ enum DocStatus {
 // tenant-confidential material.
 message Provenance {
   SourceType source_type = 1;
-  string source_id = 2;   // public doc_id or tenant document UUID
+  string source_id = 2;   // public doc_id or tenant archive UUID
   string citation = 3;    // e.g. "[2019] eKLR" or "Employment Act, No. 11 of 2007, s.45"
   string source_url = 4;
   DocStatus status = 5;
@@ -56,6 +56,6 @@ enum QueryIntent {
   QUERY_INTENT_UNSPECIFIED = 0;
   QUERY_INTENT_STATUTE_LOOKUP = 1;
   QUERY_INTENT_CASE_LAW_RESEARCH = 2;
-  QUERY_INTENT_MATTER_REASONING = 3;
+  QUERY_INTENT_FILE_REASONING = 3;
   QUERY_INTENT_DRAFTING = 4;
 }

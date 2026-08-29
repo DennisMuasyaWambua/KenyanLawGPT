@@ -4,38 +4,38 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fmtDate } from "@/lib/api";
 
-export default function MatterDetail() {
+export default function FileDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
 
-  const { data } = useQuery({ queryKey: ["matter", id], queryFn: () => api(`/api/v1/matters/${id}`) });
+  const { data } = useQuery({ queryKey: ["file", id], queryFn: () => api(`/api/v1/files/${id}`) });
   const { data: docs } = useQuery({
-    queryKey: ["documents", id],
-    queryFn: () => api(`/api/v1/documents?matter_id=${id}`),
+    queryKey: ["archives", id],
+    queryFn: () => api(`/api/v1/archives?file_id=${id}`),
   });
   const { data: judiciary, refetch: refetchJudiciary, isFetching: judLoading } = useQuery({
     queryKey: ["judiciary", id],
-    queryFn: () => api(`/api/v1/matters/${id}/judiciary`),
+    queryFn: () => api(`/api/v1/files/${id}/judiciary`),
     enabled: false,
   });
 
   const upload = useMutation({
     mutationFn: async (file: File) => {
-      const presign = await api("/api/v1/documents/presign", {
+      const presign = await api("/api/v1/archives/presign", {
         method: "POST",
         body: JSON.stringify({
           filename: file.name, mime_type: file.type || "application/octet-stream",
-          size_bytes: file.size, matter_id: id, doc_kind: "evidence",
+          size_bytes: file.size, file_id: id, doc_kind: "evidence",
         }),
       });
       const put = await fetch(presign.upload_url, { method: "PUT", body: file });
       if (!put.ok) throw new Error("upload to storage failed");
-      return api(`/api/v1/documents/${presign.document.id}/ingest`, { method: "POST" });
+      return api(`/api/v1/archives/${presign.archive.id}/ingest`, { method: "POST" });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents", id] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["archives", id] }),
   });
 
-  const m = data?.matter;
+  const m = data?.file;
   if (!m) return <p className="text-sm text-ink/50">Loading…</p>;
 
   return (
@@ -87,15 +87,15 @@ export default function MatterDetail() {
           </div>
 
           <div className="card">
-            <h3 className="mb-3 font-display text-lg font-bold text-navy">Documents</h3>
+            <h3 className="mb-3 font-display text-lg font-bold text-navy">Archives</h3>
             <label className="btn-gold block cursor-pointer text-center">
-              {upload.isPending ? "Uploading & ingesting…" : "Upload document"}
+              {upload.isPending ? "Uploading & ingesting…" : "Upload archive"}
               <input type="file" className="hidden"
                 onChange={(e) => e.target.files?.[0] && upload.mutate(e.target.files[0])} />
             </label>
             {upload.isError && <p className="mt-2 text-xs text-red-600">{(upload.error as Error).message}</p>}
             <div className="mt-3 space-y-2">
-              {(docs?.documents || []).map((d: any) => (
+              {(docs?.archives || []).map((d: any) => (
                 <div key={d.id} className="flex items-center justify-between text-sm">
                   <span className="truncate">{d.filename}</span>
                   <span className={`ml-2 text-[10px] uppercase ${

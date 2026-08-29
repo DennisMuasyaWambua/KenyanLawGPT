@@ -29,10 +29,10 @@ from typing import Any, Optional, Sequence
 from ..tenancy import validate_tenant_id
 
 ALLOWED_TENANT_LABELS = frozenset(
-    # Matter == the firm's own case/matter; Document == an uploaded firm
-    # document (a.k.a. "FirmDocument" in the spec). Submission/Advocate/Outcome
+    # File == the firm's own case/file; Archive == an uploaded firm
+    # archive (a.k.a. "FirmArchive" in the spec). Submission/Advocate/Outcome
     # power the judge-reasoning graph (Tasks 3-4); all carry tenant_id.
-    {"Matter", "Document", "Party", "PrecedentNote", "Draft",
+    {"File", "Archive", "Party", "PrecedentNote", "Draft",
      "Submission", "Advocate", "Outcome"}
 )
 ALLOWED_PUBLIC_LABELS = frozenset(

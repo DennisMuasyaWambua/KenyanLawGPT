@@ -9,7 +9,7 @@ import (
 
 type TimeEntry struct {
 	ID          string    `json:"id"`
-	MatterID    string    `json:"matter_id"`
+	FileID    string    `json:"file_id"`
 	UserID      string    `json:"user_id"`
 	Description string    `json:"description"`
 	Minutes     int       `json:"minutes"`
@@ -21,7 +21,7 @@ type TimeEntry struct {
 type Invoice struct {
 	ID          string     `json:"id"`
 	Number      string     `json:"number"`
-	MatterID    *string    `json:"matter_id"`
+	FileID    *string    `json:"file_id"`
 	ClientID    string     `json:"client_id"`
 	ClientName  string     `json:"client_name,omitempty"`
 	Status      string     `json:"status"` // draft|sent|paid|void
@@ -58,18 +58,18 @@ type Payment struct {
 
 func InsertTimeEntry(ctx context.Context, tx pgx.Tx, t *TimeEntry) error {
 	_, err := tx.Exec(ctx,
-		`INSERT INTO time_entries (id, matter_id, user_id, description, minutes, rate_kes, entry_date)
+		`INSERT INTO time_entries (id, file_id, user_id, description, minutes, rate_kes, entry_date)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		t.ID, t.MatterID, t.UserID, t.Description, t.Minutes, t.RateKES, t.EntryDate)
+		t.ID, t.FileID, t.UserID, t.Description, t.Minutes, t.RateKES, t.EntryDate)
 	return err
 }
 
-func ListTimeEntries(ctx context.Context, tx pgx.Tx, matterID string, unbilledOnly bool) ([]TimeEntry, error) {
-	q := "SELECT id, matter_id, user_id, description, minutes, rate_kes, entry_date, billed FROM time_entries WHERE 1=1"
+func ListTimeEntries(ctx context.Context, tx pgx.Tx, fileID string, unbilledOnly bool) ([]TimeEntry, error) {
+	q := "SELECT id, file_id, user_id, description, minutes, rate_kes, entry_date, billed FROM time_entries WHERE 1=1"
 	args := []any{}
-	if matterID != "" {
-		args = append(args, matterID)
-		q += " AND matter_id = $1"
+	if fileID != "" {
+		args = append(args, fileID)
+		q += " AND file_id = $1"
 	}
 	if unbilledOnly {
 		q += " AND NOT billed"
@@ -83,7 +83,7 @@ func ListTimeEntries(ctx context.Context, tx pgx.Tx, matterID string, unbilledOn
 	var out []TimeEntry
 	for rows.Next() {
 		var t TimeEntry
-		if err := rows.Scan(&t.ID, &t.MatterID, &t.UserID, &t.Description, &t.Minutes, &t.RateKES, &t.EntryDate, &t.Billed); err != nil {
+		if err := rows.Scan(&t.ID, &t.FileID, &t.UserID, &t.Description, &t.Minutes, &t.RateKES, &t.EntryDate, &t.Billed); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -93,9 +93,9 @@ func ListTimeEntries(ctx context.Context, tx pgx.Tx, matterID string, unbilledOn
 
 func InsertInvoice(ctx context.Context, tx pgx.Tx, inv *Invoice, items []InvoiceItem) error {
 	_, err := tx.Exec(ctx,
-		`INSERT INTO invoices (id, number, matter_id, client_id, status, subtotal_kes, vat_kes, total_kes, due_at)
+		`INSERT INTO invoices (id, number, file_id, client_id, status, subtotal_kes, vat_kes, total_kes, due_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		inv.ID, inv.Number, inv.MatterID, inv.ClientID, inv.Status, inv.SubtotalKES, inv.VATKES, inv.TotalKES, inv.DueAt)
+		inv.ID, inv.Number, inv.FileID, inv.ClientID, inv.Status, inv.SubtotalKES, inv.VATKES, inv.TotalKES, inv.DueAt)
 	if err != nil {
 		return err
 	}
@@ -115,12 +115,12 @@ func InsertInvoice(ctx context.Context, tx pgx.Tx, inv *Invoice, items []Invoice
 	return nil
 }
 
-const invoiceCols = `i.id, i.number, i.matter_id, i.client_id, COALESCE(c.name,''), i.status,
+const invoiceCols = `i.id, i.number, i.file_id, i.client_id, COALESCE(c.name,''), i.status,
 	i.subtotal_kes, i.vat_kes, i.total_kes, i.issued_at, i.due_at, i.paid_at`
 
 func scanInvoice(row pgx.Row) (*Invoice, error) {
 	var i Invoice
-	err := row.Scan(&i.ID, &i.Number, &i.MatterID, &i.ClientID, &i.ClientName, &i.Status,
+	err := row.Scan(&i.ID, &i.Number, &i.FileID, &i.ClientID, &i.ClientName, &i.Status,
 		&i.SubtotalKES, &i.VATKES, &i.TotalKES, &i.IssuedAt, &i.DueAt, &i.PaidAt)
 	if err != nil {
 		return nil, err
@@ -144,7 +144,7 @@ func ListInvoices(ctx context.Context, tx pgx.Tx, clientID string) ([]Invoice, e
 	var out []Invoice
 	for rows.Next() {
 		var i Invoice
-		if err := rows.Scan(&i.ID, &i.Number, &i.MatterID, &i.ClientID, &i.ClientName, &i.Status,
+		if err := rows.Scan(&i.ID, &i.Number, &i.FileID, &i.ClientID, &i.ClientName, &i.Status,
 			&i.SubtotalKES, &i.VATKES, &i.TotalKES, &i.IssuedAt, &i.DueAt, &i.PaidAt); err != nil {
 			return nil, err
 		}

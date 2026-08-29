@@ -26,6 +26,11 @@ type Config struct {
 	GoogleClientID string // Google Identity Services OAuth client id (id-token audience)
 	AppBaseURL     string // public frontend origin, used to build invite links
 
+	// Bootstrap super-admin (platform control plane). Idempotently ensured on
+	// startup when both are set; leave empty in envs that shouldn't seed one.
+	PlatformAdminEmail    string
+	PlatformAdminPassword string
+
 	AIGRPCAddr       string
 	AIGRPCServerName string // must match SAN in the AI service's server cert
 	MTLSCACert       string
@@ -111,6 +116,9 @@ func Load() *Config {
 		GoogleClientID: env("GOOGLE_CLIENT_ID", ""),
 		AppBaseURL:     env("APP_BASE_URL", "http://localhost:3000"),
 
+		PlatformAdminEmail:    env("PLATFORM_ADMIN_EMAIL", ""),
+		PlatformAdminPassword: env("PLATFORM_ADMIN_PASSWORD", ""),
+
 		AIGRPCAddr:       env("AI_GRPC_ADDR", "localhost:50051"),
 		AIGRPCServerName: env("AI_GRPC_SERVER_NAME", "ai"),
 		MTLSCACert:       env("MTLS_CA_CERT", "/certs/ca.crt"),
@@ -122,7 +130,7 @@ func Load() *Config {
 		S3PublicUseSSL:   env("S3_PUBLIC_USE_SSL", "true") == "true",
 		S3AccessKey:      env("S3_ACCESS_KEY", "minioadmin"),
 		S3SecretKey:      env("S3_SECRET_KEY", "minioadmin"),
-		S3Bucket:         env("S3_BUCKET", "wakili-documents"),
+		S3Bucket:         env("S3_BUCKET", "wakili-archives"),
 		S3Region:         env("S3_REGION", "us-east-1"),
 		S3UseSSL:         env("S3_USE_SSL", "false") == "true",
 

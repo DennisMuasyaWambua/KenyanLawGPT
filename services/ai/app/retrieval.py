@@ -17,7 +17,7 @@ from .judge import JudgeReasoner
 from .llm import CONFIDENTIALITY_PREAMBLE, LLMProvider
 from .logging_setup import log
 
-INTENTS = ("statute_lookup", "case_law_research", "matter_reasoning", "drafting")
+INTENTS = ("statute_lookup", "case_law_research", "file_reasoning", "drafting")
 
 
 @dataclass
@@ -52,8 +52,8 @@ class RetrievalOrchestrator:
         if any(w in q for w in ("draft", "prepare a", "write a letter", "write an agreement")):
             return "drafting"
         heuristic = None
-        if any(w in q for w in ("our client", "this matter", "our matter", "my case", "our case")):
-            heuristic = "matter_reasoning"
+        if any(w in q for w in ("our client", "this file", "our file", "my case", "our case")):
+            heuristic = "file_reasoning"
         elif any(w in q for w in ("held", "ruling", "judgment", "precedent", "case law", "decided", "court of appeal", "supreme court")):
             heuristic = "case_law_research"
         elif any(w in q for w in ("act", "section", "article", "constitution", "regulation", "statute")):
@@ -63,7 +63,7 @@ class RetrievalOrchestrator:
         try:
             answer = await self.llm.complete(
                 system="You classify Kenyan legal research queries. Reply with exactly one of: "
-                       "statute_lookup, case_law_research, matter_reasoning, drafting.",
+                       "statute_lookup, case_law_research, file_reasoning, drafting.",
                 prompt=query, max_tokens=16, fast=True,
             )
             label = answer.strip().lower()
@@ -80,7 +80,7 @@ class RetrievalOrchestrator:
         query: str,
         top_k: int = 12,
         include_superseded: bool = False,
-        matter_id: Optional[str] = None,
+        file_id: Optional[str] = None,
         as_of: Optional[str] = None,
     ) -> tuple[list[RankedChunk], str]:
         intent = await self.classify_intent(query)
@@ -93,11 +93,11 @@ class RetrievalOrchestrator:
         async with dbx.tenant_tx(self.pool, tenant_id) as conn:
             tenant_rows = await dbx.search_tenant_chunks(conn, qvec, fetch_n)
 
-        # Graph expansion: docs connected to the anchor matter get boosted, and
+        # Graph expansion: docs connected to the anchor file get boosted, and
         # status edges on retrieved public docs surface "overturned by X" facts.
-        matter_doc_ids: set[str] = set()
-        if matter_id:
-            matter_doc_ids = await self._matter_document_ids(tenant_id, matter_id)
+        file_doc_ids: set[str] = set()
+        if file_id:
+            file_doc_ids = await self._file_archive_ids(tenant_id, file_id)
         status_notes = await self._status_annotations([r["doc_id"] for r in public_rows])
 
         chunks: list[RankedChunk] = []
@@ -121,13 +121,13 @@ class RetrievalOrchestrator:
             ))
         for r in tenant_rows:
             score = float(r["score"])
-            if intent == "matter_reasoning":
+            if intent == "file_reasoning":
                 score *= 1.2
-            if r["document_id"] in matter_doc_ids:
+            if r["archive_id"] in file_doc_ids:
                 score *= 1.25
             chunks.append(RankedChunk(
                 chunk_id=str(r["chunk_id"]), text=r["chunk_text"], score=score,
-                source_type="TENANT_PRIVATE", source_id=r["document_id"],
+                source_type="TENANT_PRIVATE", source_id=r["archive_id"],
                 citation=r.get("filename") or "internal document",
                 metadata={"doc_kind": r.get("doc_kind") or ""},
             ))
@@ -135,16 +135,16 @@ class RetrievalOrchestrator:
         chunks.sort(key=lambda c: c.score, reverse=True)
         return chunks[:top_k], intent
 
-    async def _matter_document_ids(self, tenant_id: str, matter_id: str) -> set[str]:
+    async def _file_archive_ids(self, tenant_id: str, file_id: str) -> set[str]:
         try:
             q = (TenantScopedGraphQuery(tenant_id)
-                 .match("m", "Matter", id=matter_id)
-                 .match_rel("m", ["LINKED_TO", "CITES", "INVOLVES"], "d", "Document")
+                 .match("m", "File", id=file_id)
+                 .match_rel("m", ["LINKED_TO", "CITES", "INVOLVES"], "d", "Archive")
                  .returns("d.id AS doc_id").limit(100).build())
             rows = await self.graph.read(q)
             return {r["doc_id"] for r in rows if r.get("doc_id")}
         except Exception as exc:
-            log().warning("matter graph expansion failed: %s", exc)
+            log().warning("file graph expansion failed: %s", exc)
             return set()
 
     async def _status_annotations(self, doc_ids: list[str]) -> dict[str, str]:
@@ -200,7 +200,7 @@ class RetrievalOrchestrator:
             "insufficient, say what is missing."
         )
         system = (
-            "You are Advocatus, a legal research assistant for Kenyan law firms. "
+            "You are C. Karwitha & Co. Advocates' legal research assistant for Kenyan law firms. "
             "You are not a substitute for an advocate's own judgment. "
             "Sharply distinguish what the LAW says (from the CONTEXT sources) from "
             "the FIRM-INTERNAL HISTORICAL PATTERN, if present: the latter is this "
@@ -243,15 +243,15 @@ class RetrievalOrchestrator:
     async def judge_aware_retrieve(
         self, tenant_id: str, query: str, judge_name: Optional[str] = None,
         top_k: int = 12, include_superseded: bool = False,
-        matter_id: Optional[str] = None,
+        file_id: Optional[str] = None,
     ) -> tuple[list[RankedChunk], str, str]:
         """Hybrid retrieval + judge-aware synthesis. Returns
         (chunks, intent, answer). The judge history is tenant-scoped for the
-        firm's own matters and public for the shared record; the two are merged
+        firm's own files and public for the shared record; the two are merged
         only in the labelled prompt, never in a cross-tenant query."""
         chunks, intent = await self.retrieve(
             tenant_id, query, top_k=top_k,
-            include_superseded=include_superseded, matter_id=matter_id)
+            include_superseded=include_superseded, file_id=file_id)
         judge_context = await self._judge_context(tenant_id, query, judge_name)
         answer = await self.answer(query, chunks, intent, judge_context)
         return chunks, intent, answer

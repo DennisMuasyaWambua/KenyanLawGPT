@@ -1,9 +1,9 @@
 "use client";
 
-// Document upload + ingestion-status view (Task 7). Design reference:
+// Archive upload + ingestion-status view (Task 7). Design reference:
 // Perplexity's file-upload/processing rows (gummble
 // sc_5cc4b39f195847b9ad3bd48aa1346060, sc_9c2d6b14389848b992ddc2057266c5fb)
-// and the notifications/status pattern family — a list where each document
+// and the notifications/status pattern family — a list where each archive
 // advances through explicit processing steps with a progress bar and terminal
 // success/failure states. Mirrors the backend async pipeline stages
 // (QUEUED → FETCHING → PARSING → CHUNKING → EMBEDDING → GRAPHING → DONE).
@@ -95,12 +95,12 @@ function StatusRow({ doc, onRetry }: { doc: IngestDoc; onRetry?: (id: string) =>
 }
 
 export default function IngestionStatus({
-  documents,
+  archives,
   onUpload,
   onRetry,
   uploading,
 }: {
-  documents: IngestDoc[];
+  archives: IngestDoc[];
   onUpload?: (files: FileList) => void;
   onRetry?: (id: string) => void;
   uploading?: boolean;
@@ -112,7 +112,7 @@ export default function IngestionStatus({
       {onUpload && (
         <div className="card flex items-center gap-4 border-dashed">
           <div>
-            <p className="text-sm font-semibold text-navy">Upload firm documents</p>
+            <p className="text-sm font-semibold text-navy">Upload firm archives</p>
             <p className="text-xs text-ink/50">
               Pleadings, submissions, contracts, notes (PDF/DOCX/TXT) or client-conversation
               recordings (MP3/WAV/M4A — auto-transcribed, multilingual). Ingested privately into
@@ -137,13 +137,13 @@ export default function IngestionStatus({
         </div>
       )}
 
-      {documents.length === 0 ? (
+      {archives.length === 0 ? (
         <div className="card text-center text-sm text-ink/50">
-          No documents yet. Upload a pleading or submission to build your firm&rsquo;s private
+          No archives yet. Upload a pleading or submission to build your firm&rsquo;s private
           knowledge graph.
         </div>
       ) : (
-        documents.map((d) => <StatusRow key={d.id} doc={d} onRetry={onRetry} />)
+        archives.map((d) => <StatusRow key={d.id} doc={d} onRetry={onRetry} />)
       )}
     </div>
   );

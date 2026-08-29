@@ -1,6 +1,6 @@
--- Client onboarding pipeline: intake -> engaged -> active matter, with an
+-- Client onboarding pipeline: intake -> engaged -> active file, with an
 -- auditable stage-change trail (POCAMLA/AML). Extends the existing clients table
--- (which had no lifecycle) and widens matters.status with 'on_hold'.
+-- (which had no lifecycle) and widens files.status with 'on_hold'.
 
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'lead'
     CHECK (status IN ('lead','intake','conflict_check','engaged','active','closed'));
@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS client_stage_events (
 );
 CREATE INDEX IF NOT EXISTS client_stage_events_client ON client_stage_events (client_id, created_at);
 
--- Widen matter status with 'on_hold' (keep the richer litigation lifecycle).
-ALTER TABLE matters DROP CONSTRAINT IF EXISTS matters_status_check;
-ALTER TABLE matters ADD CONSTRAINT matters_status_check
+-- Widen file status with 'on_hold' (keep the richer litigation lifecycle).
+ALTER TABLE files DROP CONSTRAINT IF EXISTS files_status_check;
+ALTER TABLE files ADD CONSTRAINT files_status_check
     CHECK (status IN ('intake','active','awaiting_court','appeal','closed','on_hold'));
 
 -- Grant the new pipeline permissions to the protected Owner role (so live owners

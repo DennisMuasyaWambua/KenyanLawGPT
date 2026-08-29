@@ -112,7 +112,7 @@ func seedFirm(ctx context.Context, database *db.DB, cfg *config.Config, store *s
 		return err
 	}
 
-	var docID, objectKey, matterID string
+	var docID, objectKey, fileID string
 	clientAID := uuid.NewString()
 
 	err = database.WithTenant(ctx, tenant.ID, tenant.SchemaName, func(tx pgx.Tx) error {
@@ -165,10 +165,10 @@ func seedFirm(ctx context.Context, database *db.DB, cfg *config.Config, store *s
 			return err
 		}
 
-		// Matters.
-		matterID = uuid.NewString()
-		if err := repository.InsertMatter(ctx, tx, &repository.Matter{
-			ID: matterID, Reference: "EMP/" + time.Now().Format("2006") + "/001",
+		// Files.
+		fileID = uuid.NewString()
+		if err := repository.InsertFile(ctx, tx, &repository.File{
+			ID: fileID, Reference: "EMP/" + time.Now().Format("2006") + "/001",
 			Title: "Unfair termination claim — " + f.ClientA, Description: "Employment dispute; client dismissed without notice.",
 			ClientID: &clientAID, Status: "active", PracticeArea: "Employment",
 			Court: "Employment and Labour Relations Court", CourtCaseNumber: "ELRC E123 of 2026",
@@ -176,7 +176,7 @@ func seedFirm(ctx context.Context, database *db.DB, cfg *config.Config, store *s
 		}); err != nil {
 			return err
 		}
-		if err := repository.InsertMatter(ctx, tx, &repository.Matter{
+		if err := repository.InsertFile(ctx, tx, &repository.File{
 			ID: uuid.NewString(), Reference: "CONV/" + time.Now().Format("2006") + "/002",
 			Title: "Land transfer — " + f.ClientB, Description: "Conveyancing for LR No. 209/1234.",
 			Status: "intake", PracticeArea: "Conveyancing", CreatedBy: owner.ID,
@@ -184,19 +184,19 @@ func seedFirm(ctx context.Context, database *db.DB, cfg *config.Config, store *s
 			return err
 		}
 		if err := repository.InsertCourtDate(ctx, tx, &repository.CourtDate{
-			ID: uuid.NewString(), MatterID: matterID, Date: time.Now().AddDate(0, 0, 10),
+			ID: uuid.NewString(), FileID: fileID, Date: time.Now().AddDate(0, 0, 10),
 			Courtroom: "ELRC Court 3, Milimani", Judge: "Hon. Justice Demo", Purpose: "Mention",
 		}); err != nil {
 			return err
 		}
 		if err := repository.InsertDeadline(ctx, tx, &repository.Deadline{
-			ID: uuid.NewString(), MatterID: matterID, Title: "File witness statements",
+			ID: uuid.NewString(), FileID: fileID, Title: "File witness statements",
 			DueAt: time.Now().AddDate(0, 0, 7), RemindAt: time.Now().AddDate(0, 0, 6), CreatedBy: owner.ID,
 		}); err != nil {
 			return err
 		}
 		if err := repository.InsertTimeEntry(ctx, tx, &repository.TimeEntry{
-			ID: uuid.NewString(), MatterID: matterID, UserID: owner.ID,
+			ID: uuid.NewString(), FileID: fileID, UserID: owner.ID,
 			Description: "Initial client interview and case assessment", Minutes: 90, RateKES: 12000, EntryDate: time.Now(),
 		}); err != nil {
 			return err
@@ -205,8 +205,8 @@ func seedFirm(ctx context.Context, database *db.DB, cfg *config.Config, store *s
 		// Tenant-private precedent note carrying the DISTINGUISHING marker.
 		docID = uuid.NewString()
 		objectKey = storage.Key(tenant.ID, docID, "internal-precedent-note.txt")
-		return repository.InsertDocument(ctx, tx, &repository.Document{
-			ID: docID, MatterID: &matterID, Filename: "internal-precedent-note.txt",
+		return repository.InsertArchive(ctx, tx, &repository.Archive{
+			ID: docID, FileID: &fileID, Filename: "internal-precedent-note.txt",
 			ObjectKey: objectKey, MimeType: "text/plain", SizeBytes: 0, DocKind: "precedent_note",
 			UploadedBy: owner.ID, IngestStatus: "pending",
 		})
@@ -218,13 +218,13 @@ func seedFirm(ctx context.Context, database *db.DB, cfg *config.Config, store *s
 	noteBody := fmt.Sprintf(`INTERNAL PRECEDENT NOTE — %s — STRICTLY CONFIDENTIAL
 Marker: %s
 
-Matter: Unfair termination claim for %s.
+File: Unfair termination claim for %s.
 Strategy note: rely on Section 45 of the Employment Act (No. 11 of 2007) —
 termination is unfair if not for a valid reason related to conduct, capacity
 or operational requirements, and without fair procedure. Our internal
 assessment values the claim at the 12-month gross salary ceiling under
 Section 49(1)(c). Settlement floor agreed with client: KES 1,400,000.
-Comparable outcome: our 2024 matter (settled, confidential) on near-identical
+Comparable outcome: our 2024 file (settled, confidential) on near-identical
 facts before the ELRC.`, f.Name, f.Marker, f.ClientA)
 
 	if err := store.Put(ctx, tenant.ID, objectKey, []byte(noteBody), "text/plain"); err != nil {
@@ -235,9 +235,9 @@ facts before the ELRC.`, f.Name, f.Marker, f.ClientA)
 		gctx := grpcclient.Ctx(ctx, tenant.ID, "seed-"+tenant.Slug)
 		stream, err := ai.Ingestion.IngestDocument(gctx, &wakiliv1.IngestRequest{
 			Tenant:     grpcclient.TC(tenant.ID, tenant.Plan, tenant.DataResidencyKE),
-			DocumentId: docID, ObjectKey: objectKey,
+			ArchiveId: docID, ObjectKey: objectKey,
 			Filename: "internal-precedent-note.txt", MimeType: "text/plain",
-			MatterId: matterID, TraceId: "seed-" + tenant.Slug,
+			FileId: fileID, TraceId: "seed-" + tenant.Slug,
 		})
 		if err != nil {
 			fmt.Println("warn: ingest RPC failed:", err)

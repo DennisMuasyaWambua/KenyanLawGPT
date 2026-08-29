@@ -337,7 +337,7 @@ class LSKGuidelinesCrawler(BaseCrawler):
                 "The Law Society of Kenya reminds members that charging below the minimum fees "
                 "prescribed in the Advocates Remuneration Order constitutes professional "
                 "misconduct. Members handling employment disputes before the ELRC should have "
-                "regard to Schedule VI on contentious matters, and are reminded of the duty of "
+                "regard to Schedule VI on contentious files, and are reminded of the duty of "
                 "candour to the court and the obligation of client confidentiality under the "
                 "Advocates Act and the LSK Code of Standards of Professional Practice and "
                 "Ethical Conduct."

@@ -22,12 +22,12 @@ class FakeGraph:
 
     async def read(self, q):
         cy = q.cypher
-        if "Matter" in cy and "RESULTED_IN" in cy:
+        if "File" in cy and "RESULTED_IN" in cy:
             assert q.tenant_scoped and q.params.get("tenant_id") == TENANT
             self.tenant_reads += 1
-            return [{"matter_id": "m1", "result": "won"},
-                    {"matter_id": "m2", "result": "lost"},
-                    {"matter_id": "m3", "result": "won"}]
+            return [{"file_id": "m1", "result": "won"},
+                    {"file_id": "m2", "result": "lost"},
+                    {"file_id": "m3", "result": "won"}]
         if "FILED_IN" in cy and "Statute" in cy:
             assert q.tenant_scoped and q.params.get("tenant_id") == TENANT
             self.tenant_reads += 1
@@ -64,7 +64,7 @@ async def test_context_block_merges_tenant_and_public_and_is_scoped():
     block = await _reasoner(graph).context_block(TENANT, "Jane Mwangi")
     # firm-internal + public signals both present
     assert JUDICIAL_ANALYTICS_DISCLAIMER.split(" —")[0] in block
-    assert "3 prior matter(s)" in block
+    assert "3 prior file(s)" in block
     assert "2 had a favourable outcome" in block          # two 'won'
     assert "Land Registration Act (x2)" in block          # top winning authority
     assert "10 ruling(s)" in block                        # public profile

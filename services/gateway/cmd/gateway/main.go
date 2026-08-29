@@ -64,6 +64,10 @@ func main() {
 	daraja := mpesa.New(cfg)
 	jud := judiciary.New(cfg, rdb)
 
+	if err := services.EnsurePlatformAdmin(ctx, database, cfg.PlatformAdminEmail, cfg.PlatformAdminPassword); err != nil {
+		log.Warn("ensure platform admin failed", "err", err)
+	}
+
 	go services.RunReminderLoop(ctx, database, cfg, sms, mail)
 	go services.RunReconcileLoop(ctx, database, cfg, daraja)
 

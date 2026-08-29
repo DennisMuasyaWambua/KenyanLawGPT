@@ -19,8 +19,8 @@ class FakeIngestor:
     def __init__(self):
         self.seen = []
 
-    async def ingest(self, tenant_id, document_id, object_key, filename, mime_type, matter_id=None):
-        self.seen.append((tenant_id, document_id))
+    async def ingest(self, tenant_id, archive_id, object_key, filename, mime_type, file_id=None):
+        self.seen.append((tenant_id, archive_id))
         yield ("FETCHING", "fetching", 10)
         yield ("EMBEDDING", "embedding", 60)
         yield ("DONE", "done", 100)
@@ -34,7 +34,7 @@ async def test_in_process_queue_drains_and_reports_done():
     await q.start()
     try:
         assert q._redis is None  # confirm in-process fallback
-        await q.enqueue(IngestJob(TENANT, "doc-1", f"tenants/{TENANT}/documents/doc-1", "s.pdf", "application/pdf"))
+        await q.enqueue(IngestJob(TENANT, "doc-1", f"tenants/{TENANT}/archives/doc-1", "s.pdf", "application/pdf"))
         for _ in range(50):
             status = await q.get_status("doc-1")
             if status and status["done"]:

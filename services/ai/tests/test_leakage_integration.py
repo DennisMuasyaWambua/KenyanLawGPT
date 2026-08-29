@@ -76,7 +76,7 @@ def env(event_loop):
                     "INSERT INTO users (id, email, full_name, role, status, password_hash) "
                     "VALUES ($1,$2,'t','owner','active','x')", user_id, f"o@{tid}.test")
                 await conn.execute(
-                    "INSERT INTO documents (id, filename, object_key, mime_type, doc_kind, uploaded_by, ingest_status) "
+                    "INSERT INTO archives (id, filename, object_key, mime_type, doc_kind, uploaded_by, ingest_status) "
                     "VALUES ($1,'note.txt',$2,'text/plain','precedent_note',$3,'ingested')",
                     doc_id, f"tenants/{tid}/documents/{doc_id}/note.txt", user_id)
                 text = f"Internal strategy note on unfair termination. {marker}"
@@ -87,7 +87,7 @@ def env(event_loop):
                 "MERGE (s:Statute:Public {doc_id: 'act-2007-11-employment'}) "
                 "SET s.title = 'Employment Act, No. 11 of 2007', s.status = 'current'", {})
             q = (TenantScopedGraphQuery(tid)
-                 .merge_node("d", "Document", {"id": doc_id}, {"filename": "note.txt"})
+                 .merge_node("d", "Archive", {"id": doc_id}, {"filename": "note.txt"})
                  .match_public("s", "Statute", doc_id="act-2007-11-employment")
                  .merge_rel("d", "CITES", "s")
                  .build())
@@ -141,7 +141,7 @@ def test_graph_reads_are_tenant_scoped(env):
     from app.graph import TenantScopedGraphQuery
 
     q = (TenantScopedGraphQuery(TENANT_A)
-         .match("d", "Document").returns("d.id AS id").limit(100).build())
+         .match("d", "Archive").returns("d.id AS id").limit(100).build())
     rows = run(env, env["graph"].read(q))
     ids = {r["id"] for r in rows}
     assert env["docs"][TENANT_A] in ids
@@ -155,7 +155,7 @@ def test_multihop_traversal_cannot_walk_through_shared_public_nodes(env):
     from app.graph import TenantScopedGraphQuery
 
     q = (TenantScopedGraphQuery(TENANT_A)
-         .match("d", "Document", id=env["docs"][TENANT_A])
+         .match("d", "Archive", id=env["docs"][TENANT_A])
          .expand("d", ["CITES", "LINKED_TO", "SIMILAR_TO"], "n", max_hops=4)
          .returns("n.id AS id", "labels(n) AS labels").limit(200).build())
     rows = run(env, env["graph"].read(q))
@@ -229,11 +229,11 @@ def test_erasure_removes_vectors_and_graph_nodes_for_one_tenant_only(env):
     assert nodes >= 1
 
     # A's data is gone…
-    q = (TenantScopedGraphQuery(TENANT_A).match("d", "Document")
+    q = (TenantScopedGraphQuery(TENANT_A).match("d", "Archive")
          .returns("d.id AS id").limit(10).build())
     assert env["docs"][TENANT_A] not in {r["id"] for r in run(env, env["graph"].read(q))}
     # …and B's is untouched.
-    q = (TenantScopedGraphQuery(TENANT_B).match("d", "Document")
+    q = (TenantScopedGraphQuery(TENANT_B).match("d", "Archive")
          .returns("d.id AS id").limit(10).build())
     assert env["docs"][TENANT_B] in {r["id"] for r in run(env, env["graph"].read(q))}
 
@@ -247,20 +247,20 @@ def test_erasure_removes_vectors_and_graph_nodes_for_one_tenant_only(env):
 
 # --- 5. Judge-aware retrieval: firm history is tenant-scoped -------------------
 
-async def _seed_judge_history(env, tid, matter_id, result, judge="Jane Mwangi"):
+async def _seed_judge_history(env, tid, file_id, result, judge="Jane Mwangi"):
     from app.graph import TenantScopedGraphQuery
 
     graph = env["graph"]
-    sub_id = matter_id + "-sub"
+    sub_id = file_id + "-sub"
     await graph.write(
         TenantScopedGraphQuery(tid)
-        .merge_node("m", "Matter", {"id": matter_id}, {"judge_name": judge, "case_ref": matter_id})
+        .merge_node("m", "File", {"id": file_id}, {"judge_name": judge, "case_ref": file_id})
         .merge_node("s", "Submission", {"id": sub_id}, {"filename": "subs.pdf"})
         .merge_rel("s", "FILED_IN", "m").build())
     await graph.write(
         TenantScopedGraphQuery(tid)
-        .merge_node("m", "Matter", {"id": matter_id})
-        .merge_node("o", "Outcome", {"id": matter_id + ":outcome"}, {"result": result, "judge_name": judge})
+        .merge_node("m", "File", {"id": file_id})
+        .merge_node("o", "Outcome", {"id": file_id + ":outcome"}, {"result": result, "judge_name": judge})
         .merge_rel("m", "RESULTED_IN", "o").build())
     if result == "won":
         await graph.write(
@@ -274,9 +274,9 @@ def test_judge_aware_history_is_tenant_scoped(env):
     from app.judge import JudgeReasoner
 
     reasoner = JudgeReasoner(env["pool"], env["graph"], env["cfg"])
-    # Tenant A: a WON matter before Jane Mwangi citing the Employment Act.
+    # Tenant A: a WON file before Jane Mwangi citing the Employment Act.
     run(env, _seed_judge_history(env, TENANT_A, "A-ELC-1-2019", "won"))
-    # Tenant B: a LOST matter before the same judge, no such authority.
+    # Tenant B: a LOST file before the same judge, no such authority.
     run(env, _seed_judge_history(env, TENANT_B, "B-ELC-9-2020", "lost"))
 
     pa = run(env, reasoner.build(TENANT_A, "Jane Mwangi"))

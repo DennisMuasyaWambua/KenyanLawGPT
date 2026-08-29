@@ -18,7 +18,7 @@ TID_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 
 def test_tenant_match_always_injects_tenant_filter():
-    q = TenantScopedGraphQuery(TID_A).match("m", "Matter", id="m-1").returns("m.id").build()
+    q = TenantScopedGraphQuery(TID_A).match("m", "File", id="m-1").returns("m.id").build()
     assert "tenant_id: $tenant_id" in q.cypher
     assert q.params["tenant_id"] == TID_A
     assert q.tenant_scoped
@@ -26,15 +26,15 @@ def test_tenant_match_always_injects_tenant_filter():
 
 def test_every_tenant_pattern_is_filtered_not_just_the_first():
     q = (TenantScopedGraphQuery(TID_A)
-         .match("m", "Matter", id="m-1")
-         .match_rel("m", ["LINKED_TO"], "d", "Document")
+         .match("m", "File", id="m-1")
+         .match_rel("m", ["LINKED_TO"], "d", "Archive")
          .returns("d.id").build())
     assert q.cypher.count("tenant_id: $tenant_id") == 2
 
 
 def test_var_length_expand_guards_every_node_on_the_path():
     q = (TenantScopedGraphQuery(TID_A)
-         .match("m", "Matter", id="m-1")
+         .match("m", "File", id="m-1")
          .expand("m", ["CITES", "SIMILAR_TO"], "n", max_hops=3)
          .returns("n.id").build())
     assert "all(x IN nodes(p) WHERE x:Public OR x.tenant_id = $tenant_id)" in q.cypher
@@ -42,8 +42,8 @@ def test_var_length_expand_guards_every_node_on_the_path():
 
 def test_tenant_writes_stamp_tenant_id_on_nodes_and_relationships():
     q = (TenantScopedGraphQuery(TID_A)
-         .merge_node("d", "Document", {"id": "doc-1"}, {"filename": "x.txt"})
-         .merge_node("m", "Matter", {"id": "m-1"})
+         .merge_node("d", "Archive", {"id": "doc-1"}, {"filename": "x.txt"})
+         .merge_node("m", "File", {"id": "m-1"})
          .merge_rel("m", "LINKED_TO", "d")
          .build())
     assert q.write
@@ -68,9 +68,9 @@ def test_labels_and_rels_are_allowlisted():
     with pytest.raises(GraphQueryError):
         b.match("x", "User")  # not a tenant graph label
     with pytest.raises(GraphQueryError):
-        b.match("m", "Matter").match_rel("m", ["HACKED"], "d", "Document")
+        b.match("m", "File").match_rel("m", ["HACKED"], "d", "Archive")
     with pytest.raises(GraphQueryError):
-        b.match("m", "Matter").returns("m.id; DROP DATABASE")
+        b.match("m", "File").returns("m.id; DROP DATABASE")
 
 
 def test_public_builder_is_read_only():
@@ -82,7 +82,7 @@ def test_public_builder_is_read_only():
 
 def test_public_builder_rejects_tenant_labels_and_scope():
     with pytest.raises(GraphQueryError):
-        PublicGraphQuery().match("m", "Matter")  # tenant label in public scope
+        PublicGraphQuery().match("m", "File")  # tenant label in public scope
     with pytest.raises(GraphQueryError):
         PublicGraphQuery().match("s", "Statute", public=False)
 

@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from wakili.v1 import common_pb2 as wakili_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19wakili/v1/ingestion.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\xac\x01\n\rIngestRequest\x12(\n\x06tenant\x18\x01 \x01(\x0b\x32\x18.wakili.v1.TenantContext\x12\x13\n\x0b\x64ocument_id\x18\x02 \x01(\t\x12\x12\n\nobject_key\x18\x03 \x01(\t\x12\x10\n\x08\x66ilename\x18\x04 \x01(\t\x12\x11\n\tmime_type\x18\x05 \x01(\t\x12\x11\n\tmatter_id\x18\x06 \x01(\t\x12\x10\n\x08trace_id\x18\x07 \x01(\t\"y\n\x0cIngestStatus\x12%\n\x05stage\x18\x01 \x01(\x0e\x32\x16.wakili.v1.IngestStage\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x14\n\x0cprogress_pct\x18\x03 \x01(\x05\x12\x0c\n\x04\x64one\x18\x04 \x01(\x08\x12\r\n\x05\x65rror\x18\x05 \x01(\t\"\x7f\n\x13\x45raseSubjectRequest\x12(\n\x06tenant\x18\x01 \x01(\x0b\x32\x18.wakili.v1.TenantContext\x12\x14\n\x0csubject_type\x18\x02 \x01(\t\x12\x12\n\nsubject_id\x18\x03 \x01(\t\x12\x14\n\x0c\x64ocument_ids\x18\x04 \x03(\t\"N\n\x12\x45raseSubjectReport\x12\x1b\n\x13graph_nodes_deleted\x18\x01 \x01(\x05\x12\x1b\n\x13vector_rows_deleted\x18\x02 \x01(\x05*\xe2\x01\n\x0bIngestStage\x12\x1c\n\x18INGEST_STAGE_UNSPECIFIED\x10\x00\x12\x19\n\x15INGEST_STAGE_FETCHING\x10\x01\x12\x18\n\x14INGEST_STAGE_PARSING\x10\x02\x12\x19\n\x15INGEST_STAGE_CHUNKING\x10\x03\x12\x1a\n\x16INGEST_STAGE_EMBEDDING\x10\x04\x12\x19\n\x15INGEST_STAGE_GRAPHING\x10\x05\x12\x15\n\x11INGEST_STAGE_DONE\x10\x06\x12\x17\n\x13INGEST_STAGE_FAILED\x10\x07\x32\xa8\x01\n\x10IngestionService\x12\x45\n\x0eIngestDocument\x12\x18.wakili.v1.IngestRequest\x1a\x17.wakili.v1.IngestStatus0\x01\x12M\n\x0c\x45raseSubject\x12\x1e.wakili.v1.EraseSubjectRequest\x1a\x1d.wakili.v1.EraseSubjectReportB3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19wakili/v1/ingestion.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\xa9\x01\n\rIngestRequest\x12(\n\x06tenant\x18\x01 \x01(\x0b\x32\x18.wakili.v1.TenantContext\x12\x12\n\narchive_id\x18\x02 \x01(\t\x12\x12\n\nobject_key\x18\x03 \x01(\t\x12\x10\n\x08\x66ilename\x18\x04 \x01(\t\x12\x11\n\tmime_type\x18\x05 \x01(\t\x12\x0f\n\x07\x66ile_id\x18\x06 \x01(\t\x12\x10\n\x08trace_id\x18\x07 \x01(\t\"y\n\x0cIngestStatus\x12%\n\x05stage\x18\x01 \x01(\x0e\x32\x16.wakili.v1.IngestStage\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x14\n\x0cprogress_pct\x18\x03 \x01(\x05\x12\x0c\n\x04\x64one\x18\x04 \x01(\x08\x12\r\n\x05\x65rror\x18\x05 \x01(\t\"~\n\x13\x45raseSubjectRequest\x12(\n\x06tenant\x18\x01 \x01(\x0b\x32\x18.wakili.v1.TenantContext\x12\x14\n\x0csubject_type\x18\x02 \x01(\t\x12\x12\n\nsubject_id\x18\x03 \x01(\t\x12\x13\n\x0b\x61rchive_ids\x18\x04 \x03(\t\"N\n\x12\x45raseSubjectReport\x12\x1b\n\x13graph_nodes_deleted\x18\x01 \x01(\x05\x12\x1b\n\x13vector_rows_deleted\x18\x02 \x01(\x05*\xe2\x01\n\x0bIngestStage\x12\x1c\n\x18INGEST_STAGE_UNSPECIFIED\x10\x00\x12\x19\n\x15INGEST_STAGE_FETCHING\x10\x01\x12\x18\n\x14INGEST_STAGE_PARSING\x10\x02\x12\x19\n\x15INGEST_STAGE_CHUNKING\x10\x03\x12\x1a\n\x16INGEST_STAGE_EMBEDDING\x10\x04\x12\x19\n\x15INGEST_STAGE_GRAPHING\x10\x05\x12\x15\n\x11INGEST_STAGE_DONE\x10\x06\x12\x17\n\x13INGEST_STAGE_FAILED\x10\x07\x32\xa8\x01\n\x10IngestionService\x12\x45\n\x0eIngestDocument\x12\x18.wakili.v1.IngestRequest\x1a\x17.wakili.v1.IngestStatus0\x01\x12M\n\x0c\x45raseSubject\x12\x1e.wakili.v1.EraseSubjectRequest\x1a\x1d.wakili.v1.EraseSubjectReportB3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,16 +33,16 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'wakili.v1.ingestion_pb2', _
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1'
-  _globals['_INGESTSTAGE']._serialized_start=572
-  _globals['_INGESTSTAGE']._serialized_end=798
+  _globals['_INGESTSTAGE']._serialized_start=568
+  _globals['_INGESTSTAGE']._serialized_end=794
   _globals['_INGESTREQUEST']._serialized_start=65
-  _globals['_INGESTREQUEST']._serialized_end=237
-  _globals['_INGESTSTATUS']._serialized_start=239
-  _globals['_INGESTSTATUS']._serialized_end=360
-  _globals['_ERASESUBJECTREQUEST']._serialized_start=362
-  _globals['_ERASESUBJECTREQUEST']._serialized_end=489
-  _globals['_ERASESUBJECTREPORT']._serialized_start=491
-  _globals['_ERASESUBJECTREPORT']._serialized_end=569
-  _globals['_INGESTIONSERVICE']._serialized_start=801
-  _globals['_INGESTIONSERVICE']._serialized_end=969
+  _globals['_INGESTREQUEST']._serialized_end=234
+  _globals['_INGESTSTATUS']._serialized_start=236
+  _globals['_INGESTSTATUS']._serialized_end=357
+  _globals['_ERASESUBJECTREQUEST']._serialized_start=359
+  _globals['_ERASESUBJECTREQUEST']._serialized_end=485
+  _globals['_ERASESUBJECTREPORT']._serialized_start=487
+  _globals['_ERASESUBJECTREPORT']._serialized_end=565
+  _globals['_INGESTIONSERVICE']._serialized_start=797
+  _globals['_INGESTIONSERVICE']._serialized_end=965
 # @@protoc_insertion_point(module_scope)

@@ -52,7 +52,7 @@ func chunksJSON(chunks []*wakiliv1.ContextChunk) []gin.H {
 func (s *Server) ResearchQuery(c *gin.Context) {
 	var in struct {
 		Query             string `json:"query" binding:"required"`
-		MatterID          string `json:"matter_id"`
+		FileID          string `json:"file_id"`
 		TopK              int32  `json:"top_k"`
 		IncludeSuperseded bool   `json:"include_superseded"`
 	}
@@ -67,7 +67,7 @@ func (s *Server) ResearchQuery(c *gin.Context) {
 		Query:             in.Query,
 		TopK:              in.TopK,
 		IncludeSuperseded: in.IncludeSuperseded,
-		MatterId:          in.MatterID,
+		FileId:          in.FileID,
 		TraceId:           middleware.TraceID(c),
 	})
 	if err != nil {
@@ -86,7 +86,7 @@ func (s *Server) ResearchQuery(c *gin.Context) {
 func (s *Server) ResearchReason(c *gin.Context) {
 	var in struct {
 		Query             string `json:"query" binding:"required"`
-		MatterID          string `json:"matter_id"`
+		FileID          string `json:"file_id"`
 		MaxHops           int32  `json:"max_hops"`
 		IncludeSuperseded bool   `json:"include_superseded"`
 	}
@@ -100,7 +100,7 @@ func (s *Server) ResearchReason(c *gin.Context) {
 		Tenant:            grpcclient.TC(tenant.ID, tenant.Plan, tenant.DataResidencyKE),
 		Query:             in.Query,
 		MaxHops:           in.MaxHops,
-		MatterId:          in.MatterID,
+		FileId:          in.FileID,
 		IncludeSuperseded: in.IncludeSuperseded,
 		TraceId:           middleware.TraceID(c),
 	})
@@ -135,7 +135,7 @@ func (s *Server) DraftStream(c *gin.Context) {
 		DocType      string `json:"doc_type" binding:"required"`
 		Title        string `json:"title"`
 		Instructions string `json:"instructions" binding:"required"`
-		MatterID     string `json:"matter_id"`
+		FileID     string `json:"file_id"`
 		TemplateID   string `json:"template_id"`
 		ContextQuery string `json:"context_query"`
 	}
@@ -156,7 +156,7 @@ func (s *Server) DraftStream(c *gin.Context) {
 		Tenant:       grpcclient.TC(tenant.ID, tenant.Plan, tenant.DataResidencyKE),
 		DocType:      docType,
 		Instructions: in.Instructions,
-		MatterId:     in.MatterID,
+		FileId:     in.FileID,
 		TemplateId:   in.TemplateID,
 		ContextQuery: in.ContextQuery,
 		TraceId:      middleware.TraceID(c),
@@ -219,13 +219,13 @@ func (s *Server) DraftStream(c *gin.Context) {
 		label := strings.ReplaceAll(strings.ToLower(in.DocType), "_", " ")
 		title = strings.ToUpper(label[:1]) + label[1:] + " draft"
 	}
-	var matterID *string
-	if in.MatterID != "" {
-		matterID = &in.MatterID
+	var fileID *string
+	if in.FileID != "" {
+		fileID = &in.FileID
 	}
 	if err := s.DB.WithTenant(c.Request.Context(), tenant.ID, tenant.SchemaName, func(tx pgx.Tx) error {
 		return repository.InsertDraft(c.Request.Context(), tx, &repository.Draft{
-			ID: draftID, MatterID: matterID, DocType: strings.ToLower(in.DocType),
+			ID: draftID, FileID: fileID, DocType: strings.ToLower(in.DocType),
 			Title: title, Content: full.String(), Citations: citBuf, CreatedBy: userID,
 		})
 	}); err != nil {

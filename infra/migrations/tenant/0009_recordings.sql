@@ -5,10 +5,10 @@
 
 CREATE TABLE IF NOT EXISTS meeting_recordings (
     id                uuid PRIMARY KEY,
-    matter_id         uuid REFERENCES matters(id) ON DELETE SET NULL,
+    file_id           uuid REFERENCES files(id) ON DELETE SET NULL,
     advocate_user_id  uuid NOT NULL,
     client_id         uuid REFERENCES clients(id) ON DELETE SET NULL,
-    object_key        text NOT NULL DEFAULT '',   -- R2 key (tenant-prefixed, like documents)
+    object_key        text NOT NULL DEFAULT '',   -- R2 key (tenant-prefixed, like archives)
     filename          text NOT NULL DEFAULT '',
     mime_type         text NOT NULL DEFAULT '',
     duration_seconds  int  NOT NULL DEFAULT 0,
@@ -27,7 +27,7 @@ CREATE INDEX IF NOT EXISTS meeting_recordings_pending ON meeting_recordings (sta
 CREATE INDEX IF NOT EXISTS meeting_recordings_advocate ON meeting_recordings (advocate_user_id, created_at DESC);
 
 -- Grants: full oversight to Owner + managers (matters.view_all); create + own
--- visibility to any advocate who works their own matters.
+-- visibility to any advocate who works their own files.
 INSERT INTO role_permissions (role_id, permission)
 SELECT r.id, p.perm
 FROM roles r

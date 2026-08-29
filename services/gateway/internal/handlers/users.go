@@ -148,17 +148,17 @@ func (s *Server) portalClientID(c *gin.Context, tx pgx.Tx) (string, error) {
 	return *u.ClientID, nil
 }
 
-func (s *Server) PortalMatters(c *gin.Context) {
-	var matters []repository.Matter
+func (s *Server) PortalFiles(c *gin.Context) {
+	var files []repository.File
 	if s.withTenant(c, func(tx pgx.Tx) error {
 		clientID, err := s.portalClientID(c, tx)
 		if err != nil {
 			return err
 		}
-		matters, err = repository.ListMatters(c.Request.Context(), tx, "", "", clientID)
+		files, err = repository.ListFiles(c.Request.Context(), tx, "", "", clientID)
 		return err
 	}) {
-		c.JSON(http.StatusOK, gin.H{"matters": matters})
+		c.JSON(http.StatusOK, gin.H{"files": files})
 	}
 }
 

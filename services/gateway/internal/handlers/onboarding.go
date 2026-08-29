@@ -27,8 +27,8 @@ func nextStage(cur string) string {
 
 // validateAdvance returns "" if the transition is allowed, else a reason. The
 // gates encode the firm's intake requirements (retainer before engaging,
-// KYC/AML + an open matter before active).
-func validateAdvance(cl *repository.Client, to, retainerRef, kycRef string, matterCount int) string {
+// KYC/AML + an open file before active).
+func validateAdvance(cl *repository.Client, to, retainerRef, kycRef string, fileCount int) string {
 	if to == "closed" {
 		return "" // a client may be closed from any stage
 	}
@@ -57,8 +57,8 @@ func validateAdvance(cl *repository.Client, to, retainerRef, kycRef string, matt
 		if kycRef == "" && cl.KYCRef == "" && cl.KYCCompletedAt == nil {
 			return "KYC/AML must be completed before the client is active"
 		}
-		if matterCount == 0 {
-			return "open a matter for this client before marking them active"
+		if fileCount == 0 {
+			return "open a file for this client before marking them active"
 		}
 	}
 	return ""
@@ -123,13 +123,13 @@ func (s *Server) AdvanceClientStage(c *gin.Context) {
 		if err != nil {
 			return err
 		}
-		matterCount := 0
+		fileCount := 0
 		if in.ToStatus == "active" {
-			if matterCount, err = repository.CountMattersByClient(c.Request.Context(), tx, cl.ID); err != nil {
+			if fileCount, err = repository.CountFilesByClient(c.Request.Context(), tx, cl.ID); err != nil {
 				return err
 			}
 		}
-		if msg := validateAdvance(cl, in.ToStatus, in.RetainerRef, in.KYCRef, matterCount); msg != "" {
+		if msg := validateAdvance(cl, in.ToStatus, in.RetainerRef, in.KYCRef, fileCount); msg != "" {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msg})
 			return errHandled
 		}

@@ -12,7 +12,7 @@ message TenantScopedQuery {
   QueryIntent intent_hint = 3;   // optional caller hint; service still classifies
   int32 top_k = 4;               // default 12
   bool include_superseded = 5;   // surface amended/overturned law for historical questions
-  string matter_id = 6;          // optional: bias retrieval toward a matter's subgraph
+  string file_id = 6;            // optional: bias retrieval toward a file's subgraph
   string trace_id = 7;           // correlation id propagated from the frontend
 }
 

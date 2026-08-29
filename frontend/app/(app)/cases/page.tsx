@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, fmtDate } from "@/lib/api";
 
 type CaseStatus = {
-  matter_id: string; reference: string; title: string; client_name: string;
+  file_id: string; reference: string; title: string; client_name: string;
   status: string; open_tasks: number; overdue_tasks: number; last_activity: string;
 };
 
@@ -21,21 +21,21 @@ export default function CasesPage() {
   return (
     <div>
       <h2 className="font-display text-3xl font-bold text-navy">Case status</h2>
-      <p className="mt-1 text-sm text-ink/60">Firm-wide view across all matters — open work, overdue items and activity.</p>
+      <p className="mt-1 text-sm text-ink/60">Firm-wide view across all files — open work, overdue items and activity.</p>
 
       <div className="card mt-4 !p-0 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-navy/5 text-left text-xs uppercase text-navy/60">
             <tr>
-              <th className="p-3">Matter</th><th className="p-3">Client</th><th className="p-3">Status</th>
+              <th className="p-3">File</th><th className="p-3">Client</th><th className="p-3">Status</th>
               <th className="p-3 text-center">Open tasks</th><th className="p-3 text-center">Overdue</th><th className="p-3">Last activity</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && <tr><td colSpan={6} className="p-4 text-center text-ink/50">Loading…</td></tr>}
-            {!isLoading && cases.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-ink/50">No matters yet.</td></tr>}
+            {!isLoading && cases.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-ink/50">No files yet.</td></tr>}
             {cases.map((c) => (
-              <tr key={c.matter_id} className="border-t border-navy/5">
+              <tr key={c.file_id} className="border-t border-navy/5">
                 <td className="p-3">
                   <div className="font-medium text-navy">{c.reference}</div>
                   <div className="truncate text-xs text-ink/50">{c.title}</div>

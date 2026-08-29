@@ -10,7 +10,7 @@ message ReasoningRequest {
   TenantContext tenant = 1;
   string query = 2;
   int32 max_hops = 3;            // graph traversal depth, default 3
-  string matter_id = 4;          // anchor the reasoning on a matter node
+  string file_id = 4;            // anchor the reasoning on a file node
   bool include_superseded = 5;
   string trace_id = 6;
 }
@@ -32,6 +32,6 @@ message ReasoningTrace {
 service ReasoningService {
   // Multi-hop graph reasoning across the public law graph and the tenant's
   // private graph (e.g. "cases citing this statute, decided by this court in
-  // the last 5 years, linked to matters similar to the current one").
+  // the last 5 years, linked to files similar to the current one").
   rpc Reason(ReasoningRequest) returns (ReasoningTrace);
 }

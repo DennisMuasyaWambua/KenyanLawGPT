@@ -11,26 +11,26 @@ const STATUS_LABEL: Record<string, string> = {
   appeal: "Appeal", closed: "Closed",
 };
 
-export default function MattersPage() {
+export default function FilesPage() {
   const qc = useQueryClient();
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [search, setSearch] = useState("");
   const [showNew, setShowNew] = useState(false);
 
   const { data } = useQuery({
-    queryKey: ["matters", search],
-    queryFn: () => api(`/api/v1/matters?q=${encodeURIComponent(search)}`),
+    queryKey: ["files", search],
+    queryFn: () => api(`/api/v1/files?q=${encodeURIComponent(search)}`),
   });
   const { data: clientsData } = useQuery({
     queryKey: ["clients"],
     queryFn: () => api("/api/v1/clients"),
   });
-  const matters = data?.matters || [];
+  const files = data?.files || [];
 
   const create = useMutation({
-    mutationFn: (body: any) => api("/api/v1/matters", { method: "POST", body: JSON.stringify(body) }),
+    mutationFn: (body: any) => api("/api/v1/files", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["matters"] });
+      qc.invalidateQueries({ queryKey: ["files"] });
       setShowNew(false);
     },
   });
@@ -38,14 +38,14 @@ export default function MattersPage() {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-3xl font-bold text-navy">Matters</h2>
+        <h2 className="font-display text-3xl font-bold text-navy">Files</h2>
         <div className="flex gap-2">
-          <input className="input !w-56" placeholder="Search matters…" value={search}
+          <input className="input !w-56" placeholder="Search files…" value={search}
             onChange={(e) => setSearch(e.target.value)} />
           <button className="btn-primary" onClick={() => setView(view === "kanban" ? "list" : "kanban")}>
             {view === "kanban" ? "List view" : "Kanban view"}
           </button>
-          <button className="btn-gold" onClick={() => setShowNew(true)}>+ New matter</button>
+          <button className="btn-gold" onClick={() => setShowNew(true)}>+ New file</button>
         </div>
       </div>
 
@@ -54,11 +54,11 @@ export default function MattersPage() {
           {STATUSES.map((st) => (
             <div key={st} className="rounded-lg bg-navy/5 p-2">
               <p className="mb-2 px-1 text-xs font-bold uppercase tracking-wide text-navy/60">
-                {STATUS_LABEL[st]} ({matters.filter((m: any) => m.status === st).length})
+                {STATUS_LABEL[st]} ({files.filter((m: any) => m.status === st).length})
               </p>
               <div className="space-y-2">
-                {matters.filter((m: any) => m.status === st).map((m: any) => (
-                  <Link key={m.id} href={`/matters/${m.id}`}
+                {files.filter((m: any) => m.status === st).map((m: any) => (
+                  <Link key={m.id} href={`/files/${m.id}`}
                     className="block rounded-md border border-navy/10 bg-white p-3 text-sm shadow-sm hover:border-gold">
                     <p className="font-semibold text-navy">{m.title}</p>
                     <p className="mt-1 text-xs text-ink/50">{m.reference}</p>
@@ -80,9 +80,9 @@ export default function MattersPage() {
               </tr>
             </thead>
             <tbody>
-              {matters.map((m: any) => (
+              {files.map((m: any) => (
                 <tr key={m.id} className="border-t border-navy/5 hover:bg-paper">
-                  <td className="p-3"><Link className="text-gold-dim hover:underline" href={`/matters/${m.id}`}>{m.reference}</Link></td>
+                  <td className="p-3"><Link className="text-gold-dim hover:underline" href={`/files/${m.id}`}>{m.reference}</Link></td>
                   <td className="p-3">{m.title}</td>
                   <td className="p-3">{m.client_name}</td>
                   <td className="p-3">{m.practice_area}</td>
@@ -110,7 +110,7 @@ export default function MattersPage() {
               });
             }}
           >
-            <h3 className="font-display text-xl font-bold text-navy">New matter</h3>
+            <h3 className="font-display text-xl font-bold text-navy">New file</h3>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Reference</label><input name="reference" className="input" required /></div>
               <div><label className="label">Practice area</label><input name="practice_area" className="input" /></div>

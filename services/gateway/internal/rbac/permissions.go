@@ -74,16 +74,16 @@ type PermissionDef struct {
 // Catalog is the ordered permission catalog, grouped by resource. Order is
 // stable so the UI renders consistently.
 var Catalog = []PermissionDef{
-	{PermMattersCreate, "matters", "create", "Create matters"},
-	{PermMattersViewOwn, "matters", "view_own", "View own matters"},
-	{PermMattersViewAll, "matters", "view_all", "View all firm matters"},
-	{PermMattersEdit, "matters", "edit", "Edit matters"},
-	{PermMattersDelete, "matters", "delete", "Delete matters"},
+	{PermMattersCreate, "files", "create", "Create files"},
+	{PermMattersViewOwn, "files", "view_own", "View own files"},
+	{PermMattersViewAll, "files", "view_all", "View all firm files"},
+	{PermMattersEdit, "files", "edit", "Edit files"},
+	{PermMattersDelete, "files", "delete", "Delete files"},
 
-	{PermDocumentsUpload, "documents", "upload", "Upload documents"},
-	{PermDocumentsView, "documents", "view", "View documents & drafts"},
-	{PermDocumentsDownload, "documents", "download", "Download documents"},
-	{PermDocumentsDelete, "documents", "delete", "Delete documents"},
+	{PermDocumentsUpload, "archives", "upload", "Upload archives"},
+	{PermDocumentsView, "archives", "view", "View archives & drafts"},
+	{PermDocumentsDownload, "archives", "download", "Download archives"},
+	{PermDocumentsDelete, "archives", "delete", "Delete archives"},
 
 	{PermResearchQuery, "research", "query", "Run legal research queries"},
 	{PermResearchReason, "research", "reason", "Run deep-reasoning research"},
@@ -182,7 +182,7 @@ var DefaultTemplates = []RoleTemplate{
 		},
 	},
 	{
-		Name: "Associate", Description: "Advocate handling matters",
+		Name: "Associate", Description: "Advocate handling files",
 		Permissions: []string{
 			PermMattersCreate, PermMattersViewOwn, PermMattersViewAll, PermMattersEdit,
 			PermDocumentsUpload, PermDocumentsView, PermDocumentsDownload,

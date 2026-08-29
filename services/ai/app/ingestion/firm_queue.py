@@ -26,18 +26,18 @@ from ..logging_setup import log
 from ..tenancy import validate_tenant_id
 
 QUEUE_KEY = "wakili:firm_ingest:queue"
-STATUS_KEY = "wakili:firm_ingest:status:"  # + document_id
+STATUS_KEY = "wakili:firm_ingest:status:"  # + archive_id
 STATUS_TTL_SECONDS = 24 * 3600
 
 
 @dataclass
 class IngestJob:
     tenant_id: str
-    document_id: str
+    archive_id: str
     object_key: str
     filename: str
     mime_type: str
-    matter_id: Optional[str] = None
+    file_id: Optional[str] = None
     trace_id: str = ""
 
 
@@ -95,7 +95,7 @@ class FirmIngestQueue:
     # -- producer -----------------------------------------------------------
     async def enqueue(self, job: IngestJob) -> None:
         validate_tenant_id(job.tenant_id)  # defense in depth: never queue a bad tenant
-        await self._set_status(job.document_id, "QUEUED", "queued for ingestion", 0, False, "")
+        await self._set_status(job.archive_id, "QUEUED", "queued for ingestion", 0, False, "")
         payload = json.dumps(asdict(job))
         if self._redis is not None:
             await self._redis.rpush(QUEUE_KEY, payload)
@@ -130,26 +130,26 @@ class FirmIngestQueue:
     async def _run_job(self, job: IngestJob) -> None:
         try:
             async for stage, message, pct in self.ingestor.ingest(
-                job.tenant_id, job.document_id, job.object_key,
-                job.filename, job.mime_type, job.matter_id or None,
+                job.tenant_id, job.archive_id, job.object_key,
+                job.filename, job.mime_type, job.file_id or None,
             ):
-                await self._set_status(job.document_id, stage, message, pct, stage == "DONE", "")
+                await self._set_status(job.archive_id, stage, message, pct, stage == "DONE", "")
         except Exception as exc:
-            log().exception("firm ingestion failed for document %s", job.document_id)
-            await self._set_status(job.document_id, "FAILED", "ingestion failed", 0, True, str(exc))
+            log().exception("firm ingestion failed for document %s", job.archive_id)
+            await self._set_status(job.archive_id, "FAILED", "ingestion failed", 0, True, str(exc))
 
     # -- status -------------------------------------------------------------
-    async def _set_status(self, document_id: str, stage: str, message: str,
+    async def _set_status(self, archive_id: str, stage: str, message: str,
                           pct: int, done: bool, error: str) -> None:
         status = {"stage": stage, "message": message, "progress_pct": pct,
                   "done": done, "error": error}
         if self._redis is not None:
-            await self._redis.set(STATUS_KEY + document_id, json.dumps(status), ex=STATUS_TTL_SECONDS)
+            await self._redis.set(STATUS_KEY + archive_id, json.dumps(status), ex=STATUS_TTL_SECONDS)
         else:
-            self._mem_status[document_id] = status
+            self._mem_status[archive_id] = status
 
-    async def get_status(self, document_id: str) -> Optional[dict]:
+    async def get_status(self, archive_id: str) -> Optional[dict]:
         if self._redis is not None:
-            raw = await self._redis.get(STATUS_KEY + document_id)
+            raw = await self._redis.get(STATUS_KEY + archive_id)
             return json.loads(raw) if raw else None
-        return self._mem_status.get(document_id)
+        return self._mem_status.get(archive_id)

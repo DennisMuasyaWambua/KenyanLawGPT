@@ -47,7 +47,7 @@ class ReasoningServiceServicer:
     def Reason(self, request, context):
         """Multi-hop graph reasoning across the public law graph and the tenant's
         private graph (e.g. "cases citing this statute, decided by this court in
-        the last 5 years, linked to matters similar to the current one").
+        the last 5 years, linked to files similar to the current one").
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

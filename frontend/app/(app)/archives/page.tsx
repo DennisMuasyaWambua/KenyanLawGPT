@@ -2,12 +2,12 @@
 
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, uploadDocument } from "@/lib/api";
+import { api, uploadArchive } from "@/lib/api";
 import IngestionStatus, { IngestDoc } from "@/components/IngestionStatus";
 
 const DOC_KINDS = ["other", "contract", "pleading", "correspondence", "evidence", "precedent_note"];
 
-// Persisted documents expose an ingest_status; map it onto the step-based view.
+// Persisted archives expose an ingest_status; map it onto the step-based view.
 function statusToStage(s: string): { stage: string; progress_pct: number } {
   switch (s) {
     case "ingested":
@@ -23,21 +23,21 @@ function statusToStage(s: string): { stage: string; progress_pct: number } {
 
 type LiveUpload = IngestDoc & { key: string };
 
-export default function DocumentsPage() {
+export default function ArchivesPage() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [matterId, setMatterId] = useState("");
+  const [fileId, setFileId] = useState("");
   const [docKind, setDocKind] = useState("other");
   const [live, setLive] = useState<LiveUpload[]>([]);
 
-  const { data: mattersData } = useQuery({ queryKey: ["matters"], queryFn: () => api("/api/v1/matters") });
+  const { data: filesData } = useQuery({ queryKey: ["files"], queryFn: () => api("/api/v1/files") });
 
   const { data: persisted = [] } = useQuery<IngestDoc[]>({
-    queryKey: ["documents", matterId],
+    queryKey: ["archives", fileId],
     queryFn: async () => {
-      const q = matterId ? `?matter_id=${matterId}` : "";
-      const r = await api<{ documents: any[] }>(`/api/v1/documents${q}`);
-      return (r.documents || []).map((d) => ({
+      const q = fileId ? `?file_id=${fileId}` : "";
+      const r = await api<{ archives: any[] }>(`/api/v1/archives${q}`);
+      return (r.archives || []).map((d) => ({
         id: d.id,
         filename: d.filename,
         doc_kind: d.doc_kind,
@@ -60,21 +60,21 @@ export default function DocumentsPage() {
         ...prev,
       ]);
       try {
-        await uploadDocument(file, { matterId: matterId || null, docKind }, (stage, pct, msg) =>
+        await uploadArchive(file, { fileId: fileId || null, docKind }, (stage, pct, msg) =>
           patchLive(key, { stage, progress_pct: pct, message: msg })
         );
       } catch (err) {
         patchLive(key, { stage: "FAILED", progress_pct: 0, error: (err as Error).message });
       }
-      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["archives"] });
     }
     // Clear finished live rows shortly after; the persisted list takes over.
     setTimeout(() => setLive((prev) => prev.filter((u) => u.stage !== "DONE")), 2500);
   }
 
   const retry = useMutation({
-    mutationFn: (id: string) => api(`/api/v1/documents/${id}/ingest`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
+    mutationFn: (id: string) => api(`/api/v1/archives/${id}/ingest`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["archives"] }),
   });
 
   // Live uploads sit above the persisted list (dedup by not showing DONE twice).
@@ -82,20 +82,20 @@ export default function DocumentsPage() {
 
   return (
     <div>
-      <h2 className="font-display text-3xl font-bold text-navy">Documents</h2>
+      <h2 className="font-display text-3xl font-bold text-navy">Archives</h2>
       <p className="mt-1 text-sm text-ink/60">
         Upload pleadings, contracts and notes, or client-conversation recordings (auto-transcribed,
-        multilingual). Attach to a matter so the content becomes per-case context for AI research.
+        multilingual). Attach to a file so the content becomes per-case context for AI research.
         Everything is parsed, embedded and linked into your firm&rsquo;s private knowledge graph —
         isolated from every other firm.
       </p>
 
       <div className="mt-6 card flex flex-col gap-3 border-dashed sm:flex-row sm:items-end">
         <div className="flex-1">
-          <label className="label">Matter (per-case)</label>
-          <select className="input" value={matterId} onChange={(e) => setMatterId(e.target.value)}>
+          <label className="label">File (per-case)</label>
+          <select className="input" value={fileId} onChange={(e) => setFileId(e.target.value)}>
             <option value="">Unassigned</option>
-            {(mattersData?.matters || []).map((m: any) => (
+            {(filesData?.files || []).map((m: any) => (
               <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>
             ))}
           </select>
@@ -120,7 +120,7 @@ export default function DocumentsPage() {
       </div>
 
       <div className="mt-6">
-        <IngestionStatus documents={allDocs} onRetry={(id) => retry.mutate(id)} />
+        <IngestionStatus archives={allDocs} onRetry={(id) => retry.mutate(id)} />
       </div>
     </div>
   );

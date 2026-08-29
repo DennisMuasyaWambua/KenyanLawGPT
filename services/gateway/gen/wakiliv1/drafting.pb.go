@@ -84,7 +84,7 @@ type DraftRequest struct {
 	Tenant        *TenantContext         `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
 	DocType       DraftDocType           `protobuf:"varint,2,opt,name=doc_type,json=docType,proto3,enum=wakili.v1.DraftDocType" json:"doc_type,omitempty"`
 	Instructions  string                 `protobuf:"bytes,3,opt,name=instructions,proto3" json:"instructions,omitempty"`                     // user instructions for the draft
-	MatterId      string                 `protobuf:"bytes,4,opt,name=matter_id,json=matterId,proto3" json:"matter_id,omitempty"`             // optional matter to ground party names/facts
+	FileId        string                 `protobuf:"bytes,4,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`                   // optional file to ground party names/facts
 	TemplateId    string                 `protobuf:"bytes,5,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`       // optional clause-library / template id
 	ContextQuery  string                 `protobuf:"bytes,6,opt,name=context_query,json=contextQuery,proto3" json:"context_query,omitempty"` // optional retrieval query to ground the draft in law
 	TraceId       string                 `protobuf:"bytes,7,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
@@ -143,9 +143,9 @@ func (x *DraftRequest) GetInstructions() string {
 	return ""
 }
 
-func (x *DraftRequest) GetMatterId() string {
+func (x *DraftRequest) GetFileId() string {
 	if x != nil {
-		return x.MatterId
+		return x.FileId
 	}
 	return ""
 }
@@ -243,12 +243,12 @@ var File_wakili_v1_drafting_proto protoreflect.FileDescriptor
 
 const file_wakili_v1_drafting_proto_rawDesc = "" +
 	"\n" +
-	"\x18wakili/v1/drafting.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\x96\x02\n" +
+	"\x18wakili/v1/drafting.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\x92\x02\n" +
 	"\fDraftRequest\x120\n" +
 	"\x06tenant\x18\x01 \x01(\v2\x18.wakili.v1.TenantContextR\x06tenant\x122\n" +
 	"\bdoc_type\x18\x02 \x01(\x0e2\x17.wakili.v1.DraftDocTypeR\adocType\x12\"\n" +
-	"\finstructions\x18\x03 \x01(\tR\finstructions\x12\x1b\n" +
-	"\tmatter_id\x18\x04 \x01(\tR\bmatterId\x12\x1f\n" +
+	"\finstructions\x18\x03 \x01(\tR\finstructions\x12\x17\n" +
+	"\afile_id\x18\x04 \x01(\tR\x06fileId\x12\x1f\n" +
 	"\vtemplate_id\x18\x05 \x01(\tR\n" +
 	"templateId\x12#\n" +
 	"\rcontext_query\x18\x06 \x01(\tR\fcontextQuery\x12\x19\n" +

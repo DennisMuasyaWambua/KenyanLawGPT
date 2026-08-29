@@ -28,7 +28,7 @@ const (
 type ReasoningServiceClient interface {
 	// Multi-hop graph reasoning across the public law graph and the tenant's
 	// private graph (e.g. "cases citing this statute, decided by this court in
-	// the last 5 years, linked to matters similar to the current one").
+	// the last 5 years, linked to files similar to the current one").
 	Reason(ctx context.Context, in *ReasoningRequest, opts ...grpc.CallOption) (*ReasoningTrace, error)
 }
 
@@ -56,7 +56,7 @@ func (c *reasoningServiceClient) Reason(ctx context.Context, in *ReasoningReques
 type ReasoningServiceServer interface {
 	// Multi-hop graph reasoning across the public law graph and the tenant's
 	// private graph (e.g. "cases citing this statute, decided by this court in
-	// the last 5 years, linked to matters similar to the current one").
+	// the last 5 years, linked to files similar to the current one").
 	Reason(context.Context, *ReasoningRequest) (*ReasoningTrace, error)
 	mustEmbedUnimplementedReasoningServiceServer()
 }

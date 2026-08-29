@@ -14,7 +14,7 @@ type CalendarEvent struct {
 	Title       string     `json:"title"`
 	Description string     `json:"description"`
 	Location    string     `json:"location"`
-	MatterID    *string    `json:"matter_id,omitempty"`
+	FileID    *string    `json:"file_id,omitempty"`
 	OwnerID     string     `json:"owner_id"`
 	StartAt     time.Time  `json:"start_at"`
 	EndAt       *time.Time `json:"end_at,omitempty"`
@@ -24,12 +24,12 @@ type CalendarEvent struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
-const calendarCols = "id, scope, title, description, location, matter_id, owner_id, " +
+const calendarCols = "id, scope, title, description, location, file_id, owner_id, " +
 	"start_at, end_at, all_day, created_by, created_at, updated_at"
 
 func scanEvent(row pgx.Row) (*CalendarEvent, error) {
 	var e CalendarEvent
-	if err := row.Scan(&e.ID, &e.Scope, &e.Title, &e.Description, &e.Location, &e.MatterID,
+	if err := row.Scan(&e.ID, &e.Scope, &e.Title, &e.Description, &e.Location, &e.FileID,
 		&e.OwnerID, &e.StartAt, &e.EndAt, &e.AllDay, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -79,9 +79,9 @@ func GetEvent(ctx context.Context, tx pgx.Tx, id string) (*CalendarEvent, error)
 func CreateEvent(ctx context.Context, tx pgx.Tx, e *CalendarEvent) error {
 	_, err := tx.Exec(ctx,
 		`INSERT INTO calendar_events
-		 (id, scope, title, description, location, matter_id, owner_id, start_at, end_at, all_day, created_by)
+		 (id, scope, title, description, location, file_id, owner_id, start_at, end_at, all_day, created_by)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		e.ID, e.Scope, e.Title, e.Description, e.Location, e.MatterID, e.OwnerID,
+		e.ID, e.Scope, e.Title, e.Description, e.Location, e.FileID, e.OwnerID,
 		e.StartAt, e.EndAt, e.AllDay, e.CreatedBy)
 	return err
 }
@@ -93,11 +93,11 @@ func UpdateEventFields(ctx context.Context, tx pgx.Tx, id, scope string, e *Cale
 	var got string
 	return tx.QueryRow(ctx,
 		`UPDATE calendar_events SET
-		   title=$3, description=$4, location=$5, matter_id=$6, start_at=$7, end_at=$8,
+		   title=$3, description=$4, location=$5, file_id=$6, start_at=$7, end_at=$8,
 		   all_day=$9, updated_at=now()
 		 WHERE id=$1 AND scope=$2
 		 RETURNING id`,
-		id, scope, e.Title, e.Description, e.Location, e.MatterID, e.StartAt, e.EndAt, e.AllDay).Scan(&got)
+		id, scope, e.Title, e.Description, e.Location, e.FileID, e.StartAt, e.EndAt, e.AllDay).Scan(&got)
 }
 
 func DeleteEventByID(ctx context.Context, tx pgx.Tx, id string) error {

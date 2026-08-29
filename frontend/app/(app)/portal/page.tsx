@@ -4,21 +4,21 @@ import { useQuery } from "@tanstack/react-query";
 import { api, currentUser, fmtDate, fmtKES } from "@/lib/api";
 
 // Client portal: strictly scoped server-side to the signed-in client's own
-// matters, invoices and messages.
+// files, invoices and messages.
 export default function PortalPage() {
   const me = currentUser();
-  const { data: matters } = useQuery({ queryKey: ["portal-matters"], queryFn: () => api("/api/v1/portal/matters") });
+  const { data: files } = useQuery({ queryKey: ["portal-files"], queryFn: () => api("/api/v1/portal/files") });
   const { data: invoices } = useQuery({ queryKey: ["portal-invoices"], queryFn: () => api("/api/v1/portal/invoices") });
   const { data: messages } = useQuery({ queryKey: ["portal-messages"], queryFn: () => api("/api/v1/portal/messages") });
 
   return (
     <div>
       <h2 className="font-display text-3xl font-bold text-navy">Welcome, {me?.full_name}</h2>
-      <p className="mt-1 text-sm text-ink/60">Your matters with the firm, invoices and updates.</p>
+      <p className="mt-1 text-sm text-ink/60">Your files with the firm, invoices and updates.</p>
 
-      <h3 className="mt-8 font-display text-xl font-bold text-navy">My matters</h3>
+      <h3 className="mt-8 font-display text-xl font-bold text-navy">My files</h3>
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-        {(matters?.matters || []).map((m: any) => (
+        {(files?.files || []).map((m: any) => (
           <div key={m.id} className="card">
             <p className="text-xs text-ink/40">{m.reference}</p>
             <p className="font-semibold text-navy">{m.title}</p>
@@ -26,7 +26,7 @@ export default function PortalPage() {
             {m.court && <p className="text-xs text-ink/50">{m.court} {m.court_case_number}</p>}
           </div>
         ))}
-        {(matters?.matters || []).length === 0 && <p className="text-sm text-ink/50">No matters yet.</p>}
+        {(files?.files || []).length === 0 && <p className="text-sm text-ink/50">No files yet.</p>}
       </div>
 
       <h3 className="mt-8 font-display text-xl font-bold text-navy">Invoices</h3>

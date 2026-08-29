@@ -16,6 +16,16 @@ def _env_bool(key: str, default: bool) -> bool:
     return v.lower() in ("1", "true", "yes")
 
 
+def _env_int(key: str, default: int) -> int:
+    v = os.environ.get(key)
+    if v is None or not v.strip():
+        return default
+    try:
+        return int(v)
+    except ValueError:
+        return default
+
+
 @dataclass
 class Config:
     # Postgres (same cluster the gateway uses; app role, tenant schemas + public corpus)
@@ -31,7 +41,7 @@ class Config:
     s3_endpoint: str = field(default_factory=lambda: _env("S3_ENDPOINT", "localhost:9000"))
     s3_access_key: str = field(default_factory=lambda: _env("S3_ACCESS_KEY", "minioadmin"))
     s3_secret_key: str = field(default_factory=lambda: _env("S3_SECRET_KEY", "minioadmin"))
-    s3_bucket: str = field(default_factory=lambda: _env("S3_BUCKET", "wakili-documents"))
+    s3_bucket: str = field(default_factory=lambda: _env("S3_BUCKET", "wakili-archives"))
     s3_use_ssl: bool = field(default_factory=lambda: _env_bool("S3_USE_SSL", False))
 
     # Redis — backs the async firm-ingestion job queue. Unreachable => the queue
@@ -78,6 +88,16 @@ class Config:
     # box to a paid third party during model evaluation.
     gmi_synthetic_only: bool = field(default_factory=lambda: _env_bool("GMI_SYNTHETIC_ONLY", True))
     gmi_synthetic_data_ok: bool = field(default_factory=lambda: _env_bool("GMI_SYNTHETIC_DATA_OK", False))
+    # Chain-of-thought GMI models (DeepSeek-R1 distill, Nemotron) spend part of
+    # their token budget *reasoning* before emitting the visible answer — either
+    # inline in <think>...</think> or in a separate `reasoning` field. A request's
+    # `max_tokens` bounds reasoning+answer combined, so a small answer budget
+    # (research synthesis asks for 2048, graph reasoning 1024) gets fully consumed
+    # by the reasoning trace and `content` comes back EMPTY — the research UI then
+    # renders citations with no answer. This headroom is added on top of the
+    # caller's requested answer budget so the answer always has room to land.
+    gmi_cloud_reasoning_headroom: int = field(
+        default_factory=lambda: _env_int("GMI_CLOUD_REASONING_HEADROOM", 6144))
 
     # Speech-to-text (multilingual) for client-conversation recordings. Audio is
     # privileged/KDPA-sensitive, so "auto" only ever picks a LOCAL Whisper or the

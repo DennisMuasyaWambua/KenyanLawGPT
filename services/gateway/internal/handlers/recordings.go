@@ -17,7 +17,7 @@ import (
 // URL for the browser to upload the audio straight to R2.
 func (s *Server) CreateRecording(c *gin.Context) {
 	var in struct {
-		MatterID         *string `json:"matter_id"`
+		FileID         *string `json:"file_id"`
 		ClientID         *string `json:"client_id"`
 		Filename         string  `json:"filename" binding:"required"`
 		MimeType         string  `json:"mime_type"`
@@ -40,7 +40,7 @@ func (s *Server) CreateRecording(c *gin.Context) {
 		return
 	}
 	r := &repository.Recording{
-		ID: id, MatterID: in.MatterID, AdvocateUserID: s.claims(c).UserID(), ClientID: in.ClientID,
+		ID: id, FileID: in.FileID, AdvocateUserID: s.claims(c).UserID(), ClientID: in.ClientID,
 		ObjectKey: key, Filename: in.Filename, MimeType: in.MimeType, ConsentConfirmed: true, Status: "recording",
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
@@ -112,10 +112,10 @@ func (s *Server) GetRecording(c *gin.Context) {
 	}
 }
 
-func (s *Server) MatterRecordings(c *gin.Context) {
+func (s *Server) FileRecordings(c *gin.Context) {
 	var recs []repository.Recording
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		r, err := repository.ListRecordingsByMatter(c.Request.Context(), tx, c.Param("id"))
+		r, err := repository.ListRecordingsByFile(c.Request.Context(), tx, c.Param("id"))
 		recs = r
 		return err
 	}) {

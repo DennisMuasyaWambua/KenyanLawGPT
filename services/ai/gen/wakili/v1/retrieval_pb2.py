@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from wakili.v1 import common_pb2 as wakili_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19wakili/v1/retrieval.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\xc9\x01\n\x11TenantScopedQuery\x12(\n\x06tenant\x18\x01 \x01(\x0b\x32\x18.wakili.v1.TenantContext\x12\r\n\x05query\x18\x02 \x01(\t\x12+\n\x0bintent_hint\x18\x03 \x01(\x0e\x32\x16.wakili.v1.QueryIntent\x12\r\n\x05top_k\x18\x04 \x01(\x05\x12\x1a\n\x12include_superseded\x18\x05 \x01(\x08\x12\x11\n\tmatter_id\x18\x06 \x01(\t\x12\x10\n\x08trace_id\x18\x07 \x01(\t\"\x8d\x01\n\rRankedContext\x12\'\n\x06\x63hunks\x18\x01 \x03(\x0b\x32\x17.wakili.v1.ContextChunk\x12\x31\n\x11\x63lassified_intent\x18\x02 \x01(\x0e\x32\x16.wakili.v1.QueryIntent\x12\x0e\n\x06\x61nswer\x18\x03 \x01(\t\x12\x10\n\x08trace_id\x18\x04 \x01(\t2V\n\x10RetrievalService\x12\x42\n\x08Retrieve\x12\x1c.wakili.v1.TenantScopedQuery\x1a\x18.wakili.v1.RankedContextB3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19wakili/v1/retrieval.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\xc7\x01\n\x11TenantScopedQuery\x12(\n\x06tenant\x18\x01 \x01(\x0b\x32\x18.wakili.v1.TenantContext\x12\r\n\x05query\x18\x02 \x01(\t\x12+\n\x0bintent_hint\x18\x03 \x01(\x0e\x32\x16.wakili.v1.QueryIntent\x12\r\n\x05top_k\x18\x04 \x01(\x05\x12\x1a\n\x12include_superseded\x18\x05 \x01(\x08\x12\x0f\n\x07\x66ile_id\x18\x06 \x01(\t\x12\x10\n\x08trace_id\x18\x07 \x01(\t\"\x8d\x01\n\rRankedContext\x12\'\n\x06\x63hunks\x18\x01 \x03(\x0b\x32\x17.wakili.v1.ContextChunk\x12\x31\n\x11\x63lassified_intent\x18\x02 \x01(\x0e\x32\x16.wakili.v1.QueryIntent\x12\x0e\n\x06\x61nswer\x18\x03 \x01(\t\x12\x10\n\x08trace_id\x18\x04 \x01(\t2V\n\x10RetrievalService\x12\x42\n\x08Retrieve\x12\x1c.wakili.v1.TenantScopedQuery\x1a\x18.wakili.v1.RankedContextB3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,9 +34,9 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1'
   _globals['_TENANTSCOPEDQUERY']._serialized_start=65
-  _globals['_TENANTSCOPEDQUERY']._serialized_end=266
-  _globals['_RANKEDCONTEXT']._serialized_start=269
-  _globals['_RANKEDCONTEXT']._serialized_end=410
-  _globals['_RETRIEVALSERVICE']._serialized_start=412
-  _globals['_RETRIEVALSERVICE']._serialized_end=498
+  _globals['_TENANTSCOPEDQUERY']._serialized_end=264
+  _globals['_RANKEDCONTEXT']._serialized_start=267
+  _globals['_RANKEDCONTEXT']._serialized_end=408
+  _globals['_RETRIEVALSERVICE']._serialized_start=410
+  _globals['_RETRIEVALSERVICE']._serialized_end=496
 # @@protoc_insertion_point(module_scope)

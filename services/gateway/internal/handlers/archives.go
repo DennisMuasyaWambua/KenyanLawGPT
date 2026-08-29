@@ -16,7 +16,7 @@ import (
 	"github.com/wakiliai/gateway/internal/storage"
 )
 
-// PresignUpload creates the document row and hands the browser a short-lived
+// PresignUpload creates the archive row and hands the browser a short-lived
 // PUT URL scoped to the tenant's object prefix. The gateway is the only
 // issuer of signed URLs — the AI service and frontend never hold S3 creds.
 func (s *Server) PresignUpload(c *gin.Context) {
@@ -24,7 +24,7 @@ func (s *Server) PresignUpload(c *gin.Context) {
 		Filename string  `json:"filename" binding:"required"`
 		MimeType string  `json:"mime_type"`
 		SizeB    int64   `json:"size_bytes"`
-		MatterID *string `json:"matter_id"`
+		FileID *string `json:"file_id"`
 		DocKind  string  `json:"doc_kind"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -42,15 +42,15 @@ func (s *Server) PresignUpload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "presign failed"})
 		return
 	}
-	doc := &repository.Document{
-		ID: docID, MatterID: in.MatterID, Filename: in.Filename, ObjectKey: key,
+	doc := &repository.Archive{
+		ID: docID, FileID: in.FileID, Filename: in.Filename, ObjectKey: key,
 		MimeType: in.MimeType, SizeBytes: in.SizeB, DocKind: in.DocKind,
 		UploadedBy: s.claims(c).UserID(), IngestStatus: "pending",
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		return repository.InsertDocument(c.Request.Context(), tx, doc)
+		return repository.InsertArchive(c.Request.Context(), tx, doc)
 	}) {
-		c.JSON(http.StatusCreated, gin.H{"document": doc, "upload_url": uploadURL})
+		c.JSON(http.StatusCreated, gin.H{"archive": doc, "upload_url": uploadURL})
 	}
 }
 
@@ -58,9 +58,9 @@ func (s *Server) PresignUpload(c *gin.Context) {
 // over the mTLS gRPC stream and relays the staged progress.
 func (s *Server) IngestDocument(c *gin.Context) {
 	tenant := s.tenant(c)
-	var doc *repository.Document
+	var doc *repository.Archive
 	if !s.withTenant(c, func(tx pgx.Tx) error {
-		d, err := repository.DocumentByID(c.Request.Context(), tx, c.Param("id"))
+		d, err := repository.ArchiveByID(c.Request.Context(), tx, c.Param("id"))
 		if err != nil {
 			return err
 		}
@@ -73,11 +73,11 @@ func (s *Server) IngestDocument(c *gin.Context) {
 	ctx := grpcclient.Ctx(c.Request.Context(), tenant.ID, middleware.TraceID(c))
 	stream, err := s.AI.Ingestion.IngestDocument(ctx, &wakiliv1.IngestRequest{
 		Tenant:     grpcclient.TC(tenant.ID, tenant.Plan, tenant.DataResidencyKE),
-		DocumentId: doc.ID,
+		ArchiveId: doc.ID,
 		ObjectKey:  doc.ObjectKey,
 		Filename:   doc.Filename,
 		MimeType:   doc.MimeType,
-		MatterId:   deref(doc.MatterID),
+		FileId:   deref(doc.FileID),
 		TraceId:    middleware.TraceID(c),
 	})
 	if err != nil {
@@ -106,7 +106,7 @@ func (s *Server) IngestDocument(c *gin.Context) {
 		}
 	}
 	s.markIngest(c, doc.ID, finalStatus)
-	c.JSON(http.StatusOK, gin.H{"document_id": doc.ID, "ingest_status": finalStatus, "stages": stages})
+	c.JSON(http.StatusOK, gin.H{"archive_id": doc.ID, "ingest_status": finalStatus, "stages": stages})
 }
 
 func (s *Server) markIngest(c *gin.Context, docID, status string) {
@@ -116,22 +116,22 @@ func (s *Server) markIngest(c *gin.Context, docID, status string) {
 	})
 }
 
-func (s *Server) ListDocuments(c *gin.Context) {
-	var docs []repository.Document
+func (s *Server) ListArchives(c *gin.Context) {
+	var docs []repository.Archive
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		d, err := repository.ListDocuments(c.Request.Context(), tx, c.Query("matter_id"))
+		d, err := repository.ListArchives(c.Request.Context(), tx, c.Query("file_id"))
 		docs = d
 		return err
 	}) {
-		c.JSON(http.StatusOK, gin.H{"documents": docs})
+		c.JSON(http.StatusOK, gin.H{"archives": docs})
 	}
 }
 
-func (s *Server) DownloadDocument(c *gin.Context) {
+func (s *Server) DownloadArchive(c *gin.Context) {
 	tenant := s.tenant(c)
-	var doc *repository.Document
+	var doc *repository.Archive
 	if !s.withTenant(c, func(tx pgx.Tx) error {
-		d, err := repository.DocumentByID(c.Request.Context(), tx, c.Param("id"))
+		d, err := repository.ArchiveByID(c.Request.Context(), tx, c.Param("id"))
 		doc = d
 		return err
 	}) {
@@ -148,7 +148,7 @@ func (s *Server) DownloadDocument(c *gin.Context) {
 func (s *Server) ListDrafts(c *gin.Context) {
 	var drafts []repository.Draft
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		d, err := repository.ListDrafts(c.Request.Context(), tx, c.Query("matter_id"))
+		d, err := repository.ListDrafts(c.Request.Context(), tx, c.Query("file_id"))
 		drafts = d
 		return err
 	}) {

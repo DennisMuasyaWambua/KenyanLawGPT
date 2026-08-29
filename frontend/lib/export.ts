@@ -27,7 +27,7 @@ type Flags = { bold?: boolean; italics?: boolean };
 
 // Parse inline Markdown (bold/italic/code/links) into styled runs. Recurses so
 // nested marks compose, e.g. ***x*** -> bold + italic. Underscores are left as
-// literals on purpose (they collide with identifiers like matters.view_own).
+// literals on purpose (they collide with identifiers like files.view_own).
 function inlineRuns(text: string, flags: Flags = {}): TextRun[] {
   const runs: TextRun[] = [];
   // Ordered strongest-first: *** before ** before * so triple-star resolves to

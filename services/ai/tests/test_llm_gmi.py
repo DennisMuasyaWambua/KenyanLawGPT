@@ -127,3 +127,42 @@ async def test_synthetic_gate_allows_prod():
     p = GMICloudProvider(cfg, model=cfg.gmi_cloud_qwen_model)
     p._httpx = _fake_httpx(_payload("prod answer"), {})
     assert await p.complete(system="s", prompt="q") == "prod answer"
+
+
+@pytest.mark.asyncio
+async def test_reasoning_headroom_added_to_answer_budget():
+    # A small answer budget must be topped up with reasoning headroom so the
+    # chain-of-thought doesn't consume it all and leave `content` empty.
+    cfg = _cfg(gmi_cloud_reasoning_headroom=6144)
+    sink = {}
+    p = GMICloudProvider(cfg, model=cfg.gmi_cloud_qwen_model)
+    p._httpx = _fake_httpx(_payload("answer"), sink)
+    await p.complete(system="s", prompt="q", max_tokens=2048)
+    assert sink["json"]["max_tokens"] == 2048 + 6144
+
+
+@pytest.mark.asyncio
+async def test_fast_calls_keep_tight_budget():
+    # Cheap classification calls (fast=True) must not pay for reasoning headroom.
+    cfg = _cfg(gmi_cloud_reasoning_headroom=6144)
+    sink = {}
+    p = GMICloudProvider(cfg, model=cfg.gmi_cloud_qwen_model)
+    p._httpx = _fake_httpx(_payload("statute_lookup"), sink)
+    await p.complete(system="classify", prompt="q", max_tokens=16, fast=True)
+    assert sink["json"]["max_tokens"] == 16
+
+
+@pytest.mark.asyncio
+async def test_empty_content_salvages_reasoning_field():
+    # Models that emit chain-of-thought in a separate `reasoning` field and run
+    # out of budget return empty `content`; salvage the reasoning so the answer
+    # isn't blank (which renders as "citations only" in the research UI).
+    cfg = _cfg()
+    payload = {
+        "choices": [{"message": {"content": "", "reasoning": "The Act requires a fair hearing."}}],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+    }
+    p = GMICloudProvider(cfg, model=cfg.gmi_cloud_qwen_model)
+    p._httpx = _fake_httpx(payload, {})
+    out = await p.complete(system="s", prompt="q")
+    assert out == "The Act requires a fair hearing."

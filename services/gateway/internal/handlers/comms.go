@@ -30,7 +30,7 @@ func (s *Server) ListMessages(c *gin.Context) {
 func (s *Server) SendMessage(c *gin.Context) {
 	var in struct {
 		ClientID *string `json:"client_id"`
-		MatterID *string `json:"matter_id"`
+		FileID *string `json:"file_id"`
 		Channel  string  `json:"channel" binding:"required,oneof=sms email whatsapp inapp"`
 		To       string  `json:"to"`
 		Subject  string  `json:"subject"`
@@ -68,7 +68,7 @@ func (s *Server) SendMessage(c *gin.Context) {
 		status = "delivered"
 	}
 	m := &repository.Message{
-		ID: uuid.NewString(), MatterID: in.MatterID, ClientID: in.ClientID,
+		ID: uuid.NewString(), FileID: in.FileID, ClientID: in.ClientID,
 		Channel: in.Channel, Direction: "outbound", ToAddr: in.To, FromAddr: "firm",
 		Body: in.Body, Status: status, ProviderRef: providerRef,
 	}

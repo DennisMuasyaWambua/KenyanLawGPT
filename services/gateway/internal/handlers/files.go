@@ -11,18 +11,18 @@ import (
 	"github.com/wakiliai/gateway/internal/repository"
 )
 
-func (s *Server) ListMatters(c *gin.Context) {
-	var matters []repository.Matter
+func (s *Server) ListFiles(c *gin.Context) {
+	var files []repository.File
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		m, err := repository.ListMatters(c.Request.Context(), tx, c.Query("status"), c.Query("q"), c.Query("client_id"))
-		matters = m
+		m, err := repository.ListFiles(c.Request.Context(), tx, c.Query("status"), c.Query("q"), c.Query("client_id"))
+		files = m
 		return err
 	}) {
-		c.JSON(http.StatusOK, gin.H{"matters": matters})
+		c.JSON(http.StatusOK, gin.H{"files": files})
 	}
 }
 
-type matterInput struct {
+type fileInput struct {
 	Reference       string  `json:"reference" binding:"required"`
 	Title           string  `json:"title" binding:"required"`
 	Description     string  `json:"description"`
@@ -34,8 +34,8 @@ type matterInput struct {
 	AssignedTo      *string `json:"assigned_to"`
 }
 
-func (s *Server) CreateMatter(c *gin.Context) {
-	var in matterInput
+func (s *Server) CreateFile(c *gin.Context) {
+	var in fileInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, err.Error())
 		return
@@ -43,13 +43,13 @@ func (s *Server) CreateMatter(c *gin.Context) {
 	if in.Status == "" {
 		in.Status = "intake"
 	}
-	m := &repository.Matter{
+	m := &repository.File{
 		ID: uuid.NewString(), Reference: in.Reference, Title: in.Title, Description: in.Description,
 		ClientID: in.ClientID, Status: in.Status, PracticeArea: in.PracticeArea, Court: in.Court,
 		CourtCaseNumber: in.CourtCaseNumber, AssignedTo: in.AssignedTo, CreatedBy: s.claims(c).UserID(),
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		// A matter can only be opened once its client has been engaged (retainer
+		// A file can only be opened once its client has been engaged (retainer
 		// signed) — the onboarding pipeline gate.
 		if m.ClientID != nil {
 			cl, err := repository.ClientByID(c.Request.Context(), tx, *m.ClientID)
@@ -62,46 +62,46 @@ func (s *Server) CreateMatter(c *gin.Context) {
 			}
 			if cl.Status != "engaged" && cl.Status != "active" {
 				c.JSON(http.StatusUnprocessableEntity, gin.H{
-					"error": "a matter can only be opened for an engaged client (client is " + cl.Status + ")"})
+					"error": "a file can only be opened for an engaged client (client is " + cl.Status + ")"})
 				return errHandled
 			}
 		}
-		if err := repository.InsertMatter(c.Request.Context(), tx, m); err != nil {
+		if err := repository.InsertFile(c.Request.Context(), tx, m); err != nil {
 			return err
 		}
-		return repository.InsertMatterEvent(c.Request.Context(), tx, &repository.MatterEvent{
-			ID: uuid.NewString(), MatterID: m.ID, EventType: "created", Note: "Matter opened", CreatedBy: m.CreatedBy,
+		return repository.InsertFileEvent(c.Request.Context(), tx, &repository.FileEvent{
+			ID: uuid.NewString(), FileID: m.ID, EventType: "created", Note: "File opened", CreatedBy: m.CreatedBy,
 		})
 	}) {
-		c.JSON(http.StatusCreated, gin.H{"matter": m})
+		c.JSON(http.StatusCreated, gin.H{"file": m})
 	}
 }
 
-func (s *Server) GetMatter(c *gin.Context) {
-	var matter *repository.Matter
-	var events []repository.MatterEvent
+func (s *Server) GetFile(c *gin.Context) {
+	var file *repository.File
+	var events []repository.FileEvent
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		m, err := repository.MatterByID(c.Request.Context(), tx, c.Param("id"))
+		m, err := repository.FileByID(c.Request.Context(), tx, c.Param("id"))
 		if err != nil {
 			return err
 		}
-		matter = m
-		events, err = repository.ListMatterEvents(c.Request.Context(), tx, m.ID)
+		file = m
+		events, err = repository.ListFileEvents(c.Request.Context(), tx, m.ID)
 		return err
 	}) {
-		c.JSON(http.StatusOK, gin.H{"matter": matter, "events": events})
+		c.JSON(http.StatusOK, gin.H{"file": file, "events": events})
 	}
 }
 
-func (s *Server) UpdateMatter(c *gin.Context) {
-	var in matterInput
+func (s *Server) UpdateFile(c *gin.Context) {
+	var in fileInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, err.Error())
 		return
 	}
-	var matter *repository.Matter
+	var file *repository.File
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		m, err := repository.MatterByID(c.Request.Context(), tx, c.Param("id"))
+		m, err := repository.FileByID(c.Request.Context(), tx, c.Param("id"))
 		if err != nil {
 			return err
 		}
@@ -111,25 +111,25 @@ func (s *Server) UpdateMatter(c *gin.Context) {
 			m.Status = in.Status
 		}
 		m.PracticeArea, m.Court, m.CourtCaseNumber, m.AssignedTo = in.PracticeArea, in.Court, in.CourtCaseNumber, in.AssignedTo
-		if err := repository.UpdateMatter(c.Request.Context(), tx, m); err != nil {
+		if err := repository.UpdateFile(c.Request.Context(), tx, m); err != nil {
 			return err
 		}
 		if prevStatus != m.Status {
-			if err := repository.InsertMatterEvent(c.Request.Context(), tx, &repository.MatterEvent{
-				ID: uuid.NewString(), MatterID: m.ID, EventType: "status_change",
+			if err := repository.InsertFileEvent(c.Request.Context(), tx, &repository.FileEvent{
+				ID: uuid.NewString(), FileID: m.ID, EventType: "status_change",
 				Note: prevStatus + " -> " + m.Status, CreatedBy: s.claims(c).UserID(),
 			}); err != nil {
 				return err
 			}
 		}
-		matter = m
+		file = m
 		return nil
 	}) {
-		c.JSON(http.StatusOK, gin.H{"matter": matter})
+		c.JSON(http.StatusOK, gin.H{"file": file})
 	}
 }
 
-func (s *Server) AddMatterEvent(c *gin.Context) {
+func (s *Server) AddFileEvent(c *gin.Context) {
 	var in struct {
 		EventType string `json:"event_type" binding:"required"`
 		Note      string `json:"note"`
@@ -138,12 +138,12 @@ func (s *Server) AddMatterEvent(c *gin.Context) {
 		badRequest(c, err.Error())
 		return
 	}
-	e := &repository.MatterEvent{
-		ID: uuid.NewString(), MatterID: c.Param("id"), EventType: in.EventType,
+	e := &repository.FileEvent{
+		ID: uuid.NewString(), FileID: c.Param("id"), EventType: in.EventType,
 		Note: in.Note, CreatedBy: s.claims(c).UserID(),
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		return repository.InsertMatterEvent(c.Request.Context(), tx, e)
+		return repository.InsertFileEvent(c.Request.Context(), tx, e)
 	}) {
 		c.JSON(http.StatusCreated, gin.H{"event": e})
 	}
@@ -161,7 +161,7 @@ func (s *Server) AddCourtDate(c *gin.Context) {
 		return
 	}
 	cd := &repository.CourtDate{
-		ID: uuid.NewString(), MatterID: c.Param("id"),
+		ID: uuid.NewString(), FileID: c.Param("id"),
 		Date: in.Date, Courtroom: in.Courtroom, Judge: in.Judge, Purpose: in.Purpose,
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
@@ -186,7 +186,7 @@ func (s *Server) AddDeadline(c *gin.Context) {
 		remindAt = *in.RemindAt
 	}
 	d := &repository.Deadline{
-		ID: uuid.NewString(), MatterID: c.Param("id"), Title: in.Title,
+		ID: uuid.NewString(), FileID: c.Param("id"), Title: in.Title,
 		DueAt: in.DueAt, RemindAt: remindAt, CreatedBy: s.claims(c).UserID(),
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
@@ -196,12 +196,12 @@ func (s *Server) AddDeadline(c *gin.Context) {
 	}
 }
 
-// JudiciaryStatus looks up the live (or cached) court status for the matter's
+// JudiciaryStatus looks up the live (or cached) court status for the file's
 // case number through the pluggable adapter.
 func (s *Server) JudiciaryStatus(c *gin.Context) {
 	var caseNumber string
 	if !s.withTenant(c, func(tx pgx.Tx) error {
-		m, err := repository.MatterByID(c.Request.Context(), tx, c.Param("id"))
+		m, err := repository.FileByID(c.Request.Context(), tx, c.Param("id"))
 		if err != nil {
 			return err
 		}
@@ -211,7 +211,7 @@ func (s *Server) JudiciaryStatus(c *gin.Context) {
 		return
 	}
 	if caseNumber == "" {
-		badRequest(c, "matter has no court case number")
+		badRequest(c, "file has no court case number")
 		return
 	}
 	status, err := s.Judiciary.Lookup(c.Request.Context(), caseNumber)
@@ -295,24 +295,24 @@ func (s *Server) Dashboard(c *gin.Context) {
 	stats := gin.H{}
 	if s.withTenant(c, func(tx pgx.Tx) error {
 		row := tx.QueryRow(c.Request.Context(), `SELECT
-			(SELECT count(*) FROM matters WHERE status NOT IN ('closed')),
-			(SELECT count(*) FROM matters WHERE status = 'closed'),
+			(SELECT count(*) FROM files WHERE status NOT IN ('closed')),
+			(SELECT count(*) FROM files WHERE status = 'closed'),
 			(SELECT count(*) FROM court_dates WHERE date BETWEEN now() AND now() + interval '7 days'),
 			(SELECT count(*) FROM deadlines WHERE due_at BETWEEN now() AND now() + interval '7 days'),
 			(SELECT COALESCE(sum(total_kes),0) FROM invoices WHERE status = 'sent'),
 			(SELECT COALESCE(sum(total_kes),0) FROM invoices WHERE status = 'paid' AND paid_at > now() - interval '30 days'),
-			(SELECT count(*) FROM documents),
+			(SELECT count(*) FROM archives),
 			(SELECT count(*) FROM clients)`)
-		var openMatters, closedMatters, courtDates, deadlines, docs, clients int64
+		var openFiles, closedFiles, courtDates, deadlines, docs, clients int64
 		var outstanding, collected float64
-		if err := row.Scan(&openMatters, &closedMatters, &courtDates, &deadlines, &outstanding, &collected, &docs, &clients); err != nil {
+		if err := row.Scan(&openFiles, &closedFiles, &courtDates, &deadlines, &outstanding, &collected, &docs, &clients); err != nil {
 			return err
 		}
 		stats = gin.H{
-			"open_matters": openMatters, "closed_matters": closedMatters,
+			"open_files": openFiles, "closed_files": closedFiles,
 			"court_dates_7d": courtDates, "deadlines_7d": deadlines,
 			"outstanding_kes": outstanding, "collected_30d_kes": collected,
-			"documents": docs, "clients": clients,
+			"archives": docs, "clients": clients,
 		}
 		return nil
 	}) {

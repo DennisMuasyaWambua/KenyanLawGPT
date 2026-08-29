@@ -45,7 +45,7 @@ export default function JudgeInsightPanel({ pattern }: { pattern: JudgePattern }
         <p className="mt-2 text-sm text-ink/80">
           <span className="font-bold text-navy">{pattern.tenant_favorable}</span> of{" "}
           <span className="font-bold text-navy">{pattern.tenant_cases}</span> prior
-          matter{pattern.tenant_cases === 1 ? "" : "s"} before this judge had a favourable outcome.
+          file{pattern.tenant_cases === 1 ? "" : "s"} before this judge had a favourable outcome.
         </p>
       )}
 
@@ -75,7 +75,7 @@ export default function JudgeInsightPanel({ pattern }: { pattern: JudgePattern }
       )}
 
       <p className="mt-4 border-t border-gold/30 pt-3 text-[11px] italic leading-relaxed text-ink/50">
-        Firm-internal historical pattern — this summarises your firm&rsquo;s own prior matters and
+        Firm-internal historical pattern — this summarises your firm&rsquo;s own prior files and
         public case records before this judge. It is <span className="font-semibold">not settled
         law</span> and not a prediction of how the judge will rule. Judicial-analytics use should be
         reviewed against Law Society of Kenya / Judiciary of Kenya guidance before any

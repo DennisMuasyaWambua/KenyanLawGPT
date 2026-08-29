@@ -6,7 +6,7 @@ import { api, fmtDate } from "@/lib/api";
 import { usePermissions } from "@/lib/usePermissions";
 
 type Task = {
-  id: string; matter_id: string; matter_ref: string; assigned_to?: string | null;
+  id: string; file_id: string; file_ref: string; assigned_to?: string | null;
   assigned_to_name?: string; title: string; description: string;
   due_date?: string | null; status: string; priority: string;
 };
@@ -25,7 +25,7 @@ export default function TasksPage() {
 
   const { data } = useQuery({ queryKey: ["tasks", scope], queryFn: () => api(`/api/v1/tasks?scope=${scope}`) });
   const tasks: Task[] = data?.tasks || [];
-  const { data: mattersData } = useQuery({ queryKey: ["matters"], queryFn: () => api("/api/v1/matters"), enabled: canCreate });
+  const { data: filesData } = useQuery({ queryKey: ["files"], queryFn: () => api("/api/v1/files"), enabled: canCreate });
   const { data: usersData } = useQuery({ queryKey: ["users"], queryFn: () => api("/api/v1/users"), enabled: canCreate && canAssign });
 
   const create = useMutation({
@@ -64,7 +64,7 @@ export default function TasksPage() {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
             create.mutate({
-              matter_id: fd.get("matter_id"), title: fd.get("title"),
+              file_id: fd.get("file_id"), title: fd.get("title"),
               assigned_to: fd.get("assigned_to") || undefined,
               due_date: fd.get("due_date") ? new Date(fd.get("due_date") as string).toISOString() : undefined,
               priority: fd.get("priority"),
@@ -72,9 +72,9 @@ export default function TasksPage() {
             (e.target as HTMLFormElement).reset();
           }}>
           <input name="title" className="input sm:col-span-2" placeholder="Task title" required />
-          <select name="matter_id" className="input" required defaultValue="">
-            <option value="" disabled>Matter…</option>
-            {(mattersData?.matters || []).map((m: any) => <option key={m.id} value={m.id}>{m.reference}</option>)}
+          <select name="file_id" className="input" required defaultValue="">
+            <option value="" disabled>File…</option>
+            {(filesData?.files || []).map((m: any) => <option key={m.id} value={m.id}>{m.reference}</option>)}
           </select>
           {canAssign ? (
             <select name="assigned_to" className="input" defaultValue="">
@@ -96,14 +96,14 @@ export default function TasksPage() {
       <div className="card mt-4 !p-0 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-navy/5 text-left text-xs uppercase text-navy/60">
-            <tr><th className="p-3">Task</th><th className="p-3">Matter</th><th className="p-3">Assignee</th><th className="p-3">Due</th><th className="p-3">Priority</th><th className="p-3">Status</th><th /></tr>
+            <tr><th className="p-3">Task</th><th className="p-3">File</th><th className="p-3">Assignee</th><th className="p-3">Due</th><th className="p-3">Priority</th><th className="p-3">Status</th><th /></tr>
           </thead>
           <tbody>
             {tasks.length === 0 && <tr><td colSpan={7} className="p-4 text-center text-ink/50">No tasks.</td></tr>}
             {tasks.map((t) => (
               <tr key={t.id} className="border-t border-navy/5">
                 <td className="p-3 font-medium">{t.title}</td>
-                <td className="p-3 text-xs text-ink/60">{t.matter_ref}</td>
+                <td className="p-3 text-xs text-ink/60">{t.file_ref}</td>
                 <td className="p-3 text-xs">{t.assigned_to_name || "—"}</td>
                 <td className={`p-3 text-xs ${overdue(t) ? "font-bold text-red-600" : "text-ink/60"}`}>{t.due_date ? fmtDate(t.due_date) : "—"}</td>
                 <td className={`p-3 text-xs font-semibold capitalize ${PRIO_COLORS[t.priority]}`}>{t.priority}</td>

@@ -26,7 +26,7 @@ type SourceType int32
 const (
 	SourceType_SOURCE_TYPE_UNSPECIFIED    SourceType = 0
 	SourceType_SOURCE_TYPE_PUBLIC         SourceType = 1 // shared Kenyan public legal corpus
-	SourceType_SOURCE_TYPE_TENANT_PRIVATE SourceType = 2 // this tenant's own documents/graph only
+	SourceType_SOURCE_TYPE_TENANT_PRIVATE SourceType = 2 // this tenant's own archives/graph only
 )
 
 // Enum value maps for SourceType.
@@ -136,7 +136,7 @@ const (
 	QueryIntent_QUERY_INTENT_UNSPECIFIED       QueryIntent = 0
 	QueryIntent_QUERY_INTENT_STATUTE_LOOKUP    QueryIntent = 1
 	QueryIntent_QUERY_INTENT_CASE_LAW_RESEARCH QueryIntent = 2
-	QueryIntent_QUERY_INTENT_MATTER_REASONING  QueryIntent = 3
+	QueryIntent_QUERY_INTENT_FILE_REASONING    QueryIntent = 3
 	QueryIntent_QUERY_INTENT_DRAFTING          QueryIntent = 4
 )
 
@@ -146,14 +146,14 @@ var (
 		0: "QUERY_INTENT_UNSPECIFIED",
 		1: "QUERY_INTENT_STATUTE_LOOKUP",
 		2: "QUERY_INTENT_CASE_LAW_RESEARCH",
-		3: "QUERY_INTENT_MATTER_REASONING",
+		3: "QUERY_INTENT_FILE_REASONING",
 		4: "QUERY_INTENT_DRAFTING",
 	}
 	QueryIntent_value = map[string]int32{
 		"QUERY_INTENT_UNSPECIFIED":       0,
 		"QUERY_INTENT_STATUTE_LOOKUP":    1,
 		"QUERY_INTENT_CASE_LAW_RESEARCH": 2,
-		"QUERY_INTENT_MATTER_REASONING":  3,
+		"QUERY_INTENT_FILE_REASONING":    3,
 		"QUERY_INTENT_DRAFTING":          4,
 	}
 )
@@ -255,7 +255,7 @@ func (x *TenantContext) GetDataResidencyKe() bool {
 type Provenance struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SourceType    SourceType             `protobuf:"varint,1,opt,name=source_type,json=sourceType,proto3,enum=wakili.v1.SourceType" json:"source_type,omitempty"`
-	SourceId      string                 `protobuf:"bytes,2,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"` // public doc_id or tenant document UUID
+	SourceId      string                 `protobuf:"bytes,2,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"` // public doc_id or tenant archive UUID
 	Citation      string                 `protobuf:"bytes,3,opt,name=citation,proto3" json:"citation,omitempty"`                 // e.g. "[2019] eKLR" or "Employment Act, No. 11 of 2007, s.45"
 	SourceUrl     string                 `protobuf:"bytes,4,opt,name=source_url,json=sourceUrl,proto3" json:"source_url,omitempty"`
 	Status        DocStatus              `protobuf:"varint,5,opt,name=status,proto3,enum=wakili.v1.DocStatus" json:"status,omitempty"`
@@ -462,12 +462,12 @@ const file_wakili_v1_common_proto_rawDesc = "" +
 	"\x12DOC_STATUS_AMENDED\x10\x02\x12\x19\n" +
 	"\x15DOC_STATUS_SUPERSEDED\x10\x03\x12\x19\n" +
 	"\x15DOC_STATUS_OVERTURNED\x10\x04\x12\x1c\n" +
-	"\x18DOC_STATUS_DISTINGUISHED\x10\x05*\xae\x01\n" +
+	"\x18DOC_STATUS_DISTINGUISHED\x10\x05*\xac\x01\n" +
 	"\vQueryIntent\x12\x1c\n" +
 	"\x18QUERY_INTENT_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bQUERY_INTENT_STATUTE_LOOKUP\x10\x01\x12\"\n" +
-	"\x1eQUERY_INTENT_CASE_LAW_RESEARCH\x10\x02\x12!\n" +
-	"\x1dQUERY_INTENT_MATTER_REASONING\x10\x03\x12\x19\n" +
+	"\x1eQUERY_INTENT_CASE_LAW_RESEARCH\x10\x02\x12\x1f\n" +
+	"\x1bQUERY_INTENT_FILE_REASONING\x10\x03\x12\x19\n" +
 	"\x15QUERY_INTENT_DRAFTING\x10\x04B3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3"
 
 var (

@@ -119,25 +119,25 @@ export async function streamDraft(
   }
 }
 
-// Three-step document upload: presign (creates the row + a short-lived PUT URL)
+// Three-step archive upload: presign (creates the row + a short-lived PUT URL)
 // -> PUT the bytes straight to object storage -> trigger tenant-private
 // ingestion. Audio files are transcribed inside the ingestion pipeline, so a
-// recording attached to a matter becomes per-case context for the AI.
-export async function uploadDocument(
+// recording attached to a file becomes per-case context for the AI.
+export async function uploadArchive(
   file: File,
-  opts: { matterId?: string | null; docKind?: string },
+  opts: { fileId?: string | null; docKind?: string },
   onStage?: (stage: string, pct: number, msg?: string) => void
-): Promise<{ document_id: string; ingest_status: string }> {
+): Promise<{ archive_id: string; ingest_status: string }> {
   onStage?.("QUEUED", 5);
-  const pre = await api<{ document: { id: string }; upload_url: string }>(
-    "/api/v1/documents/presign",
+  const pre = await api<{ archive: { id: string }; upload_url: string }>(
+    "/api/v1/archives/presign",
     {
       method: "POST",
       body: JSON.stringify({
         filename: file.name,
         mime_type: file.type || "application/octet-stream",
         size_bytes: file.size,
-        matter_id: opts.matterId || null,
+        file_id: opts.fileId || null,
         doc_kind: opts.docKind || "other",
       }),
     }
@@ -152,8 +152,8 @@ export async function uploadDocument(
   if (!put.ok) throw new Error(`storage upload failed (${put.status})`);
 
   onStage?.("PARSING", 45, "ingesting");
-  const res = await api<{ document_id: string; ingest_status: string }>(
-    `/api/v1/documents/${pre.document.id}/ingest`,
+  const res = await api<{ archive_id: string; ingest_status: string }>(
+    `/api/v1/archives/${pre.archive.id}/ingest`,
     { method: "POST" }
   );
   const ok = res.ingest_status === "ingested";

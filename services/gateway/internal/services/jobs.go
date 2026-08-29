@@ -49,26 +49,26 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 				return err
 			}
 			for _, cd := range courtDates {
-				m, err := repository.MatterByID(ctx, tx, cd.MatterID)
+				m, err := repository.FileByID(ctx, tx, cd.FileID)
 				if err != nil {
 					continue
 				}
 				body := fmt.Sprintf("Court date reminder: %s (%s) on %s at %s. Purpose: %s",
 					m.Title, m.Reference, cd.Date.Format("Mon 02 Jan 2006 15:04"), cd.Courtroom, cd.Purpose)
-				notifyMatter(ctx, tx, sms, mail, m, body)
+				notifyFile(ctx, tx, sms, mail, m, body)
 				if err := repository.MarkReminded(ctx, tx, "court_dates", cd.ID); err != nil {
 					return err
 				}
 				metrics.Inc("wakili_reminders_sent_total", map[string]string{"kind": "court_date"})
 			}
 			for _, d := range deadlines {
-				m, err := repository.MatterByID(ctx, tx, d.MatterID)
+				m, err := repository.FileByID(ctx, tx, d.FileID)
 				if err != nil {
 					continue
 				}
 				body := fmt.Sprintf("Deadline reminder: %q for %s (%s) due %s",
 					d.Title, m.Title, m.Reference, d.DueAt.Format("Mon 02 Jan 2006 15:04"))
-				notifyMatter(ctx, tx, sms, mail, m, body)
+				notifyFile(ctx, tx, sms, mail, m, body)
 				if err := repository.MarkReminded(ctx, tx, "deadlines", d.ID); err != nil {
 					return err
 				}
@@ -91,7 +91,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 					// already permits 'sms' so this branch lights up once they are.
 					logging.L(ctx).Debug("sms calendar reminder skipped (no user phone)", "reminder", rem.ReminderID)
 				default: // email
-					notifyUser(ctx, tx, mail, rem.OwnerID, "WakiliAI calendar reminder", body)
+					notifyUser(ctx, tx, mail, rem.OwnerID, "C. Karwitha & Co. Advocates calendar reminder", body)
 				}
 				if err := repository.MarkReminderSent(ctx, tx, rem.ReminderID); err != nil {
 					return err
@@ -118,8 +118,8 @@ func notifyUser(ctx context.Context, tx pgx.Tx, mail email.Provider, userID, sub
 	}
 }
 
-func notifyMatter(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, mail email.Provider, m *repository.Matter, body string) {
-	// In-app notification for the assigned advocate (or matter creator).
+func notifyFile(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, mail email.Provider, m *repository.File, body string) {
+	// In-app notification for the assigned advocate (or file creator).
 	target := m.CreatedBy
 	if m.AssignedTo != nil {
 		target = *m.AssignedTo
@@ -128,7 +128,7 @@ func notifyMatter(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, ma
 		ID: uuid.NewString(), UserID: target, Kind: "reminder", Body: body,
 	})
 	if u, err := repository.UserByID(ctx, tx, target); err == nil {
-		if err := mail.Send(ctx, u.Email, "WakiliAI reminder", body); err != nil {
+		if err := mail.Send(ctx, u.Email, "C. Karwitha & Co. Advocates reminder", body); err != nil {
 			logging.L(ctx).Warn("reminder email failed", "err", err)
 		}
 	}
@@ -141,7 +141,7 @@ func notifyMatter(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, ma
 				status, ref = res.Status, res.MessageID
 			}
 			_ = repository.InsertMessage(ctx, tx, &repository.Message{
-				ID: uuid.NewString(), MatterID: &m.ID, ClientID: m.ClientID,
+				ID: uuid.NewString(), FileID: &m.ID, ClientID: m.ClientID,
 				Channel: "sms", Direction: "outbound", ToAddr: cl.Phone, FromAddr: "WAKILI",
 				Body: body, Status: status, ProviderRef: ref,
 			})

@@ -1,4 +1,4 @@
-"""Advocatus AI/RAG service — grpc.aio server (mTLS) + internal health/metrics.
+"""C. Karwitha & Co. Advocates AI/RAG service — grpc.aio server (mTLS) + internal health/metrics.
 
 All business traffic is gRPC from the Go gateway. Every RPC re-validates the
 TenantContext in the message against the ``x-tenant-id`` channel metadata the
@@ -46,7 +46,7 @@ RPC_COUNTER = Counter("wakili_ai_rpcs_total", "RPCs handled", ["method", "status
 _INTENT_TO_PROTO = {
     "statute_lookup": common_pb2.QUERY_INTENT_STATUTE_LOOKUP,
     "case_law_research": common_pb2.QUERY_INTENT_CASE_LAW_RESEARCH,
-    "matter_reasoning": common_pb2.QUERY_INTENT_MATTER_REASONING,
+    "file_reasoning": common_pb2.QUERY_INTENT_FILE_REASONING,
     "drafting": common_pb2.QUERY_INTENT_DRAFTING,
 }
 _STATUS_TO_PROTO = {
@@ -121,7 +121,7 @@ class RetrievalService(retrieval_pb2_grpc.RetrievalServiceServicer):
                 tid, request.query,
                 top_k=request.top_k or 12,
                 include_superseded=request.include_superseded,
-                matter_id=request.matter_id or None,
+                file_id=request.file_id or None,
             )
             # answer_with_judge no-ops unless ENABLE_JUDGE_REASONING and the
             # query names a judge, so the standard path is unchanged otherwise.
@@ -149,7 +149,7 @@ class ReasoningService(reasoning_pb2_grpc.ReasoningServiceServicer):
             steps, evidence, answer = await self.engine.reason(
                 tid, request.query,
                 max_hops=request.max_hops or 3,
-                matter_id=request.matter_id or None,
+                file_id=request.file_id or None,
                 include_superseded=request.include_superseded,
             )
             RPC_COUNTER.labels("Reason", "ok").inc()
@@ -178,7 +178,7 @@ class DraftingService(drafting_pb2_grpc.DraftingServiceServicer):
         try:
             stream, citations = await self.engine.draft(
                 tid, doc_type, request.instructions,
-                matter_id=request.matter_id or None,
+                file_id=request.file_id or None,
                 template_id=request.template_id or None,
                 context_query=request.context_query or None,
             )
@@ -223,8 +223,8 @@ class IngestionService(ingestion_pb2_grpc.IngestionServiceServicer):
         # Legacy inline path (flag off): run synchronously in the RPC.
         try:
             async for stage, message, pct in self.ingestor.ingest(
-                tid, request.document_id, request.object_key,
-                request.filename, request.mime_type, request.matter_id or None,
+                tid, request.archive_id, request.object_key,
+                request.filename, request.mime_type, request.file_id or None,
             ):
                 yield ingestion_pb2.IngestStatus(
                     stage=_STAGE_TO_PROTO.get(stage, ingestion_pb2.INGEST_STAGE_UNSPECIFIED),
@@ -241,9 +241,9 @@ class IngestionService(ingestion_pb2_grpc.IngestionServiceServicer):
 
     async def _ingest_async(self, tid, request):
         await self.firm_queue.enqueue(IngestJob(
-            tenant_id=tid, document_id=request.document_id,
+            tenant_id=tid, archive_id=request.archive_id,
             object_key=request.object_key, filename=request.filename,
-            mime_type=request.mime_type, matter_id=request.matter_id or None,
+            mime_type=request.mime_type, file_id=request.file_id or None,
             trace_id=request.trace_id or "",
         ))
         yield ingestion_pb2.IngestStatus(
@@ -253,7 +253,7 @@ class IngestionService(ingestion_pb2_grpc.IngestionServiceServicer):
         last = None
         for _ in range(600):  # tail up to ~5min; the worker continues regardless
             await asyncio.sleep(0.5)
-            status = await self.firm_queue.get_status(request.document_id)
+            status = await self.firm_queue.get_status(request.archive_id)
             if not status or status == last:
                 continue
             last = status
@@ -271,7 +271,7 @@ class IngestionService(ingestion_pb2_grpc.IngestionServiceServicer):
         tid = await check_tenant(request.tenant, context)
         try:
             nodes, vectors = await self.ingestor.erase_subject(
-                tid, request.subject_type, request.subject_id, list(request.document_ids),
+                tid, request.subject_type, request.subject_id, list(request.archive_ids),
             )
             RPC_COUNTER.labels("EraseSubject", "ok").inc()
             return ingestion_pb2.EraseSubjectReport(

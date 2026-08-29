@@ -88,11 +88,11 @@ func (IngestStage) EnumDescriptor() ([]byte, []int) {
 type IngestRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Tenant        *TenantContext         `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
-	DocumentId    string                 `protobuf:"bytes,2,opt,name=document_id,json=documentId,proto3" json:"document_id,omitempty"` // tenant-schema documents.id
-	ObjectKey     string                 `protobuf:"bytes,3,opt,name=object_key,json=objectKey,proto3" json:"object_key,omitempty"`    // object-storage key (bucket prefix is tenant-scoped)
+	ArchiveId     string                 `protobuf:"bytes,2,opt,name=archive_id,json=archiveId,proto3" json:"archive_id,omitempty"` // tenant-schema archives.id
+	ObjectKey     string                 `protobuf:"bytes,3,opt,name=object_key,json=objectKey,proto3" json:"object_key,omitempty"` // object-storage key (bucket prefix is tenant-scoped)
 	Filename      string                 `protobuf:"bytes,4,opt,name=filename,proto3" json:"filename,omitempty"`
 	MimeType      string                 `protobuf:"bytes,5,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
-	MatterId      string                 `protobuf:"bytes,6,opt,name=matter_id,json=matterId,proto3" json:"matter_id,omitempty"` // optional matter linkage for the graph
+	FileId        string                 `protobuf:"bytes,6,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"` // optional file linkage for the graph
 	TraceId       string                 `protobuf:"bytes,7,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -135,9 +135,9 @@ func (x *IngestRequest) GetTenant() *TenantContext {
 	return nil
 }
 
-func (x *IngestRequest) GetDocumentId() string {
+func (x *IngestRequest) GetArchiveId() string {
 	if x != nil {
-		return x.DocumentId
+		return x.ArchiveId
 	}
 	return ""
 }
@@ -163,9 +163,9 @@ func (x *IngestRequest) GetMimeType() string {
 	return ""
 }
 
-func (x *IngestRequest) GetMatterId() string {
+func (x *IngestRequest) GetFileId() string {
 	if x != nil {
-		return x.MatterId
+		return x.FileId
 	}
 	return ""
 }
@@ -261,7 +261,7 @@ type EraseSubjectRequest struct {
 	Tenant        *TenantContext         `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
 	SubjectType   string                 `protobuf:"bytes,2,opt,name=subject_type,json=subjectType,proto3" json:"subject_type,omitempty"` // "client" | "user"
 	SubjectId     string                 `protobuf:"bytes,3,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
-	DocumentIds   []string               `protobuf:"bytes,4,rep,name=document_ids,json=documentIds,proto3" json:"document_ids,omitempty"` // tenant documents linked to the subject
+	ArchiveIds    []string               `protobuf:"bytes,4,rep,name=archive_ids,json=archiveIds,proto3" json:"archive_ids,omitempty"` // tenant archives linked to the subject
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -317,9 +317,9 @@ func (x *EraseSubjectRequest) GetSubjectId() string {
 	return ""
 }
 
-func (x *EraseSubjectRequest) GetDocumentIds() []string {
+func (x *EraseSubjectRequest) GetArchiveIds() []string {
 	if x != nil {
-		return x.DocumentIds
+		return x.ArchiveIds
 	}
 	return nil
 }
@@ -380,29 +380,30 @@ var File_wakili_v1_ingestion_proto protoreflect.FileDescriptor
 
 const file_wakili_v1_ingestion_proto_rawDesc = "" +
 	"\n" +
-	"\x19wakili/v1/ingestion.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\xf2\x01\n" +
+	"\x19wakili/v1/ingestion.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\xec\x01\n" +
 	"\rIngestRequest\x120\n" +
-	"\x06tenant\x18\x01 \x01(\v2\x18.wakili.v1.TenantContextR\x06tenant\x12\x1f\n" +
-	"\vdocument_id\x18\x02 \x01(\tR\n" +
-	"documentId\x12\x1d\n" +
+	"\x06tenant\x18\x01 \x01(\v2\x18.wakili.v1.TenantContextR\x06tenant\x12\x1d\n" +
+	"\n" +
+	"archive_id\x18\x02 \x01(\tR\tarchiveId\x12\x1d\n" +
 	"\n" +
 	"object_key\x18\x03 \x01(\tR\tobjectKey\x12\x1a\n" +
 	"\bfilename\x18\x04 \x01(\tR\bfilename\x12\x1b\n" +
-	"\tmime_type\x18\x05 \x01(\tR\bmimeType\x12\x1b\n" +
-	"\tmatter_id\x18\x06 \x01(\tR\bmatterId\x12\x19\n" +
+	"\tmime_type\x18\x05 \x01(\tR\bmimeType\x12\x17\n" +
+	"\afile_id\x18\x06 \x01(\tR\x06fileId\x12\x19\n" +
 	"\btrace_id\x18\a \x01(\tR\atraceId\"\xa3\x01\n" +
 	"\fIngestStatus\x12,\n" +
 	"\x05stage\x18\x01 \x01(\x0e2\x16.wakili.v1.IngestStageR\x05stage\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12!\n" +
 	"\fprogress_pct\x18\x03 \x01(\x05R\vprogressPct\x12\x12\n" +
 	"\x04done\x18\x04 \x01(\bR\x04done\x12\x14\n" +
-	"\x05error\x18\x05 \x01(\tR\x05error\"\xac\x01\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\"\xaa\x01\n" +
 	"\x13EraseSubjectRequest\x120\n" +
 	"\x06tenant\x18\x01 \x01(\v2\x18.wakili.v1.TenantContextR\x06tenant\x12!\n" +
 	"\fsubject_type\x18\x02 \x01(\tR\vsubjectType\x12\x1d\n" +
 	"\n" +
-	"subject_id\x18\x03 \x01(\tR\tsubjectId\x12!\n" +
-	"\fdocument_ids\x18\x04 \x03(\tR\vdocumentIds\"t\n" +
+	"subject_id\x18\x03 \x01(\tR\tsubjectId\x12\x1f\n" +
+	"\varchive_ids\x18\x04 \x03(\tR\n" +
+	"archiveIds\"t\n" +
 	"\x12EraseSubjectReport\x12.\n" +
 	"\x13graph_nodes_deleted\x18\x01 \x01(\x05R\x11graphNodesDeleted\x12.\n" +
 	"\x13vector_rows_deleted\x18\x02 \x01(\x05R\x11vectorRowsDeleted*\xe2\x01\n" +

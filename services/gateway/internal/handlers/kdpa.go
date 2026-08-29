@@ -75,7 +75,7 @@ func (s *Server) ExportSubject(c *gin.Context) {
 }
 
 // EraseSubject is the right-to-erasure cascade:
-//  1. collect the subject's documents (ids + object keys)
+//  1. collect the subject's archives (ids + object keys)
 //  2. delete the objects from tenant-prefixed storage
 //  3. gRPC EraseSubject -> AI service deletes tenant graph nodes + vectors
 //  4. delete/anonymize Postgres rows
@@ -93,7 +93,7 @@ func (s *Server) EraseSubject(c *gin.Context) {
 
 	var docIDs, objectKeys []string
 	if !s.withTenant(c, func(tx pgx.Tx) error {
-		ids, keys, err := repository.DocumentIDsForSubject(c.Request.Context(), tx, in.SubjectType, in.SubjectID)
+		ids, keys, err := repository.ArchiveIDsForSubject(c.Request.Context(), tx, in.SubjectType, in.SubjectID)
 		docIDs, objectKeys = ids, keys
 		return err
 	}) {
@@ -112,7 +112,7 @@ func (s *Server) EraseSubject(c *gin.Context) {
 		Tenant:      grpcclient.TC(tenant.ID, tenant.Plan, tenant.DataResidencyKE),
 		SubjectType: in.SubjectType,
 		SubjectId:   in.SubjectID,
-		DocumentIds: docIDs,
+		ArchiveIds: docIDs,
 	})
 	if err != nil {
 		logging.L(c.Request.Context()).Error("erasure: graph cascade failed", "err", err)

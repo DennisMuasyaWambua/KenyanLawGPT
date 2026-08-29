@@ -13,7 +13,7 @@ import (
 )
 
 type taskInput struct {
-	MatterID    string     `json:"matter_id"`
+	FileID    string     `json:"file_id"`
 	AssignedTo  *string    `json:"assigned_to"`
 	Title       string     `json:"title"`
 	Description string     `json:"description"`
@@ -30,8 +30,8 @@ func (s *Server) CreateTask(c *gin.Context) {
 		badRequest(c, err.Error())
 		return
 	}
-	if in.MatterID == "" || in.Title == "" {
-		badRequest(c, "matter_id and title are required")
+	if in.FileID == "" || in.Title == "" {
+		badRequest(c, "file_id and title are required")
 		return
 	}
 	self := s.claims(c).UserID()
@@ -50,7 +50,7 @@ func (s *Server) CreateTask(c *gin.Context) {
 		in.Priority = "medium"
 	}
 	t := &repository.Task{
-		ID: uuid.NewString(), MatterID: in.MatterID, AssignedTo: &assignee, AssignedBy: self,
+		ID: uuid.NewString(), FileID: in.FileID, AssignedTo: &assignee, AssignedBy: self,
 		Title: in.Title, Description: in.Description, DueDate: in.DueDate, Status: in.Status, Priority: in.Priority,
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
@@ -149,10 +149,10 @@ func (s *Server) ListTasks(c *gin.Context) {
 	}
 }
 
-func (s *Server) MatterTasks(c *gin.Context) {
+func (s *Server) FileTasks(c *gin.Context) {
 	var tasks []repository.Task
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		t, err := repository.ListTasksByMatter(c.Request.Context(), tx, c.Param("id"))
+		t, err := repository.ListTasksByFile(c.Request.Context(), tx, c.Param("id"))
 		tasks = t
 		return err
 	}) {
@@ -160,7 +160,7 @@ func (s *Server) MatterTasks(c *gin.Context) {
 	}
 }
 
-// CaseDashboard (matters.view_all): per-matter open/overdue task counts, last
+// CaseDashboard (files.view_all): per-file open/overdue task counts, last
 // activity and current status.
 func (s *Server) CaseDashboard(c *gin.Context) {
 	var cases []repository.CaseStatus

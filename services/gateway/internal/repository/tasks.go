@@ -9,8 +9,8 @@ import (
 
 type Task struct {
 	ID             string     `json:"id"`
-	MatterID       string     `json:"matter_id"`
-	MatterRef      string     `json:"matter_ref,omitempty"`
+	FileID       string     `json:"file_id"`
+	FileRef      string     `json:"file_ref,omitempty"`
 	AssignedTo     *string    `json:"assigned_to,omitempty"`
 	AssignedToName string     `json:"assigned_to_name,omitempty"`
 	AssignedBy     string     `json:"assigned_by"`
@@ -23,12 +23,12 @@ type Task struct {
 	CompletedAt    *time.Time `json:"completed_at,omitempty"`
 }
 
-const taskCols = `t.id, t.matter_id, COALESCE(m.reference,''), t.assigned_to, COALESCE(u.full_name,''),
+const taskCols = `t.id, t.file_id, COALESCE(m.reference,''), t.assigned_to, COALESCE(u.full_name,''),
 	t.assigned_by, t.title, t.description, t.due_date, t.status, t.priority, t.created_at, t.completed_at`
 
 func scanTask(row pgx.Row) (*Task, error) {
 	var t Task
-	if err := row.Scan(&t.ID, &t.MatterID, &t.MatterRef, &t.AssignedTo, &t.AssignedToName,
+	if err := row.Scan(&t.ID, &t.FileID, &t.FileRef, &t.AssignedTo, &t.AssignedToName,
 		&t.AssignedBy, &t.Title, &t.Description, &t.DueDate, &t.Status, &t.Priority,
 		&t.CreatedAt, &t.CompletedAt); err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func scanTask(row pgx.Row) (*Task, error) {
 }
 
 const taskFrom = ` FROM tasks t
-	LEFT JOIN matters m ON m.id = t.matter_id
+	LEFT JOIN files m ON m.id = t.file_id
 	LEFT JOIN users u   ON u.id = t.assigned_to`
 
 func queryTasks(ctx context.Context, tx pgx.Tx, where string, args ...any) ([]Task, error) {
@@ -67,9 +67,9 @@ func ListAllTasks(ctx context.Context, tx pgx.Tx) ([]Task, error) {
 	return queryTasks(ctx, tx, "ORDER BY t.status='done', t.due_date NULLS LAST, t.created_at DESC")
 }
 
-// ListTasksByMatter returns all tasks for one matter.
-func ListTasksByMatter(ctx context.Context, tx pgx.Tx, matterID string) ([]Task, error) {
-	return queryTasks(ctx, tx, "WHERE t.matter_id = $1 ORDER BY t.status='done', t.due_date NULLS LAST, t.created_at DESC", matterID)
+// ListTasksByFile returns all tasks for one file.
+func ListTasksByFile(ctx context.Context, tx pgx.Tx, fileID string) ([]Task, error) {
+	return queryTasks(ctx, tx, "WHERE t.file_id = $1 ORDER BY t.status='done', t.due_date NULLS LAST, t.created_at DESC", fileID)
 }
 
 func GetTask(ctx context.Context, tx pgx.Tx, id string) (*Task, error) {
@@ -78,9 +78,9 @@ func GetTask(ctx context.Context, tx pgx.Tx, id string) (*Task, error) {
 
 func InsertTask(ctx context.Context, tx pgx.Tx, t *Task) error {
 	_, err := tx.Exec(ctx,
-		`INSERT INTO tasks (id, matter_id, assigned_to, assigned_by, title, description, due_date, status, priority)
+		`INSERT INTO tasks (id, file_id, assigned_to, assigned_by, title, description, due_date, status, priority)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		t.ID, t.MatterID, t.AssignedTo, t.AssignedBy, t.Title, t.Description, t.DueDate, t.Status, t.Priority)
+		t.ID, t.FileID, t.AssignedTo, t.AssignedBy, t.Title, t.Description, t.DueDate, t.Status, t.Priority)
 	return err
 }
 
@@ -113,7 +113,7 @@ func DeleteTask(ctx context.Context, tx pgx.Tx, id string) error {
 
 // CaseStatus is one row of the case-status dashboard.
 type CaseStatus struct {
-	MatterID     string    `json:"matter_id"`
+	FileID     string    `json:"file_id"`
 	Reference    string    `json:"reference"`
 	Title        string    `json:"title"`
 	ClientName   string    `json:"client_name"`
@@ -123,22 +123,22 @@ type CaseStatus struct {
 	LastActivity time.Time `json:"last_activity"`
 }
 
-// CaseDashboard aggregates, per matter, open/overdue task counts and last
-// activity alongside the matter status.
+// CaseDashboard aggregates, per file, open/overdue task counts and last
+// activity alongside the file status.
 func CaseDashboard(ctx context.Context, tx pgx.Tx) ([]CaseStatus, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT m.id, m.reference, m.title, COALESCE(c.name,''), m.status,
 		       COALESCE(t.open_count,0), COALESCE(t.overdue_count,0),
 		       GREATEST(m.updated_at, COALESCE(t.last_task, m.updated_at)) AS last_activity
-		FROM matters m
+		FROM files m
 		LEFT JOIN clients c ON c.id = m.client_id
 		LEFT JOIN (
-			SELECT matter_id,
+			SELECT file_id,
 			       count(*) FILTER (WHERE status <> 'done') AS open_count,
 			       count(*) FILTER (WHERE status <> 'done' AND due_date IS NOT NULL AND due_date < now()) AS overdue_count,
 			       max(created_at) AS last_task
-			FROM tasks GROUP BY matter_id
-		) t ON t.matter_id = m.id
+			FROM tasks GROUP BY file_id
+		) t ON t.file_id = m.id
 		ORDER BY (m.status = 'closed'), last_activity DESC`)
 	if err != nil {
 		return nil, err
@@ -147,7 +147,7 @@ func CaseDashboard(ctx context.Context, tx pgx.Tx) ([]CaseStatus, error) {
 	out := []CaseStatus{}
 	for rows.Next() {
 		var cs CaseStatus
-		if err := rows.Scan(&cs.MatterID, &cs.Reference, &cs.Title, &cs.ClientName, &cs.Status,
+		if err := rows.Scan(&cs.FileID, &cs.Reference, &cs.Title, &cs.ClientName, &cs.Status,
 			&cs.OpenTasks, &cs.OverdueTasks, &cs.LastActivity); err != nil {
 			return nil, err
 		}

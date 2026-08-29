@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, fmtKES } from "@/lib/api";
+import { BRAND } from "@/lib/brand";
 
 export default function Dashboard() {
   const { data } = useQuery({ queryKey: ["dashboard"], queryFn: () => api("/api/v1/dashboard") });
@@ -11,7 +12,7 @@ export default function Dashboard() {
   });
   const s = data?.stats || {};
   const cards = [
-    { label: "Open matters", value: s.open_matters ?? "—" },
+    { label: "Open files", value: s.open_files ?? "—" },
     { label: "Court dates (7 days)", value: s.court_dates_7d ?? "—" },
     { label: "Deadlines (7 days)", value: s.deadlines_7d ?? "—" },
     { label: "Outstanding fees", value: s.outstanding_kes != null ? fmtKES(s.outstanding_kes) : "—" },
@@ -19,7 +20,16 @@ export default function Dashboard() {
     { label: "Clients", value: s.clients ?? "—" },
   ];
   return (
-    <div>
+    <div className="relative">
+      {/* Faint firm watermark behind the dashboard content. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0 flex select-none flex-col items-center justify-center opacity-[0.04]"
+      >
+        <img src={BRAND.logo} alt="" className="w-2/3 max-w-lg" />
+        <p className="mt-4 font-display text-4xl font-bold text-navy">{BRAND.name}</p>
+      </div>
+      <div className="relative z-10">
       <h2 className="font-display text-3xl font-bold text-navy">Dashboard</h2>
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
         {cards.map((c) => (
@@ -40,6 +50,7 @@ export default function Dashboard() {
             {n.body}
           </div>
         ))}
+      </div>
       </div>
     </div>
   );

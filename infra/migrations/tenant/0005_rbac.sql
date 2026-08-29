@@ -81,7 +81,7 @@ WHERE lower(r.name) = 'partner'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO roles (id, name, description, is_protected)
-SELECT gen_random_uuid(), 'Associate', 'Advocate handling matters', false
+SELECT gen_random_uuid(), 'Associate', 'Advocate handling files', false
 WHERE EXISTS (SELECT 1 FROM users WHERE role = 'associate')
   AND NOT EXISTS (SELECT 1 FROM roles WHERE lower(name) = 'associate');
 

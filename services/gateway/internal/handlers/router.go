@@ -27,6 +27,29 @@ func (s *Server) Register(r *gin.Engine) {
 	wh.POST("/daraja/callback", s.DarajaCallback)
 	wh.POST("/at/delivery", s.ATDelivery)
 
+	// Platform super-admin control plane. Registered as a SEPARATE top-level
+	// group so it does NOT inherit middleware.Tenant — these routes are
+	// cross-tenant and resolve no firm. Auth is the distinct admin JWT.
+	admin := r.Group("/api/v1/admin", middleware.RateLimit(s.RDB, s.Cfg.RateLimitPerMin))
+	admin.POST("/login", s.AdminLogin)
+	admin.POST("/refresh", s.AdminRefresh)
+	adminPriv := admin.Group("", middleware.RequirePlatformAdmin(s.Cfg))
+	adminPriv.POST("/logout", s.AdminLogout)
+	adminPriv.GET("/me", s.AdminMe)
+	adminPriv.GET("/stats", s.AdminPlatformStats)
+	adminPriv.GET("/tenants", s.AdminListTenants)
+	adminPriv.POST("/tenants", s.AdminCreateTenant)
+	adminPriv.GET("/tenants/:id", s.AdminGetTenant)
+	adminPriv.PATCH("/tenants/:id/status", s.AdminSetTenantStatus)
+	adminPriv.PATCH("/tenants/:id/plan", s.AdminSetTenantPlan)
+	adminPriv.DELETE("/tenants/:id", s.AdminDeleteTenant)
+	adminPriv.POST("/tenants/:id/impersonate", s.AdminImpersonate)
+	adminPriv.GET("/plans", s.AdminListPlans)
+	adminPriv.GET("/audit", s.AdminAuditLog)
+	adminPriv.GET("/admins", s.AdminListAdmins)
+	adminPriv.POST("/admins", s.AdminCreateAdmin)
+	adminPriv.DELETE("/admins/:id", s.AdminDeleteAdmin)
+
 	api := r.Group("/api/v1", middleware.Tenant(s.DB, s.Cfg), middleware.RateLimit(s.RDB, s.Cfg.RateLimitPerMin))
 
 	// Unauthenticated (tenant-scoped) auth endpoints.
@@ -44,7 +67,7 @@ func (s *Server) Register(r *gin.Engine) {
 
 	// Client portal — reachable by every role, scoped to own records.
 	portal := priv.Group("/portal")
-	portal.GET("/matters", s.PortalMatters)
+	portal.GET("/files", s.PortalFiles)
 	portal.GET("/invoices", s.PortalInvoices)
 	portal.GET("/messages", s.PortalMessages)
 
@@ -54,14 +77,14 @@ func (s *Server) Register(r *gin.Engine) {
 	member := priv.Group("", middleware.RequireFirmMember())
 	member.GET("/dashboard", s.Dashboard)
 
-	member.GET("/matters", perm(rbac.PermMattersViewOwn), s.ListMatters)
-	member.POST("/matters", perm(rbac.PermMattersCreate), s.CreateMatter)
-	member.GET("/matters/:id", perm(rbac.PermMattersViewOwn), s.GetMatter)
-	member.PUT("/matters/:id", perm(rbac.PermMattersEdit), s.UpdateMatter)
-	member.POST("/matters/:id/events", perm(rbac.PermMattersEdit), s.AddMatterEvent)
-	member.POST("/matters/:id/court-dates", perm(rbac.PermMattersEdit), s.AddCourtDate)
-	member.POST("/matters/:id/deadlines", perm(rbac.PermMattersEdit), s.AddDeadline)
-	member.GET("/matters/:id/judiciary", perm(rbac.PermMattersViewOwn), s.JudiciaryStatus)
+	member.GET("/files", perm(rbac.PermMattersViewOwn), s.ListFiles)
+	member.POST("/files", perm(rbac.PermMattersCreate), s.CreateFile)
+	member.GET("/files/:id", perm(rbac.PermMattersViewOwn), s.GetFile)
+	member.PUT("/files/:id", perm(rbac.PermMattersEdit), s.UpdateFile)
+	member.POST("/files/:id/events", perm(rbac.PermMattersEdit), s.AddFileEvent)
+	member.POST("/files/:id/court-dates", perm(rbac.PermMattersEdit), s.AddCourtDate)
+	member.POST("/files/:id/deadlines", perm(rbac.PermMattersEdit), s.AddDeadline)
+	member.GET("/files/:id/judiciary", perm(rbac.PermMattersViewOwn), s.JudiciaryStatus)
 
 	member.GET("/clients", perm(rbac.PermClientsView), s.ListClients)
 	member.GET("/clients/:id", perm(rbac.PermClientsView), s.GetClient)
@@ -76,7 +99,7 @@ func (s *Server) Register(r *gin.Engine) {
 	member.POST("/tasks", perm(rbac.PermTasksCreate), s.CreateTask)
 	member.PATCH("/tasks/:id", perm(rbac.PermTasksViewOwn), s.UpdateTask)
 	member.DELETE("/tasks/:id", perm(rbac.PermTasksCreate), s.DeleteTask)
-	member.GET("/matters/:id/tasks", perm(rbac.PermTasksViewOwn), s.MatterTasks)
+	member.GET("/files/:id/tasks", perm(rbac.PermTasksViewOwn), s.FileTasks)
 
 	// Case-status dashboard — manager/owner oversight.
 	member.GET("/dashboard/cases", perm(rbac.PermMattersViewAll), s.CaseDashboard)
@@ -86,7 +109,7 @@ func (s *Server) Register(r *gin.Engine) {
 	member.POST("/recordings", perm(rbac.PermRecordingsCreate), s.CreateRecording)
 	member.GET("/recordings/:id", perm(rbac.PermRecordingsViewOwn), s.GetRecording)
 	member.POST("/recordings/:id/uploaded", perm(rbac.PermRecordingsCreate), s.MarkRecordingUploaded)
-	member.GET("/matters/:id/recordings", perm(rbac.PermRecordingsViewOwn), s.MatterRecordings)
+	member.GET("/files/:id/recordings", perm(rbac.PermRecordingsViewOwn), s.FileRecordings)
 
 	// Calendar: the personal calendar is available to every member; shared-event
 	// permissions (calendar.*_shared) are enforced inside the handlers so a
@@ -96,10 +119,10 @@ func (s *Server) Register(r *gin.Engine) {
 	member.PUT("/calendar/events/:id", s.UpdateCalendarEvent)
 	member.DELETE("/calendar/events/:id", s.DeleteCalendarEvent)
 
-	member.POST("/documents/presign", perm(rbac.PermDocumentsUpload), s.PresignUpload)
-	member.GET("/documents", perm(rbac.PermDocumentsView), s.ListDocuments)
-	member.POST("/documents/:id/ingest", perm(rbac.PermDocumentsUpload), s.IngestDocument)
-	member.GET("/documents/:id/download", perm(rbac.PermDocumentsDownload), s.DownloadDocument)
+	member.POST("/archives/presign", perm(rbac.PermDocumentsUpload), s.PresignUpload)
+	member.GET("/archives", perm(rbac.PermDocumentsView), s.ListArchives)
+	member.POST("/archives/:id/ingest", perm(rbac.PermDocumentsUpload), s.IngestDocument)
+	member.GET("/archives/:id/download", perm(rbac.PermDocumentsDownload), s.DownloadArchive)
 	member.GET("/drafts", perm(rbac.PermDocumentsView), s.ListDrafts)
 
 	member.POST("/research/query", perm(rbac.PermResearchQuery), s.ResearchQuery)

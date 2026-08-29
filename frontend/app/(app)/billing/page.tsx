@@ -15,7 +15,7 @@ export default function BillingPage() {
     queryKey: ["time-entries"],
     queryFn: () => api("/api/v1/time-entries?unbilled=true"),
   });
-  const { data: mattersData } = useQuery({ queryKey: ["matters", ""], queryFn: () => api("/api/v1/matters") });
+  const { data: filesData } = useQuery({ queryKey: ["files", ""], queryFn: () => api("/api/v1/files") });
 
   const addTime = useMutation({
     mutationFn: (body: any) => api("/api/v1/time-entries", { method: "POST", body: JSON.stringify(body) }),
@@ -26,7 +26,7 @@ export default function BillingPage() {
     mutationFn: (m: any) =>
       api("/api/v1/invoices", {
         method: "POST",
-        body: JSON.stringify({ client_id: m.client_id, matter_id: m.id, from_time_entries: true }),
+        body: JSON.stringify({ client_id: m.client_id, file_id: m.id, from_time_entries: true }),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
@@ -41,11 +41,11 @@ export default function BillingPage() {
     onError: (e) => setPayMsg((e as Error).message),
   });
 
-  const unbilledByMatter: Record<string, { minutes: number; matter?: any }> = {};
+  const unbilledByFile: Record<string, { minutes: number; file?: any }> = {};
   for (const t of timeData?.time_entries || []) {
-    unbilledByMatter[t.matter_id] = unbilledByMatter[t.matter_id] || { minutes: 0 };
-    unbilledByMatter[t.matter_id].minutes += t.minutes;
-    unbilledByMatter[t.matter_id].matter = (mattersData?.matters || []).find((m: any) => m.id === t.matter_id);
+    unbilledByFile[t.file_id] = unbilledByFile[t.file_id] || { minutes: 0 };
+    unbilledByFile[t.file_id].minutes += t.minutes;
+    unbilledByFile[t.file_id].file = (filesData?.files || []).find((m: any) => m.id === t.file_id);
   }
 
   return (
@@ -60,14 +60,14 @@ export default function BillingPage() {
               e.preventDefault();
               const fd = new FormData(e.currentTarget);
               addTime.mutate({
-                matter_id: fd.get("matter_id"), description: fd.get("description"),
+                file_id: fd.get("file_id"), description: fd.get("description"),
                 minutes: Number(fd.get("minutes")), rate_kes: Number(fd.get("rate")),
               });
               (e.target as HTMLFormElement).reset();
             }}>
-            <select name="matter_id" className="input" required>
-              <option value="">Select matter…</option>
-              {(mattersData?.matters || []).map((m: any) => (
+            <select name="file_id" className="input" required>
+              <option value="">Select file…</option>
+              {(filesData?.files || []).map((m: any) => (
                 <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>
               ))}
             </select>
@@ -80,18 +80,18 @@ export default function BillingPage() {
           </form>
 
           <h3 className="mb-2 mt-6 font-display text-lg font-bold text-navy">Unbilled time</h3>
-          {Object.entries(unbilledByMatter).map(([mid, info]) => (
+          {Object.entries(unbilledByFile).map(([mid, info]) => (
             <div key={mid} className="mb-2 flex items-center justify-between text-sm">
-              <span className="truncate">{info.matter?.reference || mid} · {(info.minutes / 60).toFixed(1)}h</span>
-              {info.matter?.client_id && (
+              <span className="truncate">{info.file?.reference || mid} · {(info.minutes / 60).toFixed(1)}h</span>
+              {info.file?.client_id && (
                 <button className="btn-gold !px-2 !py-1 !text-xs"
-                  onClick={() => invoiceFromTime.mutate(info.matter)} disabled={invoiceFromTime.isPending}>
+                  onClick={() => invoiceFromTime.mutate(info.file)} disabled={invoiceFromTime.isPending}>
                   Invoice
                 </button>
               )}
             </div>
           ))}
-          {Object.keys(unbilledByMatter).length === 0 && <p className="text-sm text-ink/50">Nothing unbilled.</p>}
+          {Object.keys(unbilledByFile).length === 0 && <p className="text-sm text-ink/50">Nothing unbilled.</p>}
         </div>
 
         <div className="card lg:col-span-2 overflow-x-auto !p-0">

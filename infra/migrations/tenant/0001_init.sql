@@ -34,7 +34,7 @@ CREATE TABLE refresh_tokens (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE matters (
+CREATE TABLE files (
     id                uuid PRIMARY KEY,
     reference         text NOT NULL UNIQUE,
     title             text NOT NULL,
@@ -52,11 +52,11 @@ CREATE TABLE matters (
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX matters_status ON matters (status, updated_at DESC);
+CREATE INDEX files_status ON files (status, updated_at DESC);
 
-CREATE TABLE matter_events (
+CREATE TABLE file_events (
     id         uuid PRIMARY KEY,
-    matter_id  uuid NOT NULL REFERENCES matters(id) ON DELETE CASCADE,
+    file_id  uuid NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     event_type text NOT NULL,
     note       text NOT NULL DEFAULT '',
     created_by uuid NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE matter_events (
 
 CREATE TABLE court_dates (
     id        uuid PRIMARY KEY,
-    matter_id uuid NOT NULL REFERENCES matters(id) ON DELETE CASCADE,
+    file_id uuid NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     date      timestamptz NOT NULL,
     courtroom text NOT NULL DEFAULT '',
     judge     text NOT NULL DEFAULT '',
@@ -75,7 +75,7 @@ CREATE TABLE court_dates (
 
 CREATE TABLE deadlines (
     id         uuid PRIMARY KEY,
-    matter_id  uuid NOT NULL REFERENCES matters(id) ON DELETE CASCADE,
+    file_id  uuid NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     title      text NOT NULL,
     due_at     timestamptz NOT NULL,
     remind_at  timestamptz NOT NULL,
@@ -83,9 +83,9 @@ CREATE TABLE deadlines (
     created_by uuid NOT NULL
 );
 
-CREATE TABLE documents (
+CREATE TABLE archives (
     id            uuid PRIMARY KEY,
-    matter_id     uuid REFERENCES matters(id) ON DELETE SET NULL,
+    file_id     uuid REFERENCES files(id) ON DELETE SET NULL,
     filename      text NOT NULL,
     object_key    text NOT NULL,
     mime_type     text NOT NULL DEFAULT '',
@@ -98,17 +98,17 @@ CREATE TABLE documents (
 );
 
 -- Per-tenant private vector store (co-located with the tenant's schema).
-CREATE TABLE document_chunks (
+CREATE TABLE archive_chunks (
     id          bigserial PRIMARY KEY,
-    document_id uuid NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    archive_id uuid NOT NULL REFERENCES archives(id) ON DELETE CASCADE,
     chunk_index int NOT NULL,
     chunk_text  text NOT NULL,
     embedding   vector(1024),
     metadata    jsonb NOT NULL DEFAULT '{}'
 );
-CREATE INDEX document_chunks_doc ON document_chunks (document_id);
+CREATE INDEX archive_chunks_doc ON archive_chunks (archive_id);
 -- HNSW (see public/0001): correct recall on small/growing tables.
-CREATE INDEX document_chunks_embedding_hnsw ON document_chunks
+CREATE INDEX archive_chunks_embedding_hnsw ON archive_chunks
     USING hnsw (embedding vector_cosine_ops);
 
 CREATE TABLE clause_library (
@@ -122,7 +122,7 @@ CREATE TABLE clause_library (
 
 CREATE TABLE drafts (
     id         uuid PRIMARY KEY,
-    matter_id  uuid REFERENCES matters(id) ON DELETE SET NULL,
+    file_id  uuid REFERENCES files(id) ON DELETE SET NULL,
     doc_type   text NOT NULL,
     title      text NOT NULL,
     content    text NOT NULL,
@@ -133,7 +133,7 @@ CREATE TABLE drafts (
 
 CREATE TABLE messages (
     id           uuid PRIMARY KEY,
-    matter_id    uuid REFERENCES matters(id) ON DELETE SET NULL,
+    file_id    uuid REFERENCES files(id) ON DELETE SET NULL,
     client_id    uuid REFERENCES clients(id) ON DELETE SET NULL,
     channel      text NOT NULL CHECK (channel IN ('sms','email','whatsapp','inapp')),
     direction    text NOT NULL CHECK (direction IN ('outbound','inbound')),
@@ -148,7 +148,7 @@ CREATE INDEX messages_client ON messages (client_id, created_at DESC);
 
 CREATE TABLE time_entries (
     id          uuid PRIMARY KEY,
-    matter_id   uuid NOT NULL REFERENCES matters(id) ON DELETE CASCADE,
+    file_id   uuid NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     user_id     uuid NOT NULL,
     description text NOT NULL,
     minutes     int NOT NULL,
@@ -162,7 +162,7 @@ CREATE SEQUENCE invoice_seq START 1;
 CREATE TABLE invoices (
     id           uuid PRIMARY KEY,
     number       text NOT NULL UNIQUE,
-    matter_id    uuid REFERENCES matters(id) ON DELETE SET NULL,
+    file_id    uuid REFERENCES files(id) ON DELETE SET NULL,
     client_id    uuid NOT NULL REFERENCES clients(id),
     status       text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent','paid','void')),
     subtotal_kes double precision NOT NULL DEFAULT 0,

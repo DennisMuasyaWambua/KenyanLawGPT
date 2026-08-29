@@ -3,8 +3,8 @@
 Pulls the advocate(s), the case reference/parties, the presiding judge, the
 outcome, and the public authorities cited out of a pleading/submission/ruling
 so the ingestion pipeline can build the judge-reasoning subgraph
-(Advocate-AUTHORED->Submission-FILED_IN->Matter-DECIDED_BY->Judge,
-Matter-RESULTED_IN->Outcome).
+(Advocate-AUTHORED->Submission-FILED_IN->File-DECIDED_BY->Judge,
+File-RESULTED_IN->Outcome).
 
 Regex-first so it is deterministic and works offline (tests + the mock LLM).
 An LLM refinement hook can be layered on later for messy documents; it must

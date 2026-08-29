@@ -38,34 +38,34 @@ class ReasoningEngine:
         tenant_id: str,
         query: str,
         max_hops: int = 3,
-        matter_id: Optional[str] = None,
+        file_id: Optional[str] = None,
         include_superseded: bool = False,
     ) -> tuple[list[Step], list[RankedChunk], str]:
         max_hops = max(1, min(max_hops or 3, 5))
         steps: list[Step] = []
 
-        # Hop 0 — anchor selection: the matter node if given, else the
+        # Hop 0 — anchor selection: the file node if given, else the
         # top vector hits become graph anchors.
         chunks, intent = await self.retriever.retrieve(
-            tenant_id, query, top_k=8, include_superseded=include_superseded, matter_id=matter_id
+            tenant_id, query, top_k=8, include_superseded=include_superseded, file_id=file_id
         )
         public_anchor_ids = [c.source_id for c in chunks if c.source_type == "PUBLIC"][:4]
         steps.append(Step(
             hop=0,
             description=f"Anchored on intent '{intent}': "
-                        + (f"matter {matter_id} and " if matter_id else "")
+                        + (f"file {file_id} and " if file_id else "")
                         + f"{len(public_anchor_ids)} public source(s) from hybrid retrieval",
-            node_ids=([matter_id] if matter_id else []) + public_anchor_ids,
+            node_ids=([file_id] if file_id else []) + public_anchor_ids,
             edge_types=[],
         ))
 
-        # Hop 1 — tenant subgraph around the matter (private partition only,
+        # Hop 1 — tenant subgraph around the file (private partition only,
         # composed through TenantScopedGraphQuery).
         touched_private_docs: list[str] = []
-        if matter_id:
+        if file_id:
             try:
                 q = (TenantScopedGraphQuery(tenant_id)
-                     .match("m", "Matter", id=matter_id)
+                     .match("m", "File", id=file_id)
                      .expand("m", ["LINKED_TO", "CITES", "INVOLVES", "SIMILAR_TO"], "n", max_hops=2)
                      .returns("n.id AS id", "labels(n) AS labels")
                      .limit(50).build())
@@ -74,7 +74,7 @@ class ReasoningEngine:
                 touched_private_docs = ids
                 steps.append(Step(
                     hop=1,
-                    description=f"Traversed the firm's private graph around the matter: "
+                    description=f"Traversed the firm's private graph around the file: "
                                 f"{len(ids)} connected node(s) (documents, parties, precedent notes)",
                     node_ids=ids[:20],
                     edge_types=["LINKED_TO", "CITES", "INVOLVES", "SIMILAR_TO"],
@@ -87,7 +87,7 @@ class ReasoningEngine:
         # whether the law is still good.
         frontier = list(public_anchor_ids)
         seen = set(frontier)
-        hop_no = 2 if matter_id else 1
+        hop_no = 2 if file_id else 1
         while frontier and hop_no <= max_hops:
             next_frontier: list[str] = []
             found: list[tuple[str, str, str]] = []
@@ -174,7 +174,7 @@ class ReasoningEngine:
             "authority that is no longer good law. Cite sources as [n]."
         )
         system = (
-            "You are Advocatus's reasoning engine for Kenyan law. Be precise about "
+            "You are C. Karwitha & Co. Advocates' reasoning engine for Kenyan law. Be precise about "
             "the doctrinal chain and about current vs superseded authority. "
             + CONFIDENTIALITY_PREAMBLE
         )

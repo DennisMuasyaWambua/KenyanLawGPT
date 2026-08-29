@@ -11,7 +11,7 @@ type EventT = {
   title: string;
   description: string;
   location: string;
-  matter_id?: string | null;
+  file_id?: string | null;
   start_at: string;
   end_at?: string | null;
   all_day: boolean;
@@ -47,7 +47,7 @@ export default function CalendarPage() {
     queryKey: ["calendar", from, to],
     queryFn: () => api(`/api/v1/calendar/events?from=${from}&to=${to}`),
   });
-  const { data: mattersData } = useQuery({ queryKey: ["matters"], queryFn: () => api("/api/v1/matters") });
+  const { data: filesData } = useQuery({ queryKey: ["files"], queryFn: () => api("/api/v1/files") });
 
   const create = useMutation({
     mutationFn: (body: any) => api("/api/v1/calendar/events", { method: "POST", body: JSON.stringify(body) }),
@@ -132,7 +132,7 @@ export default function CalendarPage() {
               title: fd.get("title"),
               description: fd.get("description") || "",
               location: fd.get("location") || "",
-              matter_id: fd.get("matter_id") || null,
+              file_id: fd.get("file_id") || null,
               start_at: toISO(fd.get("start_at") as string),
               end_at: toISO(fd.get("end_at") as string) || null,
               all_day: fd.get("all_day") === "on",
@@ -149,9 +149,9 @@ export default function CalendarPage() {
               {/* Shared events need the calendar.create_shared permission. */}
               {canCreateShared && <option value="firm">Firm (shared)</option>}
             </select>
-            <select name="matter_id" className="input">
-              <option value="">No matter</option>
-              {(mattersData?.matters || []).map((m: any) => (
+            <select name="file_id" className="input">
+              <option value="">No file</option>
+              {(filesData?.files || []).map((m: any) => (
                 <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>
               ))}
             </select>

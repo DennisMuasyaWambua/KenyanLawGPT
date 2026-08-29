@@ -38,7 +38,7 @@ type eventInput struct {
 	Title       string          `json:"title" binding:"required"`
 	Description string          `json:"description"`
 	Location    string          `json:"location"`
-	MatterID    *string         `json:"matter_id"`
+	FileID    *string         `json:"file_id"`
 	StartAt     time.Time       `json:"start_at" binding:"required"`
 	EndAt       *time.Time      `json:"end_at"`
 	AllDay      bool            `json:"all_day"`
@@ -140,7 +140,7 @@ func (s *Server) CreateCalendarEvent(c *gin.Context) {
 	userID := s.claims(c).UserID()
 	e := &repository.CalendarEvent{
 		ID: uuid.NewString(), Scope: scope, Title: in.Title, Description: in.Description,
-		Location: in.Location, MatterID: in.MatterID, OwnerID: userID, StartAt: in.StartAt,
+		Location: in.Location, FileID: in.FileID, OwnerID: userID, StartAt: in.StartAt,
 		EndAt: in.EndAt, AllDay: in.AllDay, CreatedBy: userID,
 	}
 	var reminders []repository.EventReminder
@@ -188,7 +188,7 @@ func (s *Server) UpdateCalendarEvent(c *gin.Context) {
 			return errHandled
 		}
 		upd := &repository.CalendarEvent{
-			Title: in.Title, Description: in.Description, Location: in.Location, MatterID: in.MatterID,
+			Title: in.Title, Description: in.Description, Location: in.Location, FileID: in.FileID,
 			StartAt: in.StartAt, EndAt: in.EndAt, AllDay: in.AllDay,
 		}
 		if err := repository.UpdateEventFields(c.Request.Context(), tx, id, existing.Scope, upd); err != nil {

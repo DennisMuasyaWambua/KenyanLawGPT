@@ -2,7 +2,7 @@
 --
 -- scope='personal' events are visible only to their owner; scope='firm' events
 -- are the shared firm calendar, visible to all staff. An event may optionally
--- link to a matter (a case meeting/hearing prep) and carry a remind_at that the
+-- link to a file (a case meeting/hearing prep) and carry a remind_at that the
 -- reminder loop fires once (mirroring court_dates/deadlines).
 CREATE TABLE IF NOT EXISTS calendar_events (
     id          uuid PRIMARY KEY,
@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
     title       text NOT NULL,
     description text NOT NULL DEFAULT '',
     location    text NOT NULL DEFAULT '',
-    matter_id   uuid REFERENCES matters(id) ON DELETE SET NULL,
+    file_id   uuid REFERENCES files(id) ON DELETE SET NULL,
     owner_id    uuid NOT NULL,
     start_at    timestamptz NOT NULL,
     end_at      timestamptz,

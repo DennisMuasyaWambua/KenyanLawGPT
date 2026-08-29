@@ -1,7 +1,7 @@
 """Tenant-private document ingestion (the gRPC IngestDocument path).
 
 Fetch from tenant-prefixed object storage -> parse -> chunk -> embed into the
-tenant schema's document_chunks -> upsert tenant graph nodes (through
+tenant schema's archive_chunks -> upsert tenant graph nodes (through
 TenantScopedGraphQuery only) -> auto-link CITES edges to public statutes and
 cases the document mentions.
 """
@@ -77,11 +77,11 @@ class TenantIngestor:
     async def ingest(
         self,
         tenant_id: str,
-        document_id: str,
+        archive_id: str,
         object_key: str,
         filename: str,
         mime_type: str,
-        matter_id: Optional[str] = None,
+        file_id: Optional[str] = None,
     ) -> AsyncIterator[tuple[str, str, int]]:
         """Yields (stage, message, progress_pct); raises on failure."""
         yield ("FETCHING", f"fetching {object_key}", 10)
@@ -109,43 +109,43 @@ class TenantIngestor:
         yield ("EMBEDDING", f"embedding {len(chunks)} chunk(s)", 60)
         embeddings = await self.embedder.embed(chunks)
         async with dbx.tenant_tx(self.pool, tenant_id) as conn:
-            await dbx.delete_chunks(conn, [document_id])  # idempotent re-ingest
-            await dbx.insert_chunks(conn, document_id, chunks, embeddings,
+            await dbx.delete_chunks(conn, [archive_id])  # idempotent re-ingest
+            await dbx.insert_chunks(conn, archive_id, chunks, embeddings,
                                     metadata={"filename": filename})
 
         yield ("GRAPHING", "updating tenant knowledge graph", 80)
         entities = extract_entities(text, filename)
-        await self._graph_upsert(tenant_id, document_id, filename, matter_id, entities)
+        await self._graph_upsert(tenant_id, archive_id, filename, file_id, entities)
 
         doc_kind = classify_doc_kind(filename, text)
         if doc_kind in ("submission", "ruling"):
-            yield ("GRAPHING", "linking advocate / matter / judge / outcome", 90)
+            yield ("GRAPHING", "linking advocate / file / judge / outcome", 90)
             await self._graph_upsert_submission(
-                tenant_id, document_id, filename, matter_id, entities)
+                tenant_id, archive_id, filename, file_id, entities)
 
         yield ("DONE", f"ingested {len(chunks)} chunk(s) [{doc_kind}]", 100)
 
-    async def _graph_upsert(self, tenant_id: str, document_id: str, filename: str,
-                            matter_id: Optional[str], entities: ExtractedEntities) -> None:
+    async def _graph_upsert(self, tenant_id: str, archive_id: str, filename: str,
+                            file_id: Optional[str], entities: ExtractedEntities) -> None:
         q = (TenantScopedGraphQuery(tenant_id)
-             .merge_node("d", "Document", {"id": document_id}, {"filename": filename})
+             .merge_node("d", "Archive", {"id": archive_id}, {"filename": filename})
              .build())
         await self.graph.write(q)
 
-        if matter_id:
+        if file_id:
             q = (TenantScopedGraphQuery(tenant_id)
-                 .merge_node("m", "Matter", {"id": matter_id})
-                 .merge_node("d", "Document", {"id": document_id})
+                 .merge_node("m", "File", {"id": file_id})
+                 .merge_node("d", "Archive", {"id": archive_id})
                  .merge_rel("m", "LINKED_TO", "d")
                  .build())
             await self.graph.write(q)
 
-        # Cross-partition CITES edges: tenant Document -> public authority.
-        await self._link_citations(tenant_id, "d", "Document", document_id, entities)
+        # Cross-partition CITES edges: tenant Archive -> public authority.
+        await self._link_citations(tenant_id, "d", "Archive", archive_id, entities)
 
     async def _link_citations(self, tenant_id: str, alias: str, label: str,
                               node_id: str, entities: ExtractedEntities) -> None:
-        """MERGE CITES edges from a tenant node (Document or Submission) to the
+        """MERGE CITES edges from a tenant node (Archive or Submission) to the
         public authorities it references. Public nodes are only ever matched,
         never written, from tenant scope."""
         for needle in entities.act_citations + entities.case_citations:
@@ -162,18 +162,18 @@ class TenantIngestor:
                 except Exception as exc:
                     log().warning("cites edge failed for %s: %s", r["doc_id"], exc)
 
-    async def _graph_upsert_submission(self, tenant_id: str, document_id: str, filename: str,
-                                       matter_id: Optional[str], entities: ExtractedEntities) -> None:
+    async def _graph_upsert_submission(self, tenant_id: str, archive_id: str, filename: str,
+                                       file_id: Optional[str], entities: ExtractedEntities) -> None:
         """Build the judge-reasoning subgraph for a court filing:
 
-            (Advocate)-[:AUTHORED]->(Submission)-[:FILED_IN]->(Matter)
-            (Matter)-[:DECIDED_BY]->(Judge:Public)   # best-effort, if judge known publicly
-            (Matter)-[:RESULTED_IN]->(Outcome)
+            (Advocate)-[:AUTHORED]->(Submission)-[:FILED_IN]->(File)
+            (File)-[:DECIDED_BY]->(Judge:Public)   # best-effort, if judge known publicly
+            (File)-[:RESULTED_IN]->(Outcome)
             (Submission)-[:CITES]->(Statute|CaseLaw:Public)
 
         Everything except the public Judge/Statute/CaseLaw nodes carries
         tenant_id via TenantScopedGraphQuery. The judge name is also stored as a
-        property on Matter/Outcome so judge-aware retrieval works even before
+        property on File/Outcome so judge-aware retrieval works even before
         that judge appears in the public corpus.
         """
         submission_props = {"filename": filename}
@@ -182,30 +182,30 @@ class TenantIngestor:
         if entities.case_ref:
             submission_props["case_ref"] = entities.case_ref
         q = (TenantScopedGraphQuery(tenant_id)
-             .merge_node("s", "Submission", {"id": document_id}, submission_props)
+             .merge_node("s", "Submission", {"id": archive_id}, submission_props)
              .build())
         await self.graph.write(q)
 
         for advocate in entities.advocates:
             q = (TenantScopedGraphQuery(tenant_id)
                  .merge_node("a", "Advocate", {"id": _slug(advocate)}, {"name": advocate})
-                 .merge_node("s", "Submission", {"id": document_id})
+                 .merge_node("s", "Submission", {"id": archive_id})
                  .merge_rel("a", "AUTHORED", "s")
                  .build())
             await self.graph.write(q)
 
-        # Resolve the case/matter: explicit matter_id wins, else derive a stable
-        # key from the case reference so repeat filings land on the same Matter.
-        matter_key = matter_id or (_slug(entities.case_ref) if entities.case_ref else None)
-        if matter_key:
-            matter_props: dict = {}
+        # Resolve the case/file: explicit file_id wins, else derive a stable
+        # key from the case reference so repeat filings land on the same File.
+        file_key = file_id or (_slug(entities.case_ref) if entities.case_ref else None)
+        if file_key:
+            file_props: dict = {}
             if entities.case_ref:
-                matter_props["case_ref"] = entities.case_ref
+                file_props["case_ref"] = entities.case_ref
             if entities.judge_name:
-                matter_props["judge_name"] = entities.judge_name
+                file_props["judge_name"] = entities.judge_name
             q = (TenantScopedGraphQuery(tenant_id)
-                 .merge_node("m", "Matter", {"id": matter_key}, matter_props or None)
-                 .merge_node("s", "Submission", {"id": document_id})
+                 .merge_node("m", "File", {"id": file_key}, file_props or None)
+                 .merge_node("s", "Submission", {"id": archive_id})
                  .merge_rel("s", "FILED_IN", "m")
                  .build())
             await self.graph.write(q)
@@ -214,7 +214,7 @@ class TenantIngestor:
             if entities.judge_name:
                 try:
                     q = (TenantScopedGraphQuery(tenant_id)
-                         .merge_node("m", "Matter", {"id": matter_key})
+                         .merge_node("m", "File", {"id": file_key})
                          .match_public("j", "Judge", name=entities.judge_name)
                          .merge_rel("m", "DECIDED_BY", "j")
                          .build())
@@ -226,33 +226,33 @@ class TenantIngestor:
             if entities.outcome:
                 oc = entities.outcome
                 q = (TenantScopedGraphQuery(tenant_id)
-                     .merge_node("o", "Outcome", {"id": f"{matter_key}:outcome"}, {
+                     .merge_node("o", "Outcome", {"id": f"{file_key}:outcome"}, {
                          "result": oc.get("result", ""),
                          "date": oc.get("date", ""),
                          "notes": oc.get("notes", ""),
                          "judge_name": entities.judge_name or "",
                      })
-                     .merge_node("m", "Matter", {"id": matter_key})
+                     .merge_node("m", "File", {"id": file_key})
                      .merge_rel("m", "RESULTED_IN", "o")
                      .build())
                 await self.graph.write(q)
 
         # The Section/Case law the submission cited (for "what wins" reasoning).
-        await self._link_citations(tenant_id, "s", "Submission", document_id, entities)
+        await self._link_citations(tenant_id, "s", "Submission", archive_id, entities)
 
     # --- KDPA erasure cascade (graph + vectors) ---
     async def erase_subject(self, tenant_id: str, subject_type: str, subject_id: str,
-                            document_ids: list[str]) -> tuple[int, int]:
+                            archive_ids: list[str]) -> tuple[int, int]:
         vector_rows = 0
-        if document_ids:
+        if archive_ids:
             async with dbx.tenant_tx(self.pool, tenant_id) as conn:
-                vector_rows = await dbx.delete_chunks(conn, document_ids)
+                vector_rows = await dbx.delete_chunks(conn, archive_ids)
 
         nodes_deleted = 0
-        if document_ids:
+        if archive_ids:
             q = (TenantScopedGraphQuery(tenant_id)
-                 .match("d", "Document")
-                 .where_in("d", "id", document_ids)
+                 .match("d", "Archive")
+                 .where_in("d", "id", archive_ids)
                  .detach_delete("d")
                  .build())
             counters = await self.graph.write(q)

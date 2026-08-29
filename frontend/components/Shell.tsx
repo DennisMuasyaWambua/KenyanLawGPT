@@ -4,17 +4,18 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api, clearSession, currentUser, getTenant } from "@/lib/api";
 import { usePermissions } from "@/lib/usePermissions";
+import { BRAND } from "@/lib/brand";
 
 // `perm` (optional) hides a nav item unless the caller holds that permission.
 const STAFF_NAV = [
   { href: "/dashboard", label: "Dashboard", icon: "▦" },
   { href: "/cases", label: "Case status", icon: "▤", perm: "matters.view_all" },
-  { href: "/matters", label: "Matters", icon: "⚖" },
+  { href: "/files", label: "Files", icon: "⚖" },
   { href: "/clients", label: "Clients", icon: "👤", perm: "clients.view" },
   { href: "/tasks", label: "Tasks", icon: "✔", perm: "tasks.view_own" },
   { href: "/calendar", label: "Calendar", icon: "🗓" },
   { href: "/recordings", label: "Recordings", icon: "🎙", perm: "recordings.view_own" },
-  { href: "/documents", label: "Documents", icon: "🗎" },
+  { href: "/archives", label: "Archives", icon: "🗎" },
   { href: "/research", label: "AI Research", icon: "🔍" },
   { href: "/drafting", label: "Drafting", icon: "✎" },
   { href: "/inbox", label: "Communications", icon: "✉" },
@@ -49,10 +50,18 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen">
       <aside className="flex w-60 flex-col bg-navy text-white">
         <div className="border-b border-white/10 p-5">
-          <h1 className="font-display text-2xl font-bold">
-            Advocat<span className="text-gold">us</span>
-          </h1>
-          <p className="mt-1 truncate text-xs text-white/50">{getTenant()}</p>
+          <div className="flex items-center gap-3">
+            <img
+              src={BRAND.logo}
+              alt={BRAND.name}
+              className="h-10 w-10 shrink-0 rounded-md bg-white object-cover object-left ring-1 ring-white/20"
+            />
+            <div className="min-w-0">
+              <h1 className="font-display text-lg font-bold leading-tight">{BRAND.short}</h1>
+              <p className="text-[11px] uppercase tracking-wide text-gold">{BRAND.sub}</p>
+            </div>
+          </div>
+          <p className="mt-2 truncate text-xs text-white/50">{getTenant()}</p>
         </div>
         <nav className="flex-1 space-y-1 p-3">
           {nav.map((item) => (

@@ -10,9 +10,9 @@ CREATE TABLE IF NOT EXISTS plans (
 );
 
 INSERT INTO plans (code, name, price_kes, limits) VALUES
-    ('starter',        'Starter',        4500,  '{"users": 3,  "matters": 50}'),
-    ('chambers',       'Chambers',       14500, '{"users": 15, "matters": 1000}'),
-    ('senior-counsel', 'Senior Counsel', 39500, '{"users": 100,"matters": -1}')
+    ('starter',        'Starter',        4500,  '{"users": 3,  "files": 50}'),
+    ('chambers',       'Chambers',       14500, '{"users": 15, "files": 1000}'),
+    ('senior-counsel', 'Senior Counsel', 39500, '{"users": 100,"files": -1}')
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS tenants (

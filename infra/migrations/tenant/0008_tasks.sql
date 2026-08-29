@@ -1,9 +1,9 @@
--- Task assignment against matters. "Manager" is not a role — task management is
+-- Task assignment against files. "Manager" is not a role — task management is
 -- gated purely on the tasks.* permissions (assigned in the RBAC catalog).
 
 CREATE TABLE IF NOT EXISTS tasks (
     id           uuid PRIMARY KEY,
-    matter_id    uuid NOT NULL REFERENCES matters(id) ON DELETE CASCADE,
+    file_id      uuid NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     assigned_to  uuid REFERENCES users(id) ON DELETE SET NULL,
     assigned_by  uuid NOT NULL,
     title        text NOT NULL,
@@ -15,11 +15,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     completed_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks (assigned_to, status);
-CREATE INDEX IF NOT EXISTS tasks_matter   ON tasks (matter_id);
+CREATE INDEX IF NOT EXISTS tasks_file     ON tasks (file_id);
 
 -- Grants: full task management to the Owner and to managers (anyone who can
--- already see all firm matters); own-task visibility to anyone who sees their
--- own matters.
+-- already see all firm files); own-task visibility to anyone who sees their
+-- own files.
 INSERT INTO role_permissions (role_id, permission)
 SELECT r.id, p.perm
 FROM roles r

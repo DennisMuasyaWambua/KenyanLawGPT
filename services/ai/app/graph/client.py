@@ -20,8 +20,8 @@ class Graph:
 
     async def ensure_indexes(self) -> None:
         stmts = [
-            "CREATE INDEX tenant_matter IF NOT EXISTS FOR (n:Matter) ON (n.tenant_id, n.id)",
-            "CREATE INDEX tenant_document IF NOT EXISTS FOR (n:Document) ON (n.tenant_id, n.id)",
+            "CREATE INDEX tenant_file IF NOT EXISTS FOR (n:File) ON (n.tenant_id, n.id)",
+            "CREATE INDEX tenant_archive IF NOT EXISTS FOR (n:Archive) ON (n.tenant_id, n.id)",
             "CREATE INDEX tenant_party IF NOT EXISTS FOR (n:Party) ON (n.tenant_id, n.id)",
             "CREATE INDEX tenant_submission IF NOT EXISTS FOR (n:Submission) ON (n.tenant_id, n.id)",
             "CREATE INDEX tenant_outcome IF NOT EXISTS FOR (n:Outcome) ON (n.tenant_id, n.id)",

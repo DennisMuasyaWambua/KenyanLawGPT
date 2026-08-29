@@ -5,7 +5,7 @@ separated sources and merges them in Python:
 
   * PUBLIC  — the shared judge profile + RULED_ON history (read via
     PublicGraphQuery; visible to every tenant).
-  * TENANT  — this firm's own matters before that judge, the submissions that
+  * TENANT  — this firm's own files before that judge, the submissions that
     led to favourable outcomes, and the authorities they cited (read via
     TenantScopedGraphQuery only; invisible to any other tenant).
 
@@ -29,7 +29,7 @@ from .graph import Graph, PublicGraphQuery, TenantScopedGraphQuery
 from .logging_setup import log
 
 JUDICIAL_ANALYTICS_DISCLAIMER = (
-    "FIRM-INTERNAL HISTORICAL PATTERN — summarises this firm's own past matters "
+    "FIRM-INTERNAL HISTORICAL PATTERN — summarises this firm's own past files "
     "and public case records before this judge. It is NOT settled law and NOT a "
     "prediction of how the judge will rule; treat it as background experience only."
 )
@@ -90,16 +90,16 @@ class JudgeReasoner:
 
     async def tenant_pattern(self, tenant_id: str, judge_name: str) -> tuple[int, int, list]:
         """Aggregate THIS tenant's history before the judge. Every query is
-        tenant-scoped; a competitor's matters can never appear here."""
+        tenant-scoped; a competitor's files can never appear here."""
         rows = await self.graph.read(
             TenantScopedGraphQuery(tenant_id)
-            .match("m", "Matter")
+            .match("m", "File")
             .where_prop("m", "judge_name", "=", judge_name)
             .match_rel("m", ["RESULTED_IN"], "o", "Outcome", direction="any")
-            .returns("m.id AS matter_id", "o.result AS result")
+            .returns("m.id AS file_id", "o.result AS result")
             .limit(300).build())
         total = len(rows)
-        winning_ids = [r["matter_id"] for r in rows if (r.get("result") or "") in _FAVORABLE]
+        winning_ids = [r["file_id"] for r in rows if (r.get("result") or "") in _FAVORABLE]
 
         authorities: Counter[str] = Counter()
         if winning_ids:
@@ -107,7 +107,7 @@ class JudgeReasoner:
                 try:
                     cited = await self.graph.read(
                         TenantScopedGraphQuery(tenant_id)
-                        .match("m", "Matter")
+                        .match("m", "File")
                         .where_in("m", "id", winning_ids)
                         .match_rel("m", ["FILED_IN"], "s", "Submission", direction="any")
                         .match_rel("s", ["CITES"], "x", public_label, to_public=True, direction="any")
@@ -134,7 +134,7 @@ class JudgeReasoner:
         lines = [f"[{JUDICIAL_ANALYTICS_DISCLAIMER}]", f"Judge: {p.judge_name}"]
         if p.tenant_cases:
             lines.append(
-                f"This firm has {p.tenant_cases} prior matter(s) before this judge; "
+                f"This firm has {p.tenant_cases} prior file(s) before this judge; "
                 f"{p.tenant_favorable} had a favourable outcome.")
             if p.winning_authorities:
                 cites = ", ".join(f"{t} (x{c})" for t, c in p.winning_authorities)

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { setSession } from "@/lib/api";
 import GoogleButton from "@/components/GoogleButton";
+import { BRAND } from "@/lib/brand";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
@@ -106,9 +107,12 @@ export default function SignupPage() {
     <main className="flex min-h-screen items-center justify-center bg-navy p-6">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <h1 className="font-display text-4xl font-bold text-white">
-            Advocat<span className="text-gold">us</span>
-          </h1>
+          <img
+            src={BRAND.logo}
+            alt={BRAND.name}
+            className="mx-auto mb-4 w-full max-w-xs rounded-lg bg-white p-3 shadow-lg"
+          />
+          <h1 className="font-display text-3xl font-bold text-white">{BRAND.short}</h1>
           <p className="mt-2 text-sm text-white/60">Create your law firm workspace</p>
         </div>
         <form onSubmit={submit} className="card space-y-4">

@@ -12,6 +12,9 @@ x-gateway-env: &gateway-env
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   # Public frontend origin, used to build staff-invite accept links.
   APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+  # Bootstrap super-admin (platform control plane), ensured on gateway start.
+  PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@ckarwithack.co.ke}
+  PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-ChangeMe_Admin123!}
   AI_GRPC_ADDR: ai:50051
   AI_GRPC_SERVER_NAME: ai
   MTLS_CA_CERT: /certs/ca.crt
@@ -22,7 +25,7 @@ x-gateway-env: &gateway-env
   S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-localhost:59000}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-  S3_BUCKET: wakili-documents
+  S3_BUCKET: wakili-archives
   CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
   AT_USERNAME: ${AT_USERNAME:-}
   AT_API_KEY: ${AT_API_KEY:-}
@@ -104,7 +107,7 @@ services:
       S3_ENDPOINT: minio:9000
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      S3_BUCKET: wakili-documents
+      S3_BUCKET: wakili-archives
       GRPC_PORT: "50051"
       HEALTH_PORT: "8081"
       MTLS_CA_CERT: /certs/ca.crt

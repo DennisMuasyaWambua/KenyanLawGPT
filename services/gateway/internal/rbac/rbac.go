@@ -1,7 +1,7 @@
 package rbac
 
 // Roles, ordered by privilege. "client" is portal-only and is additionally
-// scoped to their own matters at the query layer.
+// scoped to their own files at the query layer.
 const (
 	RoleOwner     = "owner"
 	RolePartner   = "partner"

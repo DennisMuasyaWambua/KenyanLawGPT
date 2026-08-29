@@ -6,7 +6,7 @@ import { api, fmtDate } from "@/lib/api";
 import { usePermissions } from "@/lib/usePermissions";
 
 type Recording = {
-  id: string; matter_id?: string | null; filename: string; status: string;
+  id: string; file_id?: string | null; filename: string; status: string;
   duration_seconds: number; transcript_text: string; summary_text: string;
   error?: string; created_at: string;
 };
@@ -24,7 +24,7 @@ export default function RecordingsPage() {
   const canAll = can("recordings.view_all");
 
   const [consent, setConsent] = useState(false);
-  const [matterId, setMatterId] = useState("");
+  const [fileId, setFileId] = useState("");
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -38,7 +38,7 @@ export default function RecordingsPage() {
     refetchInterval: (q) => ((q.state.data?.recordings || []).some((r: Recording) => PENDING.includes(r.status)) ? 4000 : false),
   });
   const recordings: Recording[] = data?.recordings || [];
-  const { data: mattersData } = useQuery({ queryKey: ["matters"], queryFn: () => api("/api/v1/matters"), enabled: canCreate });
+  const { data: filesData } = useQuery({ queryKey: ["files"], queryFn: () => api("/api/v1/files"), enabled: canCreate });
 
   const finalize = useMutation({
     mutationFn: async (blob: Blob) => {
@@ -47,7 +47,7 @@ export default function RecordingsPage() {
       // 1) create the row (consent gate) + get a presigned R2 URL
       const res = await api<{ recording: Recording; upload_url: string }>("/api/v1/recordings", {
         method: "POST",
-        body: JSON.stringify({ matter_id: matterId || undefined, filename, mime_type: mime, consent_confirmed: true }),
+        body: JSON.stringify({ file_id: fileId || undefined, filename, mime_type: mime, consent_confirmed: true }),
       });
       // 2) upload audio straight to R2
       const put = await fetch(res.upload_url, { method: "PUT", body: blob, headers: { "Content-Type": mime } });
@@ -98,9 +98,9 @@ export default function RecordingsPage() {
       {canCreate && (
         <div className="card mt-4 space-y-3">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <select className="input" value={matterId} onChange={(e) => setMatterId(e.target.value)} disabled={recording}>
-              <option value="">No matter linked</option>
-              {(mattersData?.matters || []).map((m: any) => <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>)}
+            <select className="input" value={fileId} onChange={(e) => setFileId(e.target.value)} disabled={recording}>
+              <option value="">No file linked</option>
+              {(filesData?.files || []).map((m: any) => <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>)}
             </select>
           </div>
           <label className="flex items-center gap-2 text-sm text-ink/80">

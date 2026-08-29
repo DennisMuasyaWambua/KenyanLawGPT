@@ -89,7 +89,7 @@ func ExportSubject(ctx context.Context, tx pgx.Tx, subjectType, subjectID string
 		if err := collect("client", "SELECT * FROM clients WHERE id=$1", subjectID); err != nil {
 			return nil, err
 		}
-		if err := collect("matters", "SELECT * FROM matters WHERE client_id=$1", subjectID); err != nil {
+		if err := collect("files", "SELECT * FROM files WHERE client_id=$1", subjectID); err != nil {
 			return nil, err
 		}
 		if err := collect("invoices", "SELECT * FROM invoices WHERE client_id=$1", subjectID); err != nil {
@@ -98,8 +98,8 @@ func ExportSubject(ctx context.Context, tx pgx.Tx, subjectType, subjectID string
 		if err := collect("messages", "SELECT * FROM messages WHERE client_id=$1", subjectID); err != nil {
 			return nil, err
 		}
-		if err := collect("documents",
-			"SELECT d.* FROM documents d JOIN matters m ON m.id=d.matter_id WHERE m.client_id=$1", subjectID); err != nil {
+		if err := collect("archives",
+			"SELECT d.* FROM archives d JOIN files m ON m.id=d.file_id WHERE m.client_id=$1", subjectID); err != nil {
 			return nil, err
 		}
 	case "user":
@@ -152,16 +152,16 @@ func EraseSubject(ctx context.Context, tx pgx.Tx, subjectType, subjectID string)
 		if err := run("DELETE FROM messages WHERE client_id=$1", subjectID); err != nil {
 			return total, err
 		}
-		if err := run(`DELETE FROM document_chunks WHERE document_id IN
-			(SELECT d.id FROM documents d JOIN matters m ON m.id=d.matter_id WHERE m.client_id=$1)`, subjectID); err != nil {
+		if err := run(`DELETE FROM archive_chunks WHERE archive_id IN
+			(SELECT d.id FROM archives d JOIN files m ON m.id=d.file_id WHERE m.client_id=$1)`, subjectID); err != nil {
 			return total, err
 		}
-		if err := run(`DELETE FROM documents WHERE matter_id IN (SELECT id FROM matters WHERE client_id=$1)`, subjectID); err != nil {
+		if err := run(`DELETE FROM archives WHERE file_id IN (SELECT id FROM files WHERE client_id=$1)`, subjectID); err != nil {
 			return total, err
 		}
-		// Matters and invoices are legal/financial records: anonymize the link
+		// Files and invoices are legal/financial records: anonymize the link
 		// rather than destroying firm records (KDPA s.40 balancing).
-		if err := run("UPDATE matters SET client_id=NULL, description='[erased on data-subject request]' WHERE client_id=$1", subjectID); err != nil {
+		if err := run("UPDATE files SET client_id=NULL, description='[erased on data-subject request]' WHERE client_id=$1", subjectID); err != nil {
 			return total, err
 		}
 		if err := run("UPDATE users SET status='disabled', email = 'erased+'||id||'@erased.invalid', full_name='[erased]' WHERE client_id=$1", subjectID); err != nil {

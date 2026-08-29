@@ -229,7 +229,7 @@ class GMICloudProvider:
         self._guard_synthetic()
         payload = {
             "model": self._model,
-            "max_tokens": max_tokens,
+            "max_tokens": self._answer_budget(max_tokens, fast),
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
@@ -241,9 +241,32 @@ class GMICloudProvider:
             resp.raise_for_status()
             data = resp.json()
         self._log_usage(data.get("usage") or {}, (time.perf_counter() - started) * 1000)
-        text = data["choices"][0]["message"]["content"] or ""
+        msg = (data.get("choices") or [{}])[0].get("message") or {}
+        text = msg.get("content") or ""
+        if not text.strip():
+            # Some reasoning models (e.g. Nemotron) put their chain-of-thought in a
+            # separate `reasoning`/`reasoning_content` field and, when the budget is
+            # exhausted thinking, leave `content` empty. Salvage the reasoning text
+            # so callers get an answer instead of a blank that renders as
+            # "citations only". _strip_reasoning below also drops any <think> wrap.
+            salvaged = msg.get("reasoning") or msg.get("reasoning_content") or ""
+            if salvaged.strip():
+                log().warning(
+                    "gmi_cloud empty content, salvaging reasoning field (model=%s) — "
+                    "consider raising GMI_CLOUD_REASONING_HEADROOM", self._model)
+                text = salvaged
         # Only chain-of-thought models wrap the answer in <think>...</think>.
         return _strip_reasoning(text) if self._reasoning else text.strip()
+
+    def _answer_budget(self, max_tokens: int, fast: bool) -> int:
+        """Effective ``max_tokens`` for the request. Reasoning models bound
+        reasoning+answer together, so add headroom on top of the caller's answer
+        budget — otherwise the trace eats it all and ``content`` is empty. Cheap
+        ``fast`` classification calls keep their tight budget; instruct models
+        stop at EOS and simply ignore any unused room."""
+        if fast:
+            return max_tokens
+        return max_tokens + max(0, self._cfg.gmi_cloud_reasoning_headroom)
 
     async def stream(self, system: str, prompt: str, max_tokens: int = 8192) -> AsyncIterator[str]:
         import json as _json
@@ -251,7 +274,7 @@ class GMICloudProvider:
         self._guard_synthetic()
         payload = {
             "model": self._model,
-            "max_tokens": max_tokens,
+            "max_tokens": self._answer_budget(max_tokens, fast=False),
             "stream": True,
             "messages": [
                 {"role": "system", "content": system},
@@ -312,8 +335,8 @@ class MockProvider:
             p = prompt.lower()
             if any(w in p for w in ("draft", "prepare", "write a")):
                 return "drafting"
-            if any(w in p for w in ("matter", "our client", "this case")):
-                return "matter_reasoning"
+            if any(w in p for w in ("file", "our client", "this case")):
+                return "file_reasoning"
             if any(w in p for w in ("case law", "precedent", "decided", "ruling", "judgment")):
                 return "case_law_research"
             return "statute_lookup"

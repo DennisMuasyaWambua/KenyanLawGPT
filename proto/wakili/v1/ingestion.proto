@@ -8,11 +8,11 @@ import "wakili/v1/common.proto";
 
 message IngestRequest {
   TenantContext tenant = 1;
-  string document_id = 2;  // tenant-schema documents.id
+  string archive_id = 2;   // tenant-schema archives.id
   string object_key = 3;   // object-storage key (bucket prefix is tenant-scoped)
   string filename = 4;
   string mime_type = 5;
-  string matter_id = 6;    // optional matter linkage for the graph
+  string file_id = 6;      // optional file linkage for the graph
   string trace_id = 7;
 }
 
@@ -42,7 +42,7 @@ message EraseSubjectRequest {
   TenantContext tenant = 1;
   string subject_type = 2;          // "client" | "user"
   string subject_id = 3;
-  repeated string document_ids = 4; // tenant documents linked to the subject
+  repeated string archive_ids = 4; // tenant archives linked to the subject
 }
 
 message EraseSubjectReport {

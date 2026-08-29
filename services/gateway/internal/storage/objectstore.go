@@ -66,8 +66,8 @@ func (s *ObjectStore) EnsureBucket(ctx context.Context) error {
 	return nil
 }
 
-func Key(tenantID, documentID, filename string) string {
-	return fmt.Sprintf("tenants/%s/documents/%s/%s", tenantID, documentID, filename)
+func Key(tenantID, archiveID, filename string) string {
+	return fmt.Sprintf("tenants/%s/archives/%s/%s", tenantID, archiveID, filename)
 }
 
 func (s *ObjectStore) tenantGuard(tenantID, key string) error {

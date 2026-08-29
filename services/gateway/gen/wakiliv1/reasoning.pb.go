@@ -25,8 +25,8 @@ type ReasoningRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Tenant            *TenantContext         `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
 	Query             string                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
-	MaxHops           int32                  `protobuf:"varint,3,opt,name=max_hops,json=maxHops,proto3" json:"max_hops,omitempty"`   // graph traversal depth, default 3
-	MatterId          string                 `protobuf:"bytes,4,opt,name=matter_id,json=matterId,proto3" json:"matter_id,omitempty"` // anchor the reasoning on a matter node
+	MaxHops           int32                  `protobuf:"varint,3,opt,name=max_hops,json=maxHops,proto3" json:"max_hops,omitempty"` // graph traversal depth, default 3
+	FileId            string                 `protobuf:"bytes,4,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`     // anchor the reasoning on a file node
 	IncludeSuperseded bool                   `protobuf:"varint,5,opt,name=include_superseded,json=includeSuperseded,proto3" json:"include_superseded,omitempty"`
 	TraceId           string                 `protobuf:"bytes,6,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
 	unknownFields     protoimpl.UnknownFields
@@ -84,9 +84,9 @@ func (x *ReasoningRequest) GetMaxHops() int32 {
 	return 0
 }
 
-func (x *ReasoningRequest) GetMatterId() string {
+func (x *ReasoningRequest) GetFileId() string {
 	if x != nil {
-		return x.MatterId
+		return x.FileId
 	}
 	return ""
 }
@@ -245,12 +245,12 @@ var File_wakili_v1_reasoning_proto protoreflect.FileDescriptor
 
 const file_wakili_v1_reasoning_proto_rawDesc = "" +
 	"\n" +
-	"\x19wakili/v1/reasoning.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\xdc\x01\n" +
+	"\x19wakili/v1/reasoning.proto\x12\twakili.v1\x1a\x16wakili/v1/common.proto\"\xd8\x01\n" +
 	"\x10ReasoningRequest\x120\n" +
 	"\x06tenant\x18\x01 \x01(\v2\x18.wakili.v1.TenantContextR\x06tenant\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12\x19\n" +
-	"\bmax_hops\x18\x03 \x01(\x05R\amaxHops\x12\x1b\n" +
-	"\tmatter_id\x18\x04 \x01(\tR\bmatterId\x12-\n" +
+	"\bmax_hops\x18\x03 \x01(\x05R\amaxHops\x12\x17\n" +
+	"\afile_id\x18\x04 \x01(\tR\x06fileId\x12-\n" +
 	"\x12include_superseded\x18\x05 \x01(\bR\x11includeSuperseded\x12\x19\n" +
 	"\btrace_id\x18\x06 \x01(\tR\atraceId\"}\n" +
 	"\rReasoningStep\x12\x10\n" +

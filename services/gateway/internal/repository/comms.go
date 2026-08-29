@@ -9,7 +9,7 @@ import (
 
 type Message struct {
 	ID          string    `json:"id"`
-	MatterID    *string   `json:"matter_id"`
+	FileID    *string   `json:"file_id"`
 	ClientID    *string   `json:"client_id"`
 	Channel     string    `json:"channel"`   // sms|email|whatsapp|inapp
 	Direction   string    `json:"direction"` // outbound|inbound
@@ -21,13 +21,13 @@ type Message struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-const msgCols = "id, matter_id, client_id, channel, direction, to_addr, from_addr, body, status, COALESCE(provider_ref,''), created_at"
+const msgCols = "id, file_id, client_id, channel, direction, to_addr, from_addr, body, status, COALESCE(provider_ref,''), created_at"
 
 func InsertMessage(ctx context.Context, tx pgx.Tx, m *Message) error {
 	_, err := tx.Exec(ctx,
-		`INSERT INTO messages (id, matter_id, client_id, channel, direction, to_addr, from_addr, body, status, provider_ref)
+		`INSERT INTO messages (id, file_id, client_id, channel, direction, to_addr, from_addr, body, status, provider_ref)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		m.ID, m.MatterID, m.ClientID, m.Channel, m.Direction, m.ToAddr, m.FromAddr, m.Body, m.Status, m.ProviderRef)
+		m.ID, m.FileID, m.ClientID, m.Channel, m.Direction, m.ToAddr, m.FromAddr, m.Body, m.Status, m.ProviderRef)
 	return err
 }
 
@@ -51,7 +51,7 @@ func ListMessages(ctx context.Context, tx pgx.Tx, clientID, channel string) ([]M
 	var out []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.MatterID, &m.ClientID, &m.Channel, &m.Direction, &m.ToAddr, &m.FromAddr, &m.Body, &m.Status, &m.ProviderRef, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.FileID, &m.ClientID, &m.Channel, &m.Direction, &m.ToAddr, &m.FromAddr, &m.Body, &m.Status, &m.ProviderRef, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

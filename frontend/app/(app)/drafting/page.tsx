@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, streamDraft } from "@/lib/api";
 import { downloadDocx, exportToGoogleDocs, googleDocsConfigured } from "@/lib/export";
+import CollabDocs from "@/components/CollabDocs";
 
 const DOC_TYPES = [
   { value: "pleading", label: "Pleading (Statement of Claim)" },
@@ -14,6 +15,7 @@ const DOC_TYPES = [
 ];
 
 export default function DraftingPage() {
+  const [mode, setMode] = useState<"ai" | "docs">("ai");
   const [docType, setDocType] = useState("demand_letter");
   const [fileId, setFileId] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -72,8 +74,33 @@ export default function DraftingPage() {
   }
 
   return (
-    <div className="grid h-[calc(100vh-6rem)] grid-cols-1 gap-6 lg:grid-cols-5">
-      <div className="lg:col-span-2">
+    <div className="flex h-[calc(100vh-6rem)] flex-col">
+      <div className="mb-3 flex gap-1 self-start rounded-lg bg-navy/5 p-1">
+        <button
+          className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${
+            mode === "ai" ? "bg-white text-navy shadow-sm" : "text-navy/60 hover:text-navy"
+          }`}
+          onClick={() => setMode("ai")}
+        >
+          AI Drafting
+        </button>
+        <button
+          className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${
+            mode === "docs" ? "bg-white text-navy shadow-sm" : "text-navy/60 hover:text-navy"
+          }`}
+          onClick={() => setMode("docs")}
+        >
+          Documents
+        </button>
+      </div>
+
+      {mode === "docs" ? (
+        <div className="flex-1 overflow-y-auto">
+          <CollabDocs />
+        </div>
+      ) : (
+    <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-5">
+      <div className="lg:col-span-2 overflow-y-auto">
         <h2 className="font-display text-3xl font-bold text-navy">Drafting</h2>
         <div className="card mt-4 space-y-3">
           <div>
@@ -149,6 +176,8 @@ export default function DraftingPage() {
           </pre>
         </div>
       </div>
+    </div>
+      )}
     </div>
   );
 }

@@ -84,6 +84,7 @@ func (s *Server) Register(r *gin.Engine) {
 	member.POST("/files/:id/events", perm(rbac.PermMattersEdit), s.AddFileEvent)
 	member.POST("/files/:id/court-dates", perm(rbac.PermMattersEdit), s.AddCourtDate)
 	member.POST("/files/:id/deadlines", perm(rbac.PermMattersEdit), s.AddDeadline)
+	member.POST("/files/:id/notify-client", perm(rbac.PermCommsSend), s.NotifyClient)
 	member.GET("/files/:id/judiciary", perm(rbac.PermMattersViewOwn), s.JudiciaryStatus)
 
 	member.GET("/clients", perm(rbac.PermClientsView), s.ListClients)
@@ -109,6 +110,7 @@ func (s *Server) Register(r *gin.Engine) {
 	member.POST("/recordings", perm(rbac.PermRecordingsCreate), s.CreateRecording)
 	member.GET("/recordings/:id", perm(rbac.PermRecordingsViewOwn), s.GetRecording)
 	member.POST("/recordings/:id/uploaded", perm(rbac.PermRecordingsCreate), s.MarkRecordingUploaded)
+	member.POST("/recordings/:id/share", perm(rbac.PermRecordingsViewOwn), s.ShareRecording)
 	member.GET("/files/:id/recordings", perm(rbac.PermRecordingsViewOwn), s.FileRecordings)
 
 	// Calendar: the personal calendar is available to every member; shared-event
@@ -133,6 +135,13 @@ func (s *Server) Register(r *gin.Engine) {
 	member.POST("/research/query", perm(rbac.PermResearchQuery), s.ResearchQuery)
 	member.POST("/research/reason", perm(rbac.PermResearchReason), s.ResearchReason)
 	member.POST("/drafting/stream", perm(rbac.PermDraftingCreate), s.DraftStream)
+
+	// Real-time collaborative documents (metadata + sharing; Yjs sync is the collab service).
+	member.GET("/collab-documents", perm(rbac.PermDraftingCreate), s.ListCollabDocs)
+	member.POST("/collab-documents", perm(rbac.PermDraftingCreate), s.CreateCollabDoc)
+	member.GET("/collab-documents/:id", perm(rbac.PermDraftingCreate), s.GetCollabDoc)
+	member.PATCH("/collab-documents/:id", perm(rbac.PermDraftingCreate), s.RenameCollabDoc)
+	member.PUT("/collab-documents/:id/shares", perm(rbac.PermDraftingCreate), s.SetCollabShares)
 
 	member.GET("/messages", perm(rbac.PermCommsView), s.ListMessages)
 	member.POST("/messages/send", perm(rbac.PermCommsSend), s.SendMessage)

@@ -194,9 +194,23 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
         # NEXT_PUBLIC_* is baked at build time, so Google auth needs a rebuild.
         NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+        # WebSocket endpoint for the collab (Yjs) sync server.
+        NEXT_PUBLIC_COLLAB_URL: ${NEXT_PUBLIC_COLLAB_URL:-ws://localhost:3100}
     ports: ["127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"]
     depends_on:
       gateway: { condition: service_started }
+
+  # Real-time collaborative-document sync (Yjs / Hocuspocus) for Drafting.
+  collab:
+    build: ./services/collab
+    environment:
+      PORT: "3100"
+      DATABASE_URL: postgres://wakili_app:wakili_app_pw@postgres:5432/wakili?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
+    ports: ["127.0.0.1:${COLLAB_HOST_PORT:-3100}:3100"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
 
   # One-shot jobs (also runnable via `make migrate` / `make seed`).
   migrate:

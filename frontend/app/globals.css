@@ -37,3 +37,48 @@ body {
 .badge-private {
   @apply inline-block rounded-full bg-gold/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gold-dim;
 }
+
+/* Collaborative (TipTap) editor surface */
+.tiptap {
+  @apply font-display text-sm leading-relaxed text-ink outline-none;
+  min-height: 60vh;
+}
+.tiptap:focus { @apply outline-none; }
+.tiptap p { @apply my-2; }
+.tiptap h1 { @apply mb-3 mt-5 text-2xl font-bold text-navy; }
+.tiptap h2 { @apply mb-2 mt-4 text-xl font-bold text-navy; }
+.tiptap h3 { @apply mb-2 mt-3 text-lg font-semibold text-navy; }
+.tiptap ul { @apply my-2 list-disc pl-6; }
+.tiptap ol { @apply my-2 list-decimal pl-6; }
+.tiptap blockquote { @apply my-3 border-l-2 border-gold pl-4 italic text-navy/70; }
+.tiptap pre { @apply my-3 overflow-x-auto rounded bg-navy/5 p-3 font-mono text-xs; }
+.tiptap code { @apply rounded bg-navy/5 px-1 py-0.5 font-mono text-xs; }
+/* Empty-document placeholder (extension-placeholder) */
+.tiptap p.is-editor-empty:first-child::before {
+  @apply pointer-events-none float-left h-0 text-navy/35;
+  content: attr(data-placeholder);
+}
+/* Remote collaborators' live cursors + name labels */
+.collaboration-cursor__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 1px solid #0d0d0d;
+  border-right: 1px solid #0d0d0d;
+  word-break: normal;
+  pointer-events: none;
+}
+.collaboration-cursor__label {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: normal;
+  white-space: nowrap;
+  border-radius: 3px 3px 3px 0;
+  padding: 0.1rem 0.3rem;
+  color: #fff;
+  user-select: none;
+}

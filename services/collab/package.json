@@ -1,0 +1,16 @@
+{
+  "name": "wakili-collab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time collaborative-document sync (Yjs/Hocuspocus) with per-tenant JWT auth + Postgres persistence.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@hocuspocus/extension-database": "^2.13.7",
+    "@hocuspocus/server": "^2.13.7",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.12.0"
+  }
+}

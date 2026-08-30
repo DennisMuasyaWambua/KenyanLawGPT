@@ -17,6 +17,7 @@ AutoUpdateWatcher background-task pattern. No gRPC surface is added.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from minio import Minio
@@ -31,23 +32,49 @@ from .transcription import make_transcriber
 log = logging.getLogger("recordings")
 
 _SUMMARY_SYSTEM = (
-    "You are a legal assistant summarizing an advocate-client meeting transcript "
-    "for a Kenyan law firm. Be precise and factual. Never invent facts, names, "
-    "dates or figures that are not present in the transcript."
+    "You are an expert AI meeting assistant and technical note-taker. Your task is "
+    "to analyze the provided raw transcription and extract structured, actionable "
+    "insights.\n\n"
+    "Analyze the text and return a strictly valid JSON object containing the "
+    "following keys:\n\n"
+    "executive_summary: A concise 2-3 sentence overview of the main purpose and "
+    "outcome of the discussion.\n\n"
+    "key_discussion_points: An array of strings detailing the major topics "
+    "covered.\n\n"
+    "decisions_made: An array of strings noting any formal or informal agreements "
+    "reached.\n\n"
+    "action_items: An array of objects for tasks assigned. Each object must include "
+    'assignee (use "Unassigned" if unclear), task_description, and deadline (if '
+    "mentioned, otherwise null).\n\n"
+    "open_questions: An array of strings highlighting unresolved issues or items "
+    "tabled for future discussion.\n\n"
+    "Constraint: Output ONLY the raw JSON object. Do not include markdown blocks "
+    "(like ```json), conversational preamble, or formatting artifacts."
 )
 
-_SUMMARY_TEMPLATE = (
-    "Transcript of an advocate-client meeting:\n\n{transcript}\n\n"
-    "Produce a concise structured summary in Markdown with exactly these sections:\n"
-    "## Summary\n"
-    "## Key Decisions\n"
-    "## Action Items\n"
-    "(each as '- [owner] task', or 'None')\n"
-    "## Risks / Follow-ups\n"
-    "If a section has nothing, write 'None'. Do not add other sections."
-)
+_SUMMARY_TEMPLATE = "Raw transcription:\n\n{transcript}"
 
 _MAX_TRANSCRIPT_CHARS = 12000
+
+
+def _extract_json(text: str) -> str:
+    """Best-effort recovery of the raw JSON object from an LLM response: strip any
+    markdown code fence and slice from the first ``{`` to the last ``}``. Returns
+    a normalized JSON string when it parses, otherwise the best-effort candidate
+    (the frontend/email formatter fall back to showing it verbatim)."""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.strip("`").strip()
+        if t.lower().startswith("json"):
+            t = t[4:].strip()
+    start, end = t.find("{"), t.rfind("}")
+    if start != -1 and end > start:
+        candidate = t[start : end + 1]
+        try:
+            return json.dumps(json.loads(candidate), ensure_ascii=False)
+        except Exception:
+            return candidate
+    return t
 
 
 class RecordingProcessor:
@@ -151,8 +178,11 @@ class RecordingProcessor:
             await self._update(tenant_id, rec_id, status="failed", error=str(exc)[:500])
 
     async def _summarize(self, transcript: str) -> tuple[str, str]:
-        """Summarize with the LOCAL provider only. Best-effort: if the local LLM
-        is unavailable we still deliver the transcript (empty summary + note)."""
+        """Extract structured meeting insights (JSON) with the LOCAL provider only.
+        Best-effort: if the local LLM is unavailable we still deliver the
+        transcript (empty summary + note). The stored summary is a JSON object
+        (see ``_SUMMARY_SYSTEM``); non-JSON responses are passed through and the
+        UI/email formatter render them verbatim."""
         if not transcript:
             return "", "empty transcript"
         try:
@@ -160,8 +190,8 @@ class RecordingProcessor:
                 self._llm = OllamaProvider(self.cfg)  # hard local pin — never GMI
             clipped = transcript[:_MAX_TRANSCRIPT_CHARS]
             prompt = _SUMMARY_TEMPLATE.format(transcript=clipped)
-            summary = await self._llm.complete(_SUMMARY_SYSTEM, prompt, max_tokens=1500)
-            return (summary or "").strip(), ""
+            summary = await self._llm.complete(_SUMMARY_SYSTEM, prompt, max_tokens=2000)
+            return _extract_json(summary or ""), ""
         except Exception as exc:  # noqa: BLE001
             log.warning("recording summary (local LLM) failed: %s", exc)
             return "", f"summary unavailable: {exc}"[:500]

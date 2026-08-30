@@ -22,6 +22,8 @@ type CalendarEvent struct {
 	CreatedBy   string     `json:"created_by"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+	// Staff invited to the event; reminders fan out to them (populated on read).
+	AttendeeUserIDs []string `json:"attendee_user_ids"`
 }
 
 const calendarCols = "id, scope, title, description, location, file_id, owner_id, " +
@@ -66,7 +68,87 @@ func ListEvents(ctx context.Context, tx pgx.Tx, userID string, from, to time.Tim
 		}
 		out = append(out, *e)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if err := attachAttendees(ctx, tx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SetEventAttendees replaces an event's attendee set with the given users.
+func SetEventAttendees(ctx context.Context, tx pgx.Tx, eventID string, userIDs []string) error {
+	if _, err := tx.Exec(ctx, "DELETE FROM event_attendees WHERE event_id=$1", eventID); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, uid := range userIDs {
+		if uid == "" || seen[uid] {
+			continue
+		}
+		seen[uid] = true
+		if _, err := tx.Exec(ctx,
+			"INSERT INTO event_attendees (event_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+			eventID, uid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// EventAttendeeIDs returns the user ids invited to an event.
+func EventAttendeeIDs(ctx context.Context, tx pgx.Tx, eventID string) ([]string, error) {
+	rows, err := tx.Query(ctx, "SELECT user_id::text FROM event_attendees WHERE event_id=$1", eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
 	return out, rows.Err()
+}
+
+// attachAttendees populates AttendeeUserIDs on each event in one query.
+func attachAttendees(ctx context.Context, tx pgx.Tx, events []CalendarEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	ids := make([]string, len(events))
+	for i := range events {
+		ids[i] = events[i].ID
+		events[i].AttendeeUserIDs = []string{}
+	}
+	rows, err := tx.Query(ctx,
+		"SELECT event_id::text, user_id::text FROM event_attendees WHERE event_id = ANY($1)", ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byEvent := map[string][]string{}
+	for rows.Next() {
+		var eid, uid string
+		if err := rows.Scan(&eid, &uid); err != nil {
+			return err
+		}
+		byEvent[eid] = append(byEvent[eid], uid)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range events {
+		if a, ok := byEvent[events[i].ID]; ok {
+			events[i].AttendeeUserIDs = a
+		}
+	}
+	return nil
 }
 
 // GetEvent loads one event by id (used to authorize edits/deletes: the caller
@@ -154,6 +236,7 @@ func DeleteFutureUnsentReminders(ctx context.Context, tx pgx.Tx, eventID string)
 // DueReminder is a due reminder joined with the fields its delivery needs.
 type DueReminder struct {
 	ReminderID string
+	EventID    string
 	Channel    string
 	OwnerID    string
 	Title      string
@@ -165,7 +248,7 @@ type DueReminder struct {
 // event. The delivery loop sends each and marks it sent.
 func DueReminders(ctx context.Context, tx pgx.Tx) ([]DueReminder, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT r.id, r.channel, e.owner_id, e.title, e.location, e.start_at
+		`SELECT r.id, r.event_id, r.channel, e.owner_id, e.title, e.location, e.start_at
 		   FROM event_reminders r JOIN calendar_events e ON e.id = r.event_id
 		  WHERE r.sent_at IS NULL AND r.remind_at <= now()
 		  ORDER BY r.remind_at`)
@@ -176,7 +259,7 @@ func DueReminders(ctx context.Context, tx pgx.Tx) ([]DueReminder, error) {
 	var out []DueReminder
 	for rows.Next() {
 		var d DueReminder
-		if err := rows.Scan(&d.ReminderID, &d.Channel, &d.OwnerID, &d.Title, &d.Location, &d.StartAt); err != nil {
+		if err := rows.Scan(&d.ReminderID, &d.EventID, &d.Channel, &d.OwnerID, &d.Title, &d.Location, &d.StartAt); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

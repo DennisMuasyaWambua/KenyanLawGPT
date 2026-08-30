@@ -1,12 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fmtDate } from "@/lib/api";
+import { usePermissions } from "@/lib/usePermissions";
+
+const STATUSES = ["intake", "active", "awaiting_court", "appeal", "closed"];
 
 export default function FileDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
+  const { can } = usePermissions();
 
   const { data } = useQuery({ queryKey: ["file", id], queryFn: () => api(`/api/v1/files/${id}`) });
   const { data: docs } = useQuery({
@@ -33,6 +38,41 @@ export default function FileDetail() {
       return api(`/api/v1/archives/${presign.archive.id}/ingest`, { method: "POST" });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["archives", id] }),
+  });
+
+  // Case-status control (with optional auto-notify of the client on change).
+  const [statusSel, setStatusSel] = useState("");
+  const [notify, setNotify] = useState(true);
+  const saveStatus = useMutation({
+    mutationFn: () => {
+      const cur = data?.file;
+      return api(`/api/v1/files/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          reference: cur.reference, title: cur.title, description: cur.description || "",
+          client_id: cur.client_id ?? null, status: statusSel || cur.status,
+          practice_area: cur.practice_area || "", court: cur.court || "",
+          court_case_number: cur.court_case_number || "", assigned_to: cur.assigned_to ?? null,
+          notify_client: notify,
+        }),
+      });
+    },
+    onSuccess: () => { setStatusSel(""); qc.invalidateQueries({ queryKey: ["file", id] }); },
+  });
+
+  // Manual, free-text case-progress update to the client (email + SMS).
+  const [updateMsg, setUpdateMsg] = useState("");
+  const [chEmail, setChEmail] = useState(true);
+  const [chSms, setChSms] = useState(true);
+  const sendUpdate = useMutation({
+    mutationFn: () => {
+      const channels = [chEmail ? "email" : null, chSms ? "sms" : null].filter(Boolean);
+      return api(`/api/v1/files/${id}/notify-client`, {
+        method: "POST",
+        body: JSON.stringify({ message: updateMsg, channels }),
+      });
+    },
+    onSuccess: () => { setUpdateMsg(""); qc.invalidateQueries({ queryKey: ["file", id] }); },
   });
 
   const m = data?.file;
@@ -69,6 +109,70 @@ export default function FileDetail() {
         </div>
 
         <div className="space-y-6">
+          {can("matters.edit") && (
+            <div className="card">
+              <h3 className="mb-3 font-display text-lg font-bold text-navy">Case status</h3>
+              <select className="input" value={statusSel || m.status} onChange={(e) => setStatusSel(e.target.value)}>
+                {Array.from(new Set([...STATUSES, m.status])).map((st) => (
+                  <option key={st} value={st}>{st.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+              <label className="mt-3 flex items-center gap-2 text-xs text-ink/70">
+                <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+                Notify client of this change (email + SMS)
+              </label>
+              <button
+                className="btn-primary mt-3 w-full"
+                disabled={saveStatus.isPending || (statusSel || m.status) === m.status}
+                onClick={() => saveStatus.mutate()}
+              >
+                {saveStatus.isPending ? "Saving…" : "Update status"}
+              </button>
+              {saveStatus.isSuccess && <p className="mt-2 text-xs text-green-700">Status updated.</p>}
+              {saveStatus.isError && <p className="mt-2 text-xs text-red-600">{(saveStatus.error as Error).message}</p>}
+            </div>
+          )}
+
+          {can("comms.send") && (
+            <div className="card">
+              <h3 className="mb-3 font-display text-lg font-bold text-navy">Send update to client</h3>
+              <textarea
+                className="input"
+                rows={3}
+                placeholder="Progress update for the client…"
+                value={updateMsg}
+                onChange={(e) => setUpdateMsg(e.target.value)}
+              />
+              <div className="mt-2 flex gap-4 text-xs text-ink/70">
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={chEmail} onChange={(e) => setChEmail(e.target.checked)} /> Email
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={chSms} onChange={(e) => setChSms(e.target.checked)} /> SMS
+                </label>
+              </div>
+              <button
+                className="btn-gold mt-3 w-full"
+                disabled={sendUpdate.isPending || !updateMsg.trim() || (!chEmail && !chSms)}
+                onClick={() => sendUpdate.mutate()}
+              >
+                {sendUpdate.isPending ? "Sending…" : "Send update"}
+              </button>
+              {sendUpdate.isSuccess && (
+                <p className="mt-2 text-xs text-green-700">
+                  Sent via {(sendUpdate.data as any).sent?.join(", ") || "—"}
+                  {(sendUpdate.data as any).skipped?.length
+                    ? ` · skipped: ${(sendUpdate.data as any).skipped.join(", ")}`
+                    : ""}
+                </p>
+              )}
+              {sendUpdate.isError && <p className="mt-2 text-xs text-red-600">{(sendUpdate.error as Error).message}</p>}
+              <p className="mt-2 text-[10px] text-ink/40">
+                Requires the client to have consented (KDPA). Updates also appear in the client portal.
+              </p>
+            </div>
+          )}
+
           <div className="card">
             <h3 className="mb-3 font-display text-lg font-bold text-navy">Court status</h3>
             <button className="btn-primary w-full" onClick={() => refetchJudiciary()} disabled={judLoading}>

@@ -30,7 +30,7 @@ export default function PortalPage() {
       </div>
 
       <h3 className="mt-8 font-display text-xl font-bold text-navy">Invoices</h3>
-      <div className="card mt-3 !p-0 overflow-hidden">
+      <div className="card mt-3 !p-0 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-navy/5 text-left text-xs uppercase text-navy/60">
             <tr><th className="p-3">Number</th><th className="p-3">Total</th><th className="p-3">Status</th><th className="p-3">Due</th></tr>

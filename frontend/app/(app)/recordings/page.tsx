@@ -17,6 +17,82 @@ const STATUS_LABEL: Record<string, string> = {
 };
 const PENDING = ["uploading", "transcribing", "summarizing"];
 
+type ActionItem = { assignee?: string; task_description?: string; deadline?: string | null };
+type Insights = {
+  executive_summary?: string;
+  key_discussion_points?: string[];
+  decisions_made?: string[];
+  action_items?: ActionItem[];
+  open_questions?: string[];
+};
+
+// The AI worker stores the summary as a structured-JSON object. Parse it so the
+// UI can render sections; fall back to raw text if it isn't the expected shape.
+function parseInsights(s: string): Insights | null {
+  if (!s) return null;
+  try {
+    const o = JSON.parse(s);
+    if (o && typeof o === "object" && !Array.isArray(o) &&
+        ("executive_summary" in o || "key_discussion_points" in o || "action_items" in o)) {
+      return o as Insights;
+    }
+  } catch {
+    /* not JSON — caller shows raw text */
+  }
+  return null;
+}
+
+function insightsToText(ins: Insights): string {
+  const lines: string[] = [];
+  if (ins.executive_summary) lines.push("EXECUTIVE SUMMARY", ins.executive_summary, "");
+  const list = (title: string, items?: string[]) => {
+    if (items && items.length) {
+      lines.push(title, ...items.map((i) => `  • ${i}`), "");
+    }
+  };
+  list("KEY DISCUSSION POINTS", ins.key_discussion_points);
+  list("DECISIONS MADE", ins.decisions_made);
+  if (ins.action_items && ins.action_items.length) {
+    lines.push("ACTION ITEMS");
+    for (const a of ins.action_items) {
+      const who = a.assignee || "Unassigned";
+      const dl = a.deadline ? ` (due ${a.deadline})` : "";
+      lines.push(`  • [${who}] ${a.task_description || ""}${dl}`);
+    }
+    lines.push("");
+  }
+  list("OPEN QUESTIONS", ins.open_questions);
+  return lines.join("\n").trim();
+}
+
+function buildNotesFile(r: Recording): string {
+  const ins = parseInsights(r.summary_text);
+  const summary = ins ? insightsToText(ins) : r.summary_text || "(no summary)";
+  return [
+    `Meeting notes — ${r.filename}`,
+    `${fmtDate(r.created_at)} · ${r.duration_seconds}s`,
+    "=".repeat(48),
+    "",
+    summary,
+    "",
+    "FULL TRANSCRIPT",
+    "-".repeat(48),
+    r.transcript_text || "(no transcript)",
+  ].join("\n");
+}
+
+function downloadText(filename: string, text: string) {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function RecordingsPage() {
   const qc = useQueryClient();
   const { can } = usePermissions();
@@ -130,6 +206,7 @@ export default function RecordingsPage() {
 
 function RecordingCard({ r }: { r: Recording }) {
   const [open, setOpen] = useState(false);
+  const insights = parseInsights(r.summary_text);
   const badge = r.status === "complete" ? "bg-green-100 text-green-800"
     : r.status === "failed" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800";
   return (
@@ -144,14 +221,27 @@ function RecordingCard({ r }: { r: Recording }) {
       {r.status === "failed" && r.error && <p className="mt-2 text-xs text-red-600">{r.error}</p>}
       {r.status === "complete" && (
         <>
-          <button className="mt-2 text-xs text-navy hover:underline" onClick={() => setOpen(!open)}>
-            {open ? "Hide" : "Show"} transcript &amp; summary
-          </button>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <button className="text-xs text-navy hover:underline" onClick={() => setOpen(!open)}>
+              {open ? "Hide" : "Show"} transcript &amp; notes
+            </button>
+            <button
+              className="text-xs text-navy hover:underline"
+              onClick={() => downloadText(`${r.filename.replace(/\.[^.]+$/, "")}-notes.txt`, buildNotesFile(r))}
+            >
+              ⬇ Download
+            </button>
+            <ShareViaEmail id={r.id} />
+          </div>
           {open && (
             <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
-                <p className="mb-1 text-xs font-bold uppercase tracking-wide text-navy/60">Summary</p>
-                <pre className="whitespace-pre-wrap rounded bg-navy/5 p-3 text-xs leading-relaxed text-ink">{r.summary_text || "—"}</pre>
+                <p className="mb-1 text-xs font-bold uppercase tracking-wide text-navy/60">Notes</p>
+                {insights ? (
+                  <InsightsView ins={insights} />
+                ) : (
+                  <pre className="whitespace-pre-wrap rounded bg-navy/5 p-3 text-xs leading-relaxed text-ink">{r.summary_text || "—"}</pre>
+                )}
               </div>
               <div>
                 <p className="mb-1 text-xs font-bold uppercase tracking-wide text-navy/60">Transcript</p>
@@ -162,5 +252,77 @@ function RecordingCard({ r }: { r: Recording }) {
         </>
       )}
     </div>
+  );
+}
+
+function InsightsView({ ins }: { ins: Insights }) {
+  const Section = ({ title, items }: { title: string; items?: string[] }) =>
+    items && items.length ? (
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-wide text-navy/50">{title}</p>
+        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-ink/80">
+          {items.map((it, i) => (
+            <li key={i}>{it}</li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+  return (
+    <div className="space-y-3 rounded bg-navy/5 p-3 text-xs leading-relaxed text-ink">
+      {ins.executive_summary && <p>{ins.executive_summary}</p>}
+      <Section title="Key discussion points" items={ins.key_discussion_points} />
+      <Section title="Decisions made" items={ins.decisions_made} />
+      {ins.action_items && ins.action_items.length > 0 && (
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-wide text-navy/50">Action items</p>
+          <ul className="mt-1 space-y-1 text-xs text-ink/80">
+            {ins.action_items.map((a, i) => (
+              <li key={i}>
+                <span className="font-semibold text-navy">{a.assignee || "Unassigned"}</span>
+                {a.deadline ? <span className="text-ink/50"> · due {a.deadline}</span> : null}
+                <br />
+                {a.task_description}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <Section title="Open questions" items={ins.open_questions} />
+    </div>
+  );
+}
+
+function ShareViaEmail({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const share = useMutation({
+    mutationFn: () => api(`/api/v1/recordings/${id}/share`, { method: "POST", body: JSON.stringify({ email }) }),
+  });
+  if (!open) {
+    return (
+      <button className="text-xs text-navy hover:underline" onClick={() => setOpen(true)}>
+        ✉ Share via email
+      </button>
+    );
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <input
+        type="email"
+        className="input !w-56 !py-1 text-xs"
+        placeholder="name@example.com"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+      />
+      <button
+        className="btn-primary !py-1 text-xs"
+        disabled={!email || share.isPending}
+        onClick={() => share.mutate()}
+      >
+        {share.isPending ? "Sending…" : "Send"}
+      </button>
+      {share.isSuccess && <span className="text-xs text-green-700">Sent ✓</span>}
+      {share.isError && <span className="text-xs text-red-600">{(share.error as Error).message || "Failed"}</span>}
+    </span>
   );
 }

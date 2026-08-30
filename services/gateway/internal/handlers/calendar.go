@@ -43,6 +43,8 @@ type eventInput struct {
 	EndAt       *time.Time      `json:"end_at"`
 	AllDay      bool            `json:"all_day"`
 	Reminders   []reminderInput `json:"reminders"`
+	// Staff invited to the event; calendar reminders fan out to them too.
+	AttendeeUserIDs []string `json:"attendee_user_ids"`
 }
 
 // normalizeScope maps the API's "shared" onto the stored "firm" and defaults to
@@ -107,12 +109,19 @@ func (s *Server) ListCalendarEvents(c *gin.Context) {
 
 	userID := s.claims(c).UserID()
 	var events []repository.CalendarEvent
+	var matters []repository.MatterCalendarItem
 	if s.withTenant(c, func(tx pgx.Tx) error {
 		e, err := repository.ListEvents(c.Request.Context(), tx, userID, from, to, includePersonal, includeShared)
+		if err != nil {
+			return err
+		}
 		events = e
+		// Surface upcoming matters (court dates + deadlines) on the calendar.
+		m, err := repository.ListMatterCalendar(c.Request.Context(), tx, from, to)
+		matters = m
 		return err
 	}) {
-		c.JSON(http.StatusOK, gin.H{"events": events})
+		c.JSON(http.StatusOK, gin.H{"events": events, "matters": matters})
 	}
 }
 
@@ -151,10 +160,14 @@ func (s *Server) CreateCalendarEvent(c *gin.Context) {
 		if err := generateReminders(c, tx, e.ID, e.StartAt, in.Reminders); err != nil {
 			return err
 		}
+		if err := repository.SetEventAttendees(c.Request.Context(), tx, e.ID, in.AttendeeUserIDs); err != nil {
+			return err
+		}
 		r, err := repository.RemindersForEvent(c.Request.Context(), tx, e.ID)
 		reminders = r
 		return err
 	}) {
+		e.AttendeeUserIDs = in.AttendeeUserIDs
 		c.JSON(http.StatusCreated, gin.H{"event": e, "reminders": reminders})
 	}
 }
@@ -199,6 +212,9 @@ func (s *Server) UpdateCalendarEvent(c *gin.Context) {
 			return err
 		}
 		if err := generateReminders(c, tx, id, in.StartAt, in.Reminders); err != nil {
+			return err
+		}
+		if err := repository.SetEventAttendees(c.Request.Context(), tx, id, in.AttendeeUserIDs); err != nil {
 			return err
 		}
 		r, err := repository.RemindersForEvent(c.Request.Context(), tx, id)

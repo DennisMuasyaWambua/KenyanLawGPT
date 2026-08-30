@@ -93,7 +93,7 @@ export default function TasksPage() {
         </form>
       )}
 
-      <div className="card mt-4 !p-0 overflow-hidden">
+      <div className="card mt-4 !p-0 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-navy/5 text-left text-xs uppercase text-navy/60">
             <tr><th className="p-3">Task</th><th className="p-3">File</th><th className="p-3">Assignee</th><th className="p-3">Due</th><th className="p-3">Priority</th><th className="p-3">Status</th><th /></tr>

@@ -90,7 +90,7 @@ export default function SettingsPage() {
         <section>
           <h3 className="font-display text-xl font-bold text-navy">Team</h3>
           <div className="mt-3 grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="card !p-0 overflow-hidden">
+            <div className="card !p-0 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-navy/5 text-left text-xs uppercase text-navy/60">
                   <tr><th className="p-3">Name</th><th className="p-3">Role</th><th className="p-3">Status</th></tr>

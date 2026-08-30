@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,9 @@ type fileInput struct {
 	Court           string  `json:"court"`
 	CourtCaseNumber string  `json:"court_case_number"`
 	AssignedTo      *string `json:"assigned_to"`
+	// NotifyClient (UpdateFile only): when a status change is saved, auto-send a
+	// templated progress update to the consented client over email + SMS.
+	NotifyClient bool `json:"notify_client"`
 }
 
 func (s *Server) CreateFile(c *gin.Context) {
@@ -120,6 +124,12 @@ func (s *Server) UpdateFile(c *gin.Context) {
 				Note: prevStatus + " -> " + m.Status, CreatedBy: s.claims(c).UserID(),
 			}); err != nil {
 				return err
+			}
+			// Automatic client update on status change (best-effort: a missing
+			// client, no consent or a send failure must not fail the save).
+			if in.NotifyClient {
+				autoMsg := "The status of your matter is now: " + strings.ReplaceAll(m.Status, "_", " ") + "."
+				_, _ = s.sendClientUpdate(c.Request.Context(), tx, m, autoMsg, []string{"email", "sms"}, s.claims(c).UserID())
 			}
 		}
 		file = m

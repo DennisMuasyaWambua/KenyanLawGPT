@@ -17,6 +17,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const isLogin = pathname === "/admin/login";
   const [ready, setReady] = useState(false);
+  // Mobile: sidebar is an off-canvas drawer; static from `md` up.
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     if (isLogin) {
@@ -29,6 +31,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
     setReady(true);
   }, [isLogin, router]);
+
+  // Close the drawer whenever we navigate to a new route.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
 
   if (!ready) return null;
   if (isLogin) return <>{children}</>;
@@ -46,7 +53,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-screen">
-      <aside className="flex w-60 flex-col bg-navy text-white">
+      {/* Backdrop — only rendered on mobile while the drawer is open. */}
+      {drawerOpen && (
+        <div
+          aria-hidden
+          onClick={() => setDrawerOpen(false)}
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+        />
+      )}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-navy text-white transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+          drawerOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         <div className="border-b border-white/10 p-5">
           <div className="flex items-center gap-3">
             <img src={BRAND.logo} alt={BRAND.name} className="h-10 w-10 shrink-0 rounded-md bg-white object-cover object-left ring-1 ring-white/20" />
@@ -56,7 +75,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
           </div>
         </div>
-        <nav className="flex-1 space-y-1 p-3">
+        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
           {NAV.map((item) => (
             <Link
               key={item.href}
@@ -78,7 +97,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-x-hidden p-8">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile top bar with hamburger — hidden from `md` up. */}
+        <header className="flex items-center gap-3 border-b border-navy/10 bg-white px-4 py-3 md:hidden">
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open menu"
+            className="text-2xl leading-none text-navy"
+          >
+            ☰
+          </button>
+          <img src={BRAND.logo} alt="" className="h-8 w-8 shrink-0 rounded bg-white object-cover object-left ring-1 ring-navy/10" />
+          <span className="truncate font-display text-base font-bold text-navy">Control Center</span>
+        </header>
+        <main className="flex-1 overflow-x-hidden p-4 sm:p-6 md:p-8">{children}</main>
+      </div>
     </div>
   );
 }

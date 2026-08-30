@@ -23,7 +23,7 @@ export default function CasesPage() {
       <h2 className="font-display text-3xl font-bold text-navy">Case status</h2>
       <p className="mt-1 text-sm text-ink/60">Firm-wide view across all files — open work, overdue items and activity.</p>
 
-      <div className="card mt-4 !p-0 overflow-hidden">
+      <div className="card mt-4 !p-0 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-navy/5 text-left text-xs uppercase text-navy/60">
             <tr>

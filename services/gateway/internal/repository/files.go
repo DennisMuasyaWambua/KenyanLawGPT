@@ -239,6 +239,61 @@ func ListUpcoming(ctx context.Context, tx pgx.Tx, within time.Duration) ([]Court
 	return cds, dls, rows.Err()
 }
 
+// MatterCalendarItem is a court date or deadline surfaced on the calendar as a
+// read-only entry (so "upcoming matters" show alongside events).
+type MatterCalendarItem struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"` // "court_date" | "deadline"
+	FileID    string    `json:"file_id"`
+	Reference string    `json:"reference"`
+	FileTitle string    `json:"file_title"`
+	Title     string    `json:"title"`
+	Location  string    `json:"location"`
+	StartAt   time.Time `json:"start_at"`
+}
+
+// ListMatterCalendar returns court dates and deadlines whose date falls in
+// [from, to], joined to their file for display. Firm-wide (staff calendar).
+func ListMatterCalendar(ctx context.Context, tx pgx.Tx, from, to time.Time) ([]MatterCalendarItem, error) {
+	out := []MatterCalendarItem{}
+	rows, err := tx.Query(ctx,
+		`SELECT cd.id, cd.file_id, f.reference, f.title,
+		        COALESCE(NULLIF(cd.purpose,''), 'Court date'), cd.courtroom, cd.date
+		 FROM court_dates cd JOIN files f ON f.id = cd.file_id
+		 WHERE cd.date BETWEEN $1 AND $2`, from, to)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		it := MatterCalendarItem{Kind: "court_date"}
+		if err := rows.Scan(&it.ID, &it.FileID, &it.Reference, &it.FileTitle, &it.Title, &it.Location, &it.StartAt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	rows.Close()
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+	rows, err = tx.Query(ctx,
+		`SELECT d.id, d.file_id, f.reference, f.title, d.title, d.due_at
+		 FROM deadlines d JOIN files f ON f.id = d.file_id
+		 WHERE d.due_at BETWEEN $1 AND $2`, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		it := MatterCalendarItem{Kind: "deadline"}
+		if err := rows.Scan(&it.ID, &it.FileID, &it.Reference, &it.FileTitle, &it.Title, &it.StartAt); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
 func MarkReminded(ctx context.Context, tx pgx.Tx, table, id string) error {
 	switch table {
 	case "court_dates", "deadlines":

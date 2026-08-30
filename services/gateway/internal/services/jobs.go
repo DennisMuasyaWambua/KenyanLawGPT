@@ -86,7 +86,17 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 				if rem.Location != "" {
 					body += " · " + rem.Location
 				}
-				notifyUser(ctx, tx, mail, sms, wa, rem.OwnerID, "C. Karwitha C.K Advocates calendar reminder", body)
+				// Fan out to every concerned individual: the owner plus all
+				// invited attendees (deduped).
+				recipients := map[string]bool{rem.OwnerID: true}
+				if ids, err := repository.EventAttendeeIDs(ctx, tx, rem.EventID); err == nil {
+					for _, id := range ids {
+						recipients[id] = true
+					}
+				}
+				for uid := range recipients {
+					notifyUser(ctx, tx, mail, sms, wa, uid, "C. Karwitha C.K Advocates calendar reminder", body)
+				}
 				if err := repository.MarkReminderSent(ctx, tx, rem.ReminderID); err != nil {
 					return err
 				}

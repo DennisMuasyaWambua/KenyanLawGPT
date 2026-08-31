@@ -10,5 +10,4 @@ export const BRAND = {
   sub: "Advocates",
   /** Public path to the letterhead logo (served from /public). */
   logo: "/logo.jpeg",
-  tagline: "Practice management & AI legal research for Kenyan firms",
 } as const;

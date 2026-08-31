@@ -4,7 +4,7 @@ import Providers from "./providers";
 import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: `${BRAND.name} — ${BRAND.tagline}`,
+  title: BRAND.name,
   description: "Multi-tenant legal practice management: files, AI research, drafting, billing.",
   icons: { icon: BRAND.logo },
 };

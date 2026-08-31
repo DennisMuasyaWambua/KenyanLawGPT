@@ -71,7 +71,6 @@ export default function LoginPage() {
             {BRAND.short}
           </h1>
           <p className="mt-1 text-xs uppercase tracking-widest text-gold">{BRAND.sub}</p>
-          {/* <p className="mt-2 text-sm text-white/60">{BRAND.tagline}</p> */}
         </div>
         <form onSubmit={submit} className="card space-y-4">
           <div>

@@ -83,6 +83,10 @@ func ListRecordingsByFile(ctx context.Context, tx pgx.Tx, fileID string) ([]Reco
 	return listRecordings(ctx, tx, "WHERE file_id=$1 ORDER BY created_at DESC", fileID)
 }
 
+func ListOwnRecordingsByFile(ctx context.Context, tx pgx.Tx, fileID, advocateID string) ([]Recording, error) {
+	return listRecordings(ctx, tx, "WHERE file_id=$1 AND advocate_user_id=$2 ORDER BY created_at DESC", fileID, advocateID)
+}
+
 func listRecordings(ctx context.Context, tx pgx.Tx, where string, args ...any) ([]Recording, error) {
 	rows, err := tx.Query(ctx, "SELECT "+recordingCols+" FROM meeting_recordings "+where, args...)
 	if err != nil {

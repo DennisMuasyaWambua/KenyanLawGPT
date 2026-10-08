@@ -132,3 +132,30 @@ def make_transcriber(cfg: Config) -> TranscriptionProvider:
     log().warning("No local Whisper available — using MockTranscriptionProvider (offline). "
                   "Install faster-whisper or set TRANSCRIBE_PROVIDER=openai for real STT.")
     return MockTranscriptionProvider()
+
+
+class LazyTranscriber:
+    """One transcriber shared by archive ingestion and the meeting-recording
+    worker, built on first use.
+
+    Building a Whisper model loads (and on first run downloads) hundreds of MB.
+    Doing that eagerly blocked AI-service startup (and crashed it outright when
+    the download failed), and building one per consumer held two copies in RAM.
+    The build runs in a thread so the event loop stays responsive; a failed build
+    is retried on the next call rather than cached.
+    """
+
+    def __init__(self, cfg: Config) -> None:
+        self._cfg = cfg
+        self._inner: TranscriptionProvider | None = None
+        self._lock = asyncio.Lock()
+
+    async def _get(self) -> TranscriptionProvider:
+        if self._inner is None:
+            async with self._lock:
+                if self._inner is None:
+                    self._inner = await asyncio.to_thread(make_transcriber, self._cfg)
+        return self._inner
+
+    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "") -> TranscriptResult:
+        return await (await self._get()).transcribe(audio, filename, mime_type)

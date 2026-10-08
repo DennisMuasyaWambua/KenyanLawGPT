@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/wakiliai/gateway/internal/logging"
 	"github.com/wakiliai/gateway/internal/rbac"
 	"github.com/wakiliai/gateway/internal/repository"
 	"github.com/wakiliai/gateway/internal/storage"
@@ -169,7 +170,8 @@ func (s *Server) ShareRecording(c *gin.Context) {
 	}
 	subject := "Meeting transcript & notes — " + rec.Filename
 	if err := s.Mail.Send(c.Request.Context(), in.Email, subject, formatRecordingEmail(rec)); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "could not send email"})
+		logging.L(c.Request.Context()).Warn("share recording email failed", "recording", rec.ID, "err", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "could not send email: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -252,11 +254,20 @@ func formatInsights(summary string) string {
 	return out
 }
 
+// FileRecordings lists a file's recordings. Like ListRecordings, view_own
+// callers only see their own — transcripts of other advocates' privileged client
+// meetings require recordings.view_all.
 func (s *Server) FileRecordings(c *gin.Context) {
+	canAll := s.can(c, rbac.PermRecordingsViewAll)
+	userID := s.claims(c).UserID()
 	var recs []repository.Recording
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		r, err := repository.ListRecordingsByFile(c.Request.Context(), tx, c.Param("id"))
-		recs = r
+		var err error
+		if canAll {
+			recs, err = repository.ListRecordingsByFile(c.Request.Context(), tx, c.Param("id"))
+		} else {
+			recs, err = repository.ListOwnRecordingsByFile(c.Request.Context(), tx, c.Param("id"), userID)
+		}
 		return err
 	}) {
 		c.JSON(http.StatusOK, gin.H{"recordings": recs})

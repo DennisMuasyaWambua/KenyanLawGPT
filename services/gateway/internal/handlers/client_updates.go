@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/wakiliai/gateway/internal/logging"
 	"github.com/wakiliai/gateway/internal/repository"
 )
 
@@ -104,9 +105,10 @@ func (s *Server) sendClientUpdate(ctx context.Context, tx pgx.Tx, file *reposito
 				res.Skipped = append(res.Skipped, "email (no address on file)")
 				continue
 			}
-			status := "sent"
+			status, reason := "sent", ""
 			if err := s.Mail.Send(ctx, cl.Email, subject, body); err != nil {
-				status = "failed"
+				status, reason = "failed", err.Error()
+				logging.L(ctx).Warn("client update email failed", "file", file.ID, "err", err)
 			}
 			_ = repository.InsertMessage(ctx, tx, &repository.Message{
 				ID: uuid.NewString(), FileID: &fid, ClientID: file.ClientID,
@@ -116,7 +118,7 @@ func (s *Server) sendClientUpdate(ctx context.Context, tx pgx.Tx, file *reposito
 			if status == "sent" {
 				res.Sent = append(res.Sent, "email")
 			} else {
-				res.Skipped = append(res.Skipped, "email (send failed)")
+				res.Skipped = append(res.Skipped, "email (send failed: "+reason+")")
 			}
 		case "sms":
 			if cl.Phone == "" {
@@ -127,9 +129,12 @@ func (s *Server) sendClientUpdate(ctx context.Context, tx pgx.Tx, file *reposito
 				res.Skipped = append(res.Skipped, "sms (not configured)")
 				continue
 			}
-			status, ref := "failed", ""
+			status, ref, reason := "failed", "", ""
 			if r, err := s.SMS.Send(ctx, cl.Phone, body); err == nil {
 				status, ref = r.Status, r.MessageID
+			} else {
+				reason = err.Error()
+				logging.L(ctx).Warn("client update sms failed", "file", file.ID, "err", err)
 			}
 			_ = repository.InsertMessage(ctx, tx, &repository.Message{
 				ID: uuid.NewString(), FileID: &fid, ClientID: file.ClientID,
@@ -139,7 +144,7 @@ func (s *Server) sendClientUpdate(ctx context.Context, tx pgx.Tx, file *reposito
 			if status != "failed" {
 				res.Sent = append(res.Sent, "sms")
 			} else {
-				res.Skipped = append(res.Skipped, "sms (send failed)")
+				res.Skipped = append(res.Skipped, "sms (send failed: "+reason+")")
 			}
 		}
 	}

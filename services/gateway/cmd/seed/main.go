@@ -31,6 +31,10 @@ import (
 
 const demoPassword = "DemoPass123!"
 
+// demoStaff are the seeded staff logins, one per role template designation
+// (lowercase template names; see rbac.DefaultTemplates).
+var demoStaff = []string{"partner", "associate", "secretary"}
+
 type firmSpec struct {
 	Name, Slug, Marker string
 	ClientA, ClientB   string
@@ -85,9 +89,9 @@ func main() {
 	for _, f := range firms {
 		fmt.Printf("\n%s  (slug: %s)\n", f.Name, f.Slug)
 		fmt.Printf("  owner:     owner@%s.demo\n", f.Slug)
-		fmt.Printf("  partner:   partner@%s.demo\n", f.Slug)
-		fmt.Printf("  associate: associate@%s.demo\n", f.Slug)
-		fmt.Printf("  paralegal: paralegal@%s.demo\n", f.Slug)
+		for _, r := range demoStaff {
+			fmt.Printf("  %-10s %s@%s.demo\n", r+":", r, f.Slug)
+		}
 		fmt.Printf("  client:    client@%s.demo (portal)\n", f.Slug)
 	}
 	fmt.Println("\nOpen http://localhost:3000 and pick a firm on the login screen.")
@@ -116,12 +120,19 @@ func seedFirm(ctx context.Context, database *db.DB, cfg *config.Config, store *s
 	clientAID := uuid.NewString()
 
 	err = database.WithTenant(ctx, tenant.ID, tenant.SchemaName, func(tx pgx.Tx) error {
-		// Create the default non-owner roles (Owner already exists from the 0005
-		// migration) so demo staff have real, permissioned roles.
+		// Default non-owner roles. Tenant migrations (0005/0010) already create
+		// most of them, so reuse an existing role by name and only create the
+		// ones that are missing — never trip roles_name_unique.
 		roleIDByName := map[string]string{}
 		for _, tpl := range rbac.DefaultTemplates {
 			if tpl.Protected {
 				continue
+			}
+			if existing, err := repository.RoleByName(ctx, tx, tpl.Name); err == nil {
+				roleIDByName[strings.ToLower(tpl.Name)] = existing.ID
+				continue
+			} else if err != pgx.ErrNoRows {
+				return err
 			}
 			id := uuid.NewString()
 			if err := repository.CreateRole(ctx, tx,
@@ -131,8 +142,11 @@ func seedFirm(ctx context.Context, database *db.DB, cfg *config.Config, store *s
 			roleIDByName[strings.ToLower(tpl.Name)] = id
 		}
 		// Staff, each assigned to the matching role.
-		for _, r := range []string{rbac.RolePartner, rbac.RoleAssociate, rbac.RoleParalegal} {
-			rid := roleIDByName[r] // rbac.Role* constants are lowercase, matching lower(name)
+		for _, r := range demoStaff {
+			rid, ok := roleIDByName[r]
+			if !ok {
+				return fmt.Errorf("no %q role template to assign demo staff to", r)
+			}
 			if err := repository.InsertUser(ctx, tx, &repository.User{
 				ID: uuid.NewString(), Email: r + "@" + f.Slug + ".demo",
 				FullName: "Demo " + r, Role: r, RoleID: &rid, Status: "active", PasswordHash: hash,

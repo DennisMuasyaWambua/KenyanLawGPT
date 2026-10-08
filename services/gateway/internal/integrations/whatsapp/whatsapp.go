@@ -63,7 +63,7 @@ func (c *Client) Send(ctx context.Context, to, text string) error {
 			"language": map[string]string{"code": c.lang},
 			"components": []any{map[string]any{
 				"type":       "body",
-				"parameters": []any{map[string]string{"type": "text", "text": text}},
+				"parameters": []any{map[string]string{"type": "text", "text": templateParam(text)}},
 			}},
 		},
 	}
@@ -85,6 +85,24 @@ func (c *Client) Send(ctx context.Context, to, text string) error {
 		return fmt.Errorf("whatsapp api %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return nil
+}
+
+// templateParam makes free text acceptable as a template body parameter: Meta
+// rejects parameters containing newlines, tabs or more than four consecutive
+// spaces (error 132018), so line breaks become " · " and runs of whitespace
+// collapse to one space.
+func templateParam(text string) string {
+	lines := strings.FieldsFunc(text, func(r rune) bool { return r == '\n' || r == '\r' })
+	for i, l := range lines {
+		lines[i] = strings.Join(strings.Fields(l), " ")
+	}
+	out := lines[:0]
+	for _, l := range lines {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, " · ")
 }
 
 // digitsOnly strips '+', spaces and punctuation — Meta expects the number in

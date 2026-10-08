@@ -27,7 +27,7 @@ from .config import Config
 from .db import tenant_tx
 from .llm import OllamaProvider
 from .tenancy import validate_tenant_id
-from .transcription import make_transcriber
+from .transcription import LazyTranscriber, TranscriptionProvider
 
 log = logging.getLogger("recordings")
 
@@ -83,12 +83,13 @@ def _extract_json(text: str) -> str:
 
 
 class RecordingProcessor:
-    def __init__(self, pool, cfg: Config) -> None:
+    def __init__(self, pool, cfg: Config, transcriber: TranscriptionProvider | None = None) -> None:
         self.pool = pool
         self.cfg = cfg
         self._task = None
         self._stopping = False
-        self._transcriber = None  # lazily built (Whisper model load is heavy)
+        # Shared with archive ingestion (one Whisper model in memory), built lazily.
+        self._transcriber = transcriber or LazyTranscriber(cfg)
         self._llm = None
         self._minio = Minio(
             cfg.s3_endpoint, access_key=cfg.s3_access_key,
@@ -179,13 +180,6 @@ class RecordingProcessor:
             handled += 1
         return handled
 
-    async def _get_transcriber(self):
-        if not self._transcriber:
-            # Building a Whisper model loads (and on first run downloads) hundreds
-            # of MB — keep that off the event loop so gRPC stays responsive.
-            self._transcriber = await asyncio.to_thread(make_transcriber, self.cfg)
-        return self._transcriber
-
     async def _process_one(self, tenant_id: str, rec_id: str, object_key: str,
                            filename: str, mime_type: str) -> None:
         try:
@@ -196,8 +190,7 @@ class RecordingProcessor:
                     "or too large for this server) — try a shorter recording"))
                 return
             audio = await self._fetch_object(tenant_id, object_key)
-            transcriber = await self._get_transcriber()
-            result = await transcriber.transcribe(audio, filename or "audio", mime_type or "")
+            result = await self._transcriber.transcribe(audio, filename or "audio", mime_type or "")
             if result.provider == "mock":
                 # The offline mock emits a placeholder, not speech. Summarizing it
                 # would fabricate "meeting notes" from nothing, so fail loudly.

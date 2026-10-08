@@ -44,3 +44,27 @@ def test_explicit_mock_selection():
     cfg = Config()
     cfg.transcribe_provider = "mock"
     assert isinstance(make_transcriber(cfg), MockTranscriptionProvider)
+
+
+@pytest.mark.asyncio
+async def test_lazy_transcriber_builds_once_and_retries_failed_builds(monkeypatch):
+    import asyncio
+
+    from app.transcription import LazyTranscriber
+
+    calls = {"n": 0}
+
+    def flaky_factory(cfg):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("model download failed")
+        return MockTranscriptionProvider()
+
+    monkeypatch.setattr("app.transcription.make_transcriber", flaky_factory)
+    lazy = LazyTranscriber(Config())
+    with pytest.raises(RuntimeError):
+        await lazy.transcribe(b"x", "a.wav")
+    # Failure isn't cached; concurrent callers then share a single build.
+    results = await asyncio.gather(*(lazy.transcribe(b"x", "a.wav") for _ in range(5)))
+    assert all(r.provider == "mock" for r in results)
+    assert calls["n"] == 2

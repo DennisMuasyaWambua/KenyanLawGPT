@@ -98,7 +98,11 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:latest
+    # MinIO stopped publishing community images (minio/minio is gone from Docker
+    # Hub and quay.io), so a fresh pull fails. pgsty/minio is a maintained,
+    # drop-in build of the same server: same entrypoint, runs as root (existing
+    # data volumes keep working) and ships mc/curl for the healthcheck. Pinned.
+    image: ${MINIO_IMAGE:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z}
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}

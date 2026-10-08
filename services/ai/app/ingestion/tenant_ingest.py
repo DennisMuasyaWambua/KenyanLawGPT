@@ -21,7 +21,7 @@ from ..config import Config
 from ..embeddings import EmbeddingProvider
 from ..graph import Graph, TenantScopedGraphQuery
 from ..logging_setup import log
-from ..transcription import TranscriptionProvider, is_audio, make_transcriber
+from ..transcription import LazyTranscriber, TranscriptionProvider, is_audio
 from .extraction import ExtractedEntities, classify_doc_kind, extract_entities
 
 
@@ -40,7 +40,7 @@ class TenantIngestor:
         self.cfg = cfg
         # Audio documents (client-conversation recordings) are transcribed to
         # text before the normal chunk/embed/graph pipeline runs.
-        self.transcriber = transcriber or make_transcriber(cfg)
+        self.transcriber = transcriber or LazyTranscriber(cfg)
         self._minio = Minio(
             cfg.s3_endpoint, access_key=cfg.s3_access_key,
             secret_key=cfg.s3_secret_key, secure=cfg.s3_use_ssl,
@@ -92,6 +92,11 @@ class TenantIngestor:
             # spoken content becomes citable, per-case context for the AI.
             yield ("PARSING", f"transcribing {filename} ({len(raw)} bytes)", 25)
             result = await self.transcriber.transcribe(raw, filename, mime_type)
+            if result.provider == "mock":
+                # The mock emits a placeholder, not speech — indexing it would put
+                # fake "client conversation" text into the firm's corpus.
+                raise ValueError("speech-to-text is not available on this server "
+                                 "(no local Whisper); audio cannot be ingested")
             text = result.text
             log().info("transcribed %s via %s (lang=%s, %d chars)",
                        filename, result.provider, result.language, len(text))

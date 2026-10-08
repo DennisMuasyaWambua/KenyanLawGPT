@@ -31,6 +31,7 @@ from .embeddings import make_embedder
 from .graph import Graph
 from .ingestion.auto_update import AutoUpdateWatcher
 from .recordings import RecordingProcessor
+from .transcription import LazyTranscriber
 from .ingestion.firm_queue import FirmIngestQueue, IngestJob
 from .ingestion.judge_profile import JudgeProfiler
 from .ingestion.pipeline import IngestionPipeline
@@ -311,7 +312,10 @@ class App:
         retriever = RetrievalOrchestrator(self.pool, self.graph, embedder, llm, self.cfg)
         reasoner = ReasoningEngine(self.pool, self.graph, retriever, llm, self.cfg)
         drafter = DraftingEngine(self.pool, retriever, llm, self.cfg)
-        ingestor = TenantIngestor(self.pool, self.graph, embedder, self.cfg)
+        # One lazily-built speech-to-text model shared by archive ingestion and
+        # the meeting-recording worker.
+        transcriber = LazyTranscriber(self.cfg)
+        ingestor = TenantIngestor(self.pool, self.graph, embedder, self.cfg, transcriber=transcriber)
 
         pipeline = IngestionPipeline(self.pool, self.graph, embedder, self.cfg)
         # Recompute the public judge profile after each corpus pass (Task 4).
@@ -322,7 +326,7 @@ class App:
         self.scheduler = IngestionScheduler(pipeline, self.cfg, post_run=post_run)
         self.firm_queue = FirmIngestQueue(ingestor, self.cfg)
         self.auto_update = AutoUpdateWatcher(self.pool, pipeline, self.cfg)
-        self.recordings = RecordingProcessor(self.pool, self.cfg)
+        self.recordings = RecordingProcessor(self.pool, self.cfg, transcriber=transcriber)
 
         server = grpc.aio.server()
         retrieval_pb2_grpc.add_RetrievalServiceServicer_to_server(RetrievalService(retriever), server)

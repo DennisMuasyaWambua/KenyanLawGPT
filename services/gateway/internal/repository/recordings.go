@@ -57,6 +57,16 @@ func MarkUploaded(ctx context.Context, tx pgx.Tx, id, advocateID string, duratio
 		 WHERE id=$1 AND advocate_user_id=$2 RETURNING id`, id, advocateID, duration).Scan(&got)
 }
 
+// RetryRecording re-queues a failed recording for transcription. Only the
+// owning advocate can retry, and only from "failed" — returns pgx.ErrNoRows
+// otherwise (not found / not yours / not failed).
+func RetryRecording(ctx context.Context, tx pgx.Tx, id, advocateID string) error {
+	var got string
+	return tx.QueryRow(ctx,
+		`UPDATE meeting_recordings SET status='transcribing', error='', attempts=0, updated_at=now()
+		 WHERE id=$1 AND advocate_user_id=$2 AND status='failed' RETURNING id`, id, advocateID).Scan(&got)
+}
+
 func GetRecording(ctx context.Context, tx pgx.Tx, id string) (*Recording, error) {
 	return scanRecording(tx.QueryRow(ctx, "SELECT "+recordingCols+" FROM meeting_recordings WHERE id=$1", id))
 }

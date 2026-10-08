@@ -15,6 +15,7 @@ import (
 	"github.com/wakiliai/gateway/internal/integrations/email"
 	"github.com/wakiliai/gateway/internal/integrations/mpesa"
 	"github.com/wakiliai/gateway/internal/integrations/whatsapp"
+	"github.com/wakiliai/gateway/internal/localtime"
 	"github.com/wakiliai/gateway/internal/logging"
 	"github.com/wakiliai/gateway/internal/metrics"
 	"github.com/wakiliai/gateway/internal/repository"
@@ -55,7 +56,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 					continue
 				}
 				body := fmt.Sprintf("Court date reminder: %s (%s) on %s at %s. Purpose: %s",
-					m.Title, m.Reference, cd.Date.Format("Mon 02 Jan 2006 15:04"), cd.Courtroom, cd.Purpose)
+					m.Title, m.Reference, localtime.Format(cd.Date, ""), cd.Courtroom, cd.Purpose)
 				notifyFile(ctx, tx, sms, mail, wa, m, body)
 				if err := repository.MarkReminded(ctx, tx, "court_dates", cd.ID); err != nil {
 					return err
@@ -68,7 +69,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 					continue
 				}
 				body := fmt.Sprintf("Deadline reminder: %q for %s (%s) due %s",
-					d.Title, m.Title, m.Reference, d.DueAt.Format("Mon 02 Jan 2006 15:04"))
+					d.Title, m.Title, m.Reference, localtime.Format(d.DueAt, ""))
 				notifyFile(ctx, tx, sms, mail, wa, m, body)
 				if err := repository.MarkReminded(ctx, tx, "deadlines", d.ID); err != nil {
 					return err
@@ -81,8 +82,17 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 				return err
 			}
 			for _, rem := range reminders {
-				when := rem.StartAt.Format("Mon 02 Jan 2006 15:04")
-				body := fmt.Sprintf("Reminder: %s at %s", rem.Title, when)
+				// A reminder that was never delivered (e.g. the gateway was down)
+				// is useless once the event is well past — mark it done, don't
+				// page people about something that already happened.
+				if time.Since(rem.StartAt) > staleReminderAfter {
+					logging.L(ctx).Info("reminder skipped: event already past", "event", rem.EventID)
+					if err := repository.MarkReminderSent(ctx, tx, rem.ReminderID); err != nil {
+						return err
+					}
+					continue
+				}
+				body := fmt.Sprintf("Reminder: %s at %s", rem.Title, localtime.Format(rem.StartAt, ""))
 				if rem.Location != "" {
 					body += " · " + rem.Location
 				}
@@ -95,7 +105,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 					}
 				}
 				for uid := range recipients {
-					notifyUser(ctx, tx, mail, sms, wa, uid, "C. Karwitha C.K Advocates calendar reminder", body)
+					notifyUser(ctx, tx, mail, sms, wa, uid, rem.Channel, "C. Karwitha C.K Advocates calendar reminder", body)
 				}
 				if err := repository.MarkReminderSent(ctx, tx, rem.ReminderID); err != nil {
 					return err
@@ -110,9 +120,15 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 	}
 }
 
-// notifyUser sends a reminder to one staff member: in-app always, then WhatsApp
-// (preferred) or SMS to their phone, with email as the fallback channel.
-func notifyUser(ctx context.Context, tx pgx.Tx, mail email.Provider, sms *africastalking.Client, wa *whatsapp.Client, userID, subject, body string) {
+// staleReminderAfter is how long past an event's start an undelivered reminder
+// is still worth sending.
+const staleReminderAfter = time.Hour
+
+// notifyUser sends a reminder to one staff member. In-app always; then by the
+// reminder's channel: "email" goes to their inbox, "sms" goes to their phone
+// (WhatsApp preferred, then SMS) with email as the fallback when that fails or
+// they have no phone on file.
+func notifyUser(ctx context.Context, tx pgx.Tx, mail email.Provider, sms *africastalking.Client, wa *whatsapp.Client, userID, channel, subject, body string) {
 	_ = repository.InsertNotification(ctx, tx, &repository.Notification{
 		ID: uuid.NewString(), UserID: userID, Kind: "reminder", Body: body,
 	})
@@ -120,10 +136,14 @@ func notifyUser(ctx context.Context, tx pgx.Tx, mail email.Provider, sms *africa
 	if err != nil {
 		return
 	}
-	if deliverReminder(ctx, wa, sms, u.Phone, body) == "" {
-		if err := mail.Send(ctx, u.Email, subject, body); err != nil {
-			logging.L(ctx).Warn("reminder email failed", "err", err)
-		}
+	if channel == "sms" && deliverReminder(ctx, wa, sms, u.Phone, body) != "" {
+		return
+	}
+	if u.Email == "" {
+		return
+	}
+	if err := mail.Send(ctx, u.Email, subject, body); err != nil {
+		logging.L(ctx).Warn("reminder email failed", "user", userID, "err", err)
 	}
 }
 

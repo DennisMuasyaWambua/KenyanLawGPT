@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"testing"
+	"time"
 
 	"github.com/wakiliai/gateway/internal/repository"
 )
@@ -55,5 +56,16 @@ func TestMayMutateEvent(t *testing.T) {
 	}
 	if !s.mayMutateEvent(nil, shared, "someone-else", true) {
 		t.Error("shared event should be mutable with the shared permission")
+	}
+}
+
+func TestValidateTimes(t *testing.T) {
+	start := time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)
+	before, after := start.Add(-time.Hour), start.Add(time.Hour)
+	if validateTimes(start, nil) != "" || validateTimes(start, &after) != "" || validateTimes(start, &start) != "" {
+		t.Error("valid ranges rejected")
+	}
+	if validateTimes(start, &before) == "" {
+		t.Error("end before start must be rejected")
 	}
 }

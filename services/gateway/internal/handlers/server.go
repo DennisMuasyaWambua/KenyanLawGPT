@@ -13,6 +13,7 @@ import (
 	"github.com/wakiliai/gateway/internal/grpcclient"
 	"github.com/wakiliai/gateway/internal/integrations/africastalking"
 	"github.com/wakiliai/gateway/internal/integrations/email"
+	"github.com/wakiliai/gateway/internal/integrations/whatsapp"
 	"github.com/wakiliai/gateway/internal/integrations/judiciary"
 	"github.com/wakiliai/gateway/internal/integrations/mpesa"
 	"github.com/wakiliai/gateway/internal/logging"
@@ -28,6 +29,7 @@ type Server struct {
 	AI        *grpcclient.AIClient
 	Store     *storage.ObjectStore
 	SMS       *africastalking.Client
+	WA        *whatsapp.Client
 	Mail      email.Provider
 	Daraja    *mpesa.Daraja
 	Judiciary judiciary.Adapter

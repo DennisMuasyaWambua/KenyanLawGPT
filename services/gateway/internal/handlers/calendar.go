@@ -75,10 +75,14 @@ func validateReminders(in []reminderInput) string {
 
 // generateReminders materializes reminder rows from offsets relative to the
 // event's start. Reminders whose time has already passed are skipped.
-func generateReminders(ctx *gin.Context, tx pgx.Tx, eventID string, startAt time.Time, in []reminderInput) error {
+// It returns how many were skipped for already being in the past, so the caller
+// can tell the user instead of silently dropping them.
+func generateReminders(ctx *gin.Context, tx pgx.Tx, eventID string, startAt time.Time, in []reminderInput) (int, error) {
+	skipped := 0
 	for _, r := range in {
 		remindAt := startAt.Add(-time.Duration(r.OffsetMinutes) * time.Minute)
 		if !remindAt.After(time.Now()) {
+			skipped++
 			continue
 		}
 		channel := r.Channel
@@ -88,10 +92,18 @@ func generateReminders(ctx *gin.Context, tx pgx.Tx, eventID string, startAt time
 		if err := repository.CreateReminder(ctx.Request.Context(), tx, &repository.EventReminder{
 			ID: uuid.NewString(), EventID: eventID, RemindAt: remindAt, Channel: channel,
 		}); err != nil {
-			return err
+			return skipped, err
 		}
 	}
-	return nil
+	return skipped, nil
+}
+
+// validateTimes rejects an event that ends before it starts.
+func validateTimes(start time.Time, end *time.Time) string {
+	if end != nil && end.Before(start) {
+		return "end_at must not be before start_at"
+	}
+	return ""
 }
 
 func (s *Server) ListCalendarEvents(c *gin.Context) {
@@ -140,6 +152,10 @@ func (s *Server) CreateCalendarEvent(c *gin.Context) {
 		badRequest(c, msg)
 		return
 	}
+	if msg := validateTimes(in.StartAt, in.EndAt); msg != "" {
+		badRequest(c, msg)
+		return
+	}
 	// Shared events require the create_shared permission; personal events are
 	// always allowed for the owner.
 	if scope == "firm" && !s.can(c, rbac.PermCalendarCreateShared) {
@@ -153,13 +169,16 @@ func (s *Server) CreateCalendarEvent(c *gin.Context) {
 		EndAt: in.EndAt, AllDay: in.AllDay, CreatedBy: userID,
 	}
 	var reminders []repository.EventReminder
+	skipped := 0
 	if s.withTenant(c, func(tx pgx.Tx) error {
 		if err := repository.CreateEvent(c.Request.Context(), tx, e); err != nil {
 			return err
 		}
-		if err := generateReminders(c, tx, e.ID, e.StartAt, in.Reminders); err != nil {
+		n, err := generateReminders(c, tx, e.ID, e.StartAt, in.Reminders)
+		if err != nil {
 			return err
 		}
+		skipped = n
 		if err := repository.SetEventAttendees(c.Request.Context(), tx, e.ID, in.AttendeeUserIDs); err != nil {
 			return err
 		}
@@ -168,7 +187,7 @@ func (s *Server) CreateCalendarEvent(c *gin.Context) {
 		return err
 	}) {
 		e.AttendeeUserIDs = in.AttendeeUserIDs
-		c.JSON(http.StatusCreated, gin.H{"event": e, "reminders": reminders})
+		c.JSON(http.StatusCreated, gin.H{"event": e, "reminders": reminders, "skipped_reminders": skipped})
 	}
 }
 
@@ -182,11 +201,16 @@ func (s *Server) UpdateCalendarEvent(c *gin.Context) {
 		badRequest(c, msg)
 		return
 	}
+	if msg := validateTimes(in.StartAt, in.EndAt); msg != "" {
+		badRequest(c, msg)
+		return
+	}
 	userID := s.claims(c).UserID()
 	canEditShared := s.can(c, rbac.PermCalendarEditShared) // precomputed (no nested tx)
 	id := c.Param("id")
 
 	var reminders []repository.EventReminder
+	skipped := 0
 	ok := s.withTenant(c, func(tx pgx.Tx) error {
 		existing, err := repository.GetEvent(c.Request.Context(), tx, id)
 		if err == pgx.ErrNoRows {
@@ -211,9 +235,11 @@ func (s *Server) UpdateCalendarEvent(c *gin.Context) {
 		if err := repository.DeleteFutureUnsentReminders(c.Request.Context(), tx, id); err != nil {
 			return err
 		}
-		if err := generateReminders(c, tx, id, in.StartAt, in.Reminders); err != nil {
+		n, err := generateReminders(c, tx, id, in.StartAt, in.Reminders)
+		if err != nil {
 			return err
 		}
+		skipped = n
 		if err := repository.SetEventAttendees(c.Request.Context(), tx, id, in.AttendeeUserIDs); err != nil {
 			return err
 		}
@@ -222,7 +248,7 @@ func (s *Server) UpdateCalendarEvent(c *gin.Context) {
 		return err
 	})
 	if ok {
-		c.JSON(http.StatusOK, gin.H{"ok": true, "reminders": reminders})
+		c.JSON(http.StatusOK, gin.H{"ok": true, "reminders": reminders, "skipped_reminders": skipped})
 	}
 }
 

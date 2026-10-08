@@ -110,6 +110,7 @@ func (s *Server) Register(r *gin.Engine) {
 	member.POST("/recordings", perm(rbac.PermRecordingsCreate), s.CreateRecording)
 	member.GET("/recordings/:id", perm(rbac.PermRecordingsViewOwn), s.GetRecording)
 	member.POST("/recordings/:id/uploaded", perm(rbac.PermRecordingsCreate), s.MarkRecordingUploaded)
+	member.POST("/recordings/:id/retry", perm(rbac.PermRecordingsCreate), s.RetryRecording)
 	member.POST("/recordings/:id/share", perm(rbac.PermRecordingsViewOwn), s.ShareRecording)
 	member.GET("/files/:id/recordings", perm(rbac.PermRecordingsViewOwn), s.FileRecordings)
 

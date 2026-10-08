@@ -95,6 +95,7 @@ class OllamaProvider:
         self._base = cfg.ollama_base_url.rstrip("/")
         self._model = cfg.ollama_model
         self._fast_model = cfg.ollama_fast_model
+        self._keep_alive = cfg.ollama_keep_alive
 
     async def complete(self, system: str, prompt: str, max_tokens: int = 2048, fast: bool = False) -> str:
         model = self._fast_model if fast else self._model
@@ -103,6 +104,7 @@ class OllamaProvider:
             "system": system,
             "prompt": prompt,
             "stream": False,
+            "keep_alive": self._keep_alive,
             "options": {"num_predict": max_tokens},
         }
         async with self._httpx.AsyncClient(timeout=300) as client:

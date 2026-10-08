@@ -23,12 +23,17 @@ x-gateway-env: &gateway-env
   S3_ENDPOINT: minio:9000
   # Presigned URLs are minted for the host the BROWSER uses:
   S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-localhost:59000}
+  # TLS for the browser-facing URL. Empty => derived: off for localhost, on otherwise.
+  S3_PUBLIC_USE_SSL: ${S3_PUBLIC_USE_SSL:-}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
   S3_BUCKET: wakili-archives
   CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
   AT_USERNAME: ${AT_USERNAME:-}
   AT_API_KEY: ${AT_API_KEY:-}
+  # Empty => sandbox host for username "sandbox", production host otherwise.
+  AT_BASE_URL: ${AT_BASE_URL:-}
+  AT_SENDER_ID: ${AT_SENDER_ID:-}
   # Meta WhatsApp Cloud API for calendar reminders (empty => SMS fallback).
   WHATSAPP_PHONE_ID: ${WHATSAPP_PHONE_ID:-}
   WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
@@ -40,6 +45,12 @@ x-gateway-env: &gateway-env
   DARAJA_CALLBACK_URL: ${DARAJA_CALLBACK_URL:-http://localhost:8080/webhooks/daraja/callback}
   JUDICIARY_BASE_URL: ${JUDICIARY_BASE_URL:-}
   SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASS: ${SMTP_PASS:-}
+  EMAIL_FROM: ${EMAIL_FROM:-}
+  # How often calendar/court/deadline reminders are scanned (Go duration).
+  REMINDERS_INTERVAL: ${REMINDERS_INTERVAL:-}
 
 services:
   postgres:
@@ -136,6 +147,9 @@ services:
       TRANSCRIBE_BASE_URL: ${TRANSCRIBE_BASE_URL:-https://api.openai.com/v1}
       TRANSCRIBE_API_KEY: ${TRANSCRIBE_API_KEY:-}
       TRANSCRIBE_OPENAI_MODEL: ${TRANSCRIBE_OPENAI_MODEL:-whisper-1}
+      # Whisper weights are downloaded on first use; persisted so a container
+      # rebuild doesn't re-download them (see the whispercache volume).
+      HF_HOME: /home/wakili/.cache/huggingface
       PUBLIC_INGEST_ON_START: "true"
       INGEST_OFFLINE_SAMPLES: ${INGEST_OFFLINE_SAMPLES:-true}
       REDIS_URL: redis://redis:6379
@@ -147,6 +161,7 @@ services:
       # (~5GB resident) that won't fit alongside the data services on a small box.
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
       OLLAMA_FAST_MODEL: ${OLLAMA_FAST_MODEL:-llama3.2:1b}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
       ENABLE_FIRM_INGESTION: ${ENABLE_FIRM_INGESTION:-false}
       ENABLE_JUDGE_REASONING: ${ENABLE_JUDGE_REASONING:-false}
       ENABLE_AUTO_UPDATE: ${ENABLE_AUTO_UPDATE:-false}
@@ -155,6 +170,7 @@ services:
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       - ./infra/certs:/certs:ro
+      - whispercache:/home/wakili/.cache/huggingface
     depends_on:
       postgres: { condition: service_healthy }
       neo4j: { condition: service_healthy }
@@ -239,3 +255,4 @@ volumes:
   pgdata:
   neo4jdata:
   miniodata:
+  whispercache:

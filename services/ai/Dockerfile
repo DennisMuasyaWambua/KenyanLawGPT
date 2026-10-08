@@ -12,6 +12,9 @@ COPY --from=build /wheels /wheels
 COPY requirements.txt .
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
  && rm -rf /wheels
+# Pre-create the Whisper cache dir owned by the runtime user so the named volume
+# mounted over it inherits writable ownership.
+RUN mkdir -p /home/wakili/.cache/huggingface && chown -R wakili:wakili /home/wakili/.cache
 COPY app ./app
 COPY gen ./gen
 ENV PYTHONPATH=/app:/app/gen PYTHONUNBUFFERED=1

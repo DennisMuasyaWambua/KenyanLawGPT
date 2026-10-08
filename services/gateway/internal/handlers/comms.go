@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -26,11 +27,16 @@ func (s *Server) ListMessages(c *gin.Context) {
 }
 
 // SendMessage handles the unified outbox: SMS via Africa's Talking, email via
-// the provider interface, and whatsapp/inapp stored for the hub timeline.
+// the provider interface, WhatsApp via the Meta Cloud API when configured
+// (otherwise stored as queued), and in-app stored for the hub timeline.
+//
+// A delivery failure is returned to the caller (message.status == "failed" plus
+// an "error" explaining why) rather than being swallowed, so the UI can tell the
+// user their message did not go out.
 func (s *Server) SendMessage(c *gin.Context) {
 	var in struct {
 		ClientID *string `json:"client_id"`
-		FileID *string `json:"file_id"`
+		FileID   *string `json:"file_id"`
 		Channel  string  `json:"channel" binding:"required,oneof=sms email whatsapp inapp"`
 		To       string  `json:"to"`
 		Subject  string  `json:"subject"`
@@ -40,32 +46,76 @@ func (s *Server) SendMessage(c *gin.Context) {
 		badRequest(c, err.Error())
 		return
 	}
-	status, providerRef := "sent", ""
+	in.To = strings.TrimSpace(in.To)
+
+	// No explicit recipient: fall back to the linked client's contact details
+	// (only if they have consented to communications under the KDPA).
+	if in.To == "" && in.ClientID != nil && *in.ClientID != "" && in.Channel != "inapp" {
+		ok := s.withTenant(c, func(tx pgx.Tx) error {
+			cl, err := repository.ClientByID(c.Request.Context(), tx, *in.ClientID)
+			if err == pgx.ErrNoRows {
+				badRequest(c, "client not found")
+				return errHandled
+			}
+			if err != nil {
+				return err
+			}
+			if !cl.KDPAConsent {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "client has not consented to communications (KDPA)"})
+				return errHandled
+			}
+			if in.Channel == "email" {
+				in.To = cl.Email
+			} else {
+				in.To = cl.Phone
+			}
+			return nil
+		})
+		if !ok {
+			return
+		}
+	}
+
+	ctx := c.Request.Context()
+	status, providerRef, failure := "sent", "", ""
 	switch in.Channel {
 	case "sms":
 		if in.To == "" {
-			badRequest(c, "sms requires 'to'")
+			badRequest(c, "sms requires a phone number ('to')")
 			return
 		}
-		res, err := s.SMS.Send(c.Request.Context(), in.To, in.Body)
+		res, err := s.SMS.Send(ctx, in.To, in.Body)
 		if err != nil {
-			status = "failed"
+			status, failure = "failed", err.Error()
 		} else {
 			status, providerRef = res.Status, res.MessageID
 		}
 	case "email":
 		if in.To == "" {
-			badRequest(c, "email requires 'to'")
+			badRequest(c, "email requires an address ('to')")
 			return
 		}
-		if err := s.Mail.Send(c.Request.Context(), in.To, in.Subject, in.Body); err != nil {
-			status = "failed"
+		if err := s.Mail.Send(ctx, in.To, in.Subject, in.Body); err != nil {
+			status, failure = "failed", err.Error()
 		}
 	case "whatsapp":
-		// Stored in the hub; delivery integration is a provider swap away.
-		status = "queued"
+		if in.To == "" {
+			badRequest(c, "whatsapp requires a phone number ('to')")
+			return
+		}
+		if s.WA.Enabled() {
+			if err := s.WA.Send(ctx, in.To, in.Body); err != nil {
+				status, failure = "failed", err.Error()
+			}
+		} else {
+			// Not configured: keep it in the hub timeline as queued.
+			status = "queued"
+		}
 	case "inapp":
 		status = "delivered"
+	}
+	if failure != "" {
+		logging.L(ctx).Warn("message send failed", "channel", in.Channel, "err", failure)
 	}
 	m := &repository.Message{
 		ID: uuid.NewString(), FileID: in.FileID, ClientID: in.ClientID,
@@ -73,9 +123,13 @@ func (s *Server) SendMessage(c *gin.Context) {
 		Body: in.Body, Status: status, ProviderRef: providerRef,
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
-		return repository.InsertMessage(c.Request.Context(), tx, m)
+		return repository.InsertMessage(ctx, tx, m)
 	}) {
-		c.JSON(http.StatusCreated, gin.H{"message": m})
+		resp := gin.H{"message": m}
+		if failure != "" {
+			resp["error"] = failure
+		}
+		c.JSON(http.StatusCreated, resp)
 	}
 }
 

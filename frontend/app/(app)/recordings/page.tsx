@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fmtDate } from "@/lib/api";
 import { usePermissions } from "@/lib/usePermissions";
@@ -15,7 +15,22 @@ const STATUS_LABEL: Record<string, string> = {
   recording: "recording", uploading: "uploading", transcribing: "transcribing…",
   summarizing: "summarizing…", complete: "complete", failed: "failed",
 };
-const PENDING = ["uploading", "transcribing", "summarizing"];
+// "recording" is included: a row whose upload confirmation was lost is recovered
+// server-side after a couple of minutes and must show up without a manual reload.
+const PENDING = ["recording", "uploading", "transcribing", "summarizing"];
+
+// MediaRecorder container support differs by browser (Chrome/Firefox: webm/ogg,
+// Safari: mp4). Pick one the browser can actually produce.
+const MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+function pickMime(): string {
+  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
+  return MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) || "";
+}
+function extFor(mime: string): string {
+  if (mime.includes("mp4")) return "m4a";
+  if (mime.includes("ogg")) return "ogg";
+  return "webm";
+}
 
 type ActionItem = { assignee?: string; task_description?: string; deadline?: string | null };
 type Insights = {
@@ -105,6 +120,7 @@ export default function RecordingsPage() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const mediaRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startedRef = useRef<number>(0);
 
@@ -114,48 +130,82 @@ export default function RecordingsPage() {
     refetchInterval: (q) => ((q.state.data?.recordings || []).some((r: Recording) => PENDING.includes(r.status)) ? 4000 : false),
   });
   const recordings: Recording[] = data?.recordings || [];
+  // Release the microphone if the user navigates away mid-recording.
+  useEffect(() => () => {
+    const mr = mediaRef.current;
+    if (mr && mr.state !== "inactive") { mr.onstop = null; mr.stop(); }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+  }, []);
   const { data: filesData } = useQuery({ queryKey: ["files"], queryFn: () => api("/api/v1/files"), enabled: canCreate });
 
   const finalize = useMutation({
     mutationFn: async (blob: Blob) => {
       const mime = blob.type || "audio/webm";
-      const filename = `recording-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
+      const filename = `recording-${new Date().toISOString().replace(/[:.]/g, "-")}.${extFor(mime)}`;
       // 1) create the row (consent gate) + get a presigned R2 URL
       const res = await api<{ recording: Recording; upload_url: string }>("/api/v1/recordings", {
         method: "POST",
         body: JSON.stringify({ file_id: fileId || undefined, filename, mime_type: mime, consent_confirmed: true }),
       });
       // 2) upload audio straight to R2
-      const put = await fetch(res.upload_url, { method: "PUT", body: blob, headers: { "Content-Type": mime } });
+      let put: Response;
+      try {
+        put = await fetch(res.upload_url, { method: "PUT", body: blob, headers: { "Content-Type": mime } });
+      } catch {
+        // fetch rejects (no status) on network/CORS/mixed-content failures.
+        throw new Error("Could not reach file storage to upload the audio. Check your connection and try again.");
+      }
       if (!put.ok) throw new Error(`upload failed (${put.status})`);
       // 3) hand off to the transcription worker
       const duration = Math.round((Date.now() - startedRef.current) / 1000);
       await api(`/api/v1/recordings/${res.recording.id}/uploaded`, { method: "POST", body: JSON.stringify({ duration_seconds: duration }) });
     },
     onSuccess: () => { setBusy(""); qc.invalidateQueries({ queryKey: ["recordings"] }); },
-    onError: (e) => { setBusy(""); setError((e as Error).message); },
+    onError: (e) => {
+      setBusy("");
+      setError((e as Error).message);
+      qc.invalidateQueries({ queryKey: ["recordings"] });
+    },
+  });
+
+  const retry = useMutation({
+    mutationFn: (id: string) => api(`/api/v1/recordings/${id}/retry`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onError: (e) => setError((e as Error).message),
   });
 
   async function start() {
     setError("");
     if (!consent) { setError("Confirm client consent before recording."); return; }
     try {
+      if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+        setError("This browser cannot record audio (or the page is not served over HTTPS).");
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
+      streamRef.current = stream;
+      const mimeType = pickMime();
+      const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       chunksRef.current = [];
       mr.ondataavailable = (e) => e.data.size > 0 && chunksRef.current.push(e.data);
+      mr.onerror = () => setError("Recording failed — the microphone was interrupted.");
       mr.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || mimeType || "audio/webm" });
+        if (blob.size === 0) { setError("No audio was captured. Check your microphone and try again."); return; }
         setBusy("Uploading & transcribing…");
         finalize.mutate(blob);
       };
       startedRef.current = Date.now();
-      mr.start();
+      // A timeslice flushes data periodically so a long meeting isn't held in one buffer.
+      mr.start(5000);
       mediaRef.current = mr;
       setRecording(true);
     } catch (e) {
-      setError("Microphone access denied or unavailable.");
+      const name = (e as DOMException)?.name;
+      setError(name === "NotFoundError" ? "No microphone found."
+        : name === "NotAllowedError" ? "Microphone access was denied — allow it in your browser settings."
+        : "Microphone unavailable.");
     }
   }
 
@@ -198,13 +248,15 @@ export default function RecordingsPage() {
 
       <div className="mt-6 space-y-3">
         {recordings.length === 0 && <p className="card text-sm text-ink/60">No recordings yet.</p>}
-        {recordings.map((r) => <RecordingCard key={r.id} r={r} />)}
+        {recordings.map((r) => (
+          <RecordingCard key={r.id} r={r} onRetry={() => retry.mutate(r.id)} retrying={retry.isPending && retry.variables === r.id} />
+        ))}
       </div>
     </div>
   );
 }
 
-function RecordingCard({ r }: { r: Recording }) {
+function RecordingCard({ r, onRetry, retrying }: { r: Recording; onRetry: () => void; retrying: boolean }) {
   const [open, setOpen] = useState(false);
   const insights = parseInsights(r.summary_text);
   const badge = r.status === "complete" ? "bg-green-100 text-green-800"
@@ -218,7 +270,15 @@ function RecordingCard({ r }: { r: Recording }) {
         </div>
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}>{STATUS_LABEL[r.status] || r.status}</span>
       </div>
-      {r.status === "failed" && r.error && <p className="mt-2 text-xs text-red-600">{r.error}</p>}
+      {r.status === "failed" && (
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {r.error && <p className="text-xs text-red-600">{r.error}</p>}
+          <button className="text-xs font-semibold text-navy hover:underline disabled:opacity-50" disabled={retrying} onClick={onRetry}>
+            {retrying ? "Retrying…" : "↻ Retry"}
+          </button>
+        </div>
+      )}
+      {r.status === "complete" && r.error && <p className="mt-2 text-xs text-amber-700">Note: {r.error}</p>}
       {r.status === "complete" && (
         <>
           <div className="mt-2 flex flex-wrap items-center gap-3">

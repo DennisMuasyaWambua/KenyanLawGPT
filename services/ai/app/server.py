@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -117,15 +118,19 @@ class RetrievalService(retrieval_pb2_grpc.RetrievalServiceServicer):
     async def Retrieve(self, request, context):
         tid = await check_tenant(request.tenant, context)
         try:
+            t0 = time.perf_counter()
             chunks, intent = await self.orchestrator.retrieve(
                 tid, request.query,
                 top_k=request.top_k or 12,
                 include_superseded=request.include_superseded,
                 file_id=request.file_id or None,
             )
+            t1 = time.perf_counter()
             # answer_with_judge no-ops unless ENABLE_JUDGE_REASONING and the
             # query names a judge, so the standard path is unchanged otherwise.
             answer = await self.orchestrator.answer_with_judge(tid, request.query, chunks, intent)
+            log().info("Retrieve timing retrieve_ms=%.0f answer_ms=%.0f chunks=%d intent=%s",
+                       (t1 - t0) * 1000, (time.perf_counter() - t1) * 1000, len(chunks), intent)
             RPC_COUNTER.labels("Retrieve", "ok").inc()
             return retrieval_pb2.RankedContext(
                 chunks=[chunk_to_proto(c) for c in chunks],

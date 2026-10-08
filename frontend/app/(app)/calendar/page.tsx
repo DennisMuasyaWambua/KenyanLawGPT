@@ -17,6 +17,7 @@ type EventT = {
   end_at?: string | null;
   all_day: boolean;
   attendee_user_ids?: string[];
+  reminders?: { id: string; remind_at: string; channel: string; sent_at?: string | null }[];
 };
 
 type StaffT = { id: string; full_name: string; email: string; client_id?: string | null };
@@ -44,6 +45,10 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d
 const fmtTime = (s: string) =>
   new Date(s).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" });
 // datetime-local value in the browser's local time.
+const toLocalInput = (iso: string) => {
+  const d = new Date(iso);
+  return `${localValue(d, `${pad(d.getHours())}:${pad(d.getMinutes())}`)}`;
+};
 const localValue = (d: Date, hm = "09:00") =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${hm}`;
 
@@ -62,6 +67,9 @@ export default function CalendarPage() {
   const [selected, setSelected] = useState<EventT | null>(null); // detail modal
   const [reminders, setReminders] = useState<number[]>([60]);
   const [attendees, setAttendees] = useState<string[]>([]);
+  const [channel, setChannel] = useState<"email" | "sms">("email");
+  const [notice, setNotice] = useState("");
+  const [editing, setEditing] = useState<EventT | null>(null); // edit modal (shares the create form)
 
   // Six-week grid starting on the Sunday on/before the 1st of the month.
   const gridStart = useMemo(() => {
@@ -101,11 +109,30 @@ export default function CalendarPage() {
 
   const create = useMutation({
     mutationFn: (body: any) => api("/api/v1/calendar/events", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["calendar"] });
       setModalDate(null);
       setReminders([60]);
       setAttendees([]);
+      const n = res?.skipped_reminders || 0;
+      setNotice(n > 0
+        ? `Event saved, but ${n} reminder${n > 1 ? "s were" : " was"} skipped because that time has already passed.`
+        : "");
+    },
+  });
+  const update = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: any }) =>
+      api(`/api/v1/calendar/events/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["calendar"] });
+      setEditing(null);
+      setModalDate(null);
+      setReminders([60]);
+      setAttendees([]);
+      const n = res?.skipped_reminders || 0;
+      setNotice(n > 0
+        ? `Event updated, but ${n} reminder${n > 1 ? "s were" : " was"} skipped because that time has already passed.`
+        : "");
     },
   });
   const remove = useMutation({
@@ -122,7 +149,16 @@ export default function CalendarPage() {
     const mt: Record<string, MatterT[]> = {};
     for (const e of (data?.events || []) as EventT[]) {
       if (filter !== "all" && e.scope !== filter) continue;
-      (ev[dayKey(new Date(e.start_at))] ||= []).push(e);
+      // Multi-day events appear on every day they cover, not just the first.
+      const start = new Date(e.start_at);
+      const end = e.end_at && !isNaN(+new Date(e.end_at)) ? new Date(e.end_at) : start;
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      // An event ending exactly at midnight doesn't occupy the new day.
+      if (end > start && end.getHours() === 0 && end.getMinutes() === 0 && last > d) last.setDate(last.getDate() - 1);
+      for (let n = 0; n < 42 && d <= last; n++, d.setDate(d.getDate() + 1)) {
+        (ev[dayKey(d)] ||= []).push(e);
+      }
     }
     if (filter !== "personal") {
       for (const m of (data?.matters || []) as MatterT[]) {
@@ -136,6 +172,33 @@ export default function CalendarPage() {
   const todayKey = dayKey(new Date());
   const stepMonth = (delta: number) =>
     setCursor((c) => new Date(c.getFullYear(), c.getMonth() + delta, 1));
+
+  // Preset offsets plus any custom ones already on the event being edited.
+  const reminderOptions = useMemo(() => {
+    const extra = reminders
+      .filter((m) => !REMINDER_OPTIONS.some((o) => o.minutes === m))
+      .map((m) => ({ minutes: m, label: m % 1440 === 0 ? `${m / 1440} days before` : m % 60 === 0 ? `${m / 60} hours before` : `${m} min before` }));
+    return [...REMINDER_OPTIONS, ...extra];
+  }, [reminders]);
+
+  function closeForm() {
+    setModalDate(null);
+    setEditing(null);
+    setReminders([60]);
+    setAttendees([]);
+  }
+
+  // Open the shared form prefilled from an event. Only reminders that haven't
+  // fired are editable; sent ones are preserved server-side.
+  function startEdit(e: EventT) {
+    const start = new Date(e.start_at).getTime();
+    const pending = (e.reminders || []).filter((r) => !r.sent_at);
+    setReminders(pending.map((r) => Math.round((start - new Date(r.remind_at).getTime()) / 60000)).filter((m) => m >= 0));
+    setChannel(pending[0]?.channel === "sms" ? "sms" : "email");
+    setAttendees(e.attendee_user_ids || []);
+    setSelected(null);
+    setEditing(e);
+  }
 
   function toggleReminder(m: number) {
     setReminders((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
@@ -161,6 +224,13 @@ export default function CalendarPage() {
           ))}
         </div>
       </div>
+
+      {notice && (
+        <p className="mt-3 flex items-center justify-between rounded bg-amber-100 px-3 py-2 text-xs text-amber-800">
+          {notice}
+          <button className="ml-3 font-bold" onClick={() => setNotice("")} aria-label="Dismiss">×</button>
+        </p>
+      )}
 
       {/* Month grid */}
       <div className="mt-4 overflow-hidden rounded-lg border border-navy/10">
@@ -217,16 +287,17 @@ export default function CalendarPage() {
       <p className="mt-2 text-xs text-ink/40">Click a day to add an event or reminder. ⚖ court dates and ⏰ deadlines are pulled from your matters.</p>
 
       {/* Create modal */}
-      {modalDate && (
-        <Modal onClose={() => setModalDate(null)}>
+      {(modalDate || editing) && (
+        <Modal onClose={closeForm}>
           <form
+            key={editing?.id ?? "new"}
             onSubmit={(e) => {
               e.preventDefault();
               const fd = new FormData(e.currentTarget);
               const startLocal = fd.get("start_at") as string;
               const endLocal = fd.get("end_at") as string;
-              create.mutate({
-                scope: fd.get("scope"),
+              const payload = {
+                scope: fd.get("scope") || editing?.scope,
                 title: fd.get("title"),
                 description: fd.get("description") || "",
                 location: fd.get("location") || "",
@@ -234,22 +305,26 @@ export default function CalendarPage() {
                 start_at: new Date(startLocal).toISOString(),
                 end_at: endLocal ? new Date(endLocal).toISOString() : null,
                 all_day: fd.get("all_day") === "on",
-                reminders: reminders.map((m) => ({ offset_minutes: m })),
+                reminders: reminders.map((m) => ({ offset_minutes: m, channel })),
                 attendee_user_ids: attendees,
-              });
+              };
+              if (editing) update.mutate({ id: editing.id, body: payload });
+              else create.mutate(payload);
             }}
             className="space-y-3"
           >
             <h3 className="font-display text-lg font-bold text-navy">
-              New event · {modalDate.toLocaleDateString("en-KE", { weekday: "long", day: "numeric", month: "long" })}
+              {editing
+                ? "Edit event"
+                : `New event · ${modalDate!.toLocaleDateString("en-KE", { weekday: "long", day: "numeric", month: "long" })}`}
             </h3>
-            <input name="title" className="input" placeholder="Title" required autoFocus />
+            <input name="title" className="input" placeholder="Title" required autoFocus defaultValue={editing?.title ?? ""} />
             <div className="grid grid-cols-2 gap-2">
-              <select name="scope" className="input" defaultValue="personal">
+              <select name="scope" className="input" defaultValue={editing?.scope ?? "personal"} disabled={!!editing}>
                 <option value="personal">Personal</option>
                 {canCreateShared && <option value="firm">Firm (shared)</option>}
               </select>
-              <select name="file_id" className="input">
+              <select name="file_id" className="input" defaultValue={editing?.file_id ?? ""}>
                 <option value="">No matter</option>
                 {(filesData?.files || []).map((m: any) => (
                   <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>
@@ -259,23 +334,27 @@ export default function CalendarPage() {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="label">Start</label>
-                <input name="start_at" type="datetime-local" className="input" defaultValue={localValue(modalDate)} required />
+                <input name="start_at" type="datetime-local" className="input" defaultValue={editing ? toLocalInput(editing.start_at) : localValue(modalDate!)} required />
               </div>
               <div>
                 <label className="label">End (optional)</label>
-                <input name="end_at" type="datetime-local" className="input" defaultValue={localValue(modalDate, "10:00")} />
+                <input name="end_at" type="datetime-local" className="input" defaultValue={editing ? (editing.end_at ? toLocalInput(editing.end_at) : "") : localValue(modalDate!, "10:00")} />
               </div>
             </div>
             <div>
               <label className="label">Reminders</label>
               <div className="flex flex-wrap gap-3 text-xs text-ink/70">
-                {REMINDER_OPTIONS.map((o) => (
+                {reminderOptions.map((o) => (
                   <label key={o.minutes} className="flex items-center gap-1.5">
                     <input type="checkbox" checked={reminders.includes(o.minutes)} onChange={() => toggleReminder(o.minutes)} />
                     {o.label}
                   </label>
                 ))}
               </div>
+              <select className="input mt-2 !py-1 text-xs" value={channel} onChange={(e) => setChannel(e.target.value as "email" | "sms")}>
+                <option value="email">Send reminders by email</option>
+                <option value="sms">Send reminders by WhatsApp / SMS (email if no phone on file)</option>
+              </select>
             </div>
             {staff.length > 0 && (
               <div>
@@ -298,15 +377,19 @@ export default function CalendarPage() {
                 </div>
               </div>
             )}
-            <input name="location" className="input" placeholder="Location (optional)" />
-            <textarea name="description" className="input" placeholder="Notes (optional)" rows={2} />
+            <input name="location" className="input" placeholder="Location (optional)" defaultValue={editing?.location ?? ""} />
+            <textarea name="description" className="input" placeholder="Notes (optional)" rows={2} defaultValue={editing?.description ?? ""} />
             <label className="flex items-center gap-2 text-sm text-ink/70">
-              <input type="checkbox" name="all_day" /> All day
+              <input type="checkbox" name="all_day" defaultChecked={editing?.all_day ?? false} /> All day
             </label>
-            {create.isError && <p className="text-xs text-red-600">{(create.error as Error).message}</p>}
+            {(editing ? update : create).isError && (
+              <p className="text-xs text-red-600">{((editing ? update : create).error as Error).message}</p>
+            )}
             <div className="flex gap-2">
-              <button type="button" className="btn-outline flex-1" onClick={() => setModalDate(null)}>Cancel</button>
-              <button className="btn-gold flex-1" disabled={create.isPending}>{create.isPending ? "Saving…" : "Add"}</button>
+              <button type="button" className="btn-outline flex-1" onClick={closeForm}>Cancel</button>
+              <button className="btn-gold flex-1" disabled={create.isPending || update.isPending}>
+                {create.isPending || update.isPending ? "Saving…" : editing ? "Save" : "Add"}
+              </button>
             </div>
           </form>
         </Modal>
@@ -336,6 +419,9 @@ export default function CalendarPage() {
             )}
             <div className="flex gap-2 pt-2">
               <button className="btn-outline flex-1" onClick={() => setSelected(null)}>Close</button>
+              {(selected.scope === "personal" || can("calendar.edit_shared")) && (
+                <button className="btn-gold flex-1" onClick={() => startEdit(selected)}>Edit</button>
+              )}
               <button className="btn-primary flex-1 !bg-red-700" disabled={remove.isPending} onClick={() => remove.mutate(selected.id)}>
                 {remove.isPending ? "Deleting…" : "Delete"}
               </button>

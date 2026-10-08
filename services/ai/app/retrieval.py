@@ -4,6 +4,7 @@ provenance tagging -> cited answer synthesis.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -83,21 +84,27 @@ class RetrievalOrchestrator:
         file_id: Optional[str] = None,
         as_of: Optional[str] = None,
     ) -> tuple[list[RankedChunk], str]:
-        intent = await self.classify_intent(query)
-        [qvec] = await self.embedder.embed([query])
+        # Intent (may be an LLM call) and the query embedding are independent.
+        intent, [qvec] = await asyncio.gather(
+            self.classify_intent(query), self.embedder.embed([query]))
 
         fetch_n = max(top_k, 8)
-        # as_of => period-accurate law (the version in force on that date).
-        public_rows = await dbx.search_public_chunks(
-            self.pool, qvec, fetch_n, include_superseded, as_of=as_of)
-        async with dbx.tenant_tx(self.pool, tenant_id) as conn:
-            tenant_rows = await dbx.search_tenant_chunks(conn, qvec, fetch_n)
+
+        async def tenant_search() -> list[dict[str, Any]]:
+            async with dbx.tenant_tx(self.pool, tenant_id) as conn:
+                return await dbx.search_tenant_chunks(conn, qvec, fetch_n)
+
+        async def file_ids() -> set[str]:
+            return await self._file_archive_ids(tenant_id, file_id) if file_id else set()
 
         # Graph expansion: docs connected to the anchor file get boosted, and
         # status edges on retrieved public docs surface "overturned by X" facts.
-        file_doc_ids: set[str] = set()
-        if file_id:
-            file_doc_ids = await self._file_archive_ids(tenant_id, file_id)
+        # as_of => period-accurate law (the version in force on that date).
+        public_rows, tenant_rows, file_doc_ids = await asyncio.gather(
+            dbx.search_public_chunks(self.pool, qvec, fetch_n, include_superseded, as_of=as_of),
+            tenant_search(),
+            file_ids(),
+        )
         status_notes = await self._status_annotations([r["doc_id"] for r in public_rows])
 
         chunks: list[RankedChunk] = []

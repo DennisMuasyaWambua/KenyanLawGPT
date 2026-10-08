@@ -72,6 +72,22 @@ func (s *Server) MarkRecordingUploaded(c *gin.Context) {
 	}
 }
 
+// RetryRecording puts a failed recording back in the transcription queue (e.g.
+// after a transient Whisper/LLM outage). The audio is still in object storage.
+func (s *Server) RetryRecording(c *gin.Context) {
+	ok := s.withTenant(c, func(tx pgx.Tx) error {
+		err := repository.RetryRecording(c.Request.Context(), tx, c.Param("id"), s.claims(c).UserID())
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusConflict, gin.H{"error": "only your own failed recordings can be retried"})
+			return errHandled
+		}
+		return err
+	})
+	if ok {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "status": "transcribing"})
+	}
+}
+
 // ListRecordings returns the caller's own recordings, or all firm recordings
 // with recordings.view_all (and ?scope=all).
 func (s *Server) ListRecordings(c *gin.Context) {

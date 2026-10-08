@@ -81,7 +81,7 @@ func main() {
 
 	srv := &handlers.Server{
 		DB: database, Cfg: cfg, RDB: rdb, AI: ai, Store: store,
-		SMS: sms, Mail: mail, Daraja: daraja, Judiciary: jud,
+		SMS: sms, WA: wa, Mail: mail, Daraja: daraja, Judiciary: jud,
 	}
 	srv.Register(r)
 

@@ -65,6 +65,9 @@ class Config:
     ollama_base_url: str = field(default_factory=lambda: _env("OLLAMA_BASE_URL", "http://localhost:11434"))
     ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "llama3"))
     ollama_fast_model: str = field(default_factory=lambda: _env("OLLAMA_FAST_MODEL", "llama3.2:1b"))
+    # How long Ollama keeps a model resident after a call. Its 5m default means
+    # the first query after a quiet spell pays a full model load.
+    ollama_keep_alive: str = field(default_factory=lambda: _env("OLLAMA_KEEP_ALIVE", "30m"))
 
     # GMI Cloud — OpenAI-compatible hosted inference. Used to evaluate multiple
     # hosted models (DeepSeek-R1 distill vs Qwen3-235B) before picking one for

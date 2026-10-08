@@ -24,6 +24,8 @@ type CalendarEvent struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 	// Staff invited to the event; reminders fan out to them (populated on read).
 	AttendeeUserIDs []string `json:"attendee_user_ids"`
+	// Reminders configured on the event (populated on list, for the edit form).
+	Reminders []EventReminder `json:"reminders"`
 }
 
 const calendarCols = "id, scope, title, description, location, file_id, owner_id, " +
@@ -38,7 +40,8 @@ func scanEvent(row pgx.Row) (*CalendarEvent, error) {
 	return &e, nil
 }
 
-// ListEvents returns events in [from, to). Personal events are always scoped to
+// ListEvents returns events overlapping [from, to): those that start in the
+// window plus multi-day events that began earlier and are still running. Personal events are always scoped to
 // the caller; shared (firm) events are included only when includeShared is set
 // (the caller has calendar.view_shared). The two visibilities remain distinct
 // rows — this is just a merged read for the "my calendar" display.
@@ -54,7 +57,7 @@ func ListEvents(ctx context.Context, tx pgx.Tx, userID string, from, to time.Tim
 		return []CalendarEvent{}, nil
 	}
 	q := "SELECT " + calendarCols + " FROM calendar_events " +
-		"WHERE start_at >= $1 AND start_at < $2 AND (" + strings.Join(conds, " OR ") + ") ORDER BY start_at"
+		"WHERE start_at < $2 AND COALESCE(end_at, start_at) >= $1 AND (" + strings.Join(conds, " OR ") + ") ORDER BY start_at"
 	rows, err := tx.Query(ctx, q, from, to, userID)
 	if err != nil {
 		return nil, err
@@ -73,6 +76,9 @@ func ListEvents(ctx context.Context, tx pgx.Tx, userID string, from, to time.Tim
 	}
 	rows.Close()
 	if err := attachAttendees(ctx, tx, out); err != nil {
+		return nil, err
+	}
+	if err := attachReminders(ctx, tx, out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -146,6 +152,42 @@ func attachAttendees(ctx context.Context, tx pgx.Tx, events []CalendarEvent) err
 	for i := range events {
 		if a, ok := byEvent[events[i].ID]; ok {
 			events[i].AttendeeUserIDs = a
+		}
+	}
+	return nil
+}
+
+// attachReminders populates Reminders on each event in one query.
+func attachReminders(ctx context.Context, tx pgx.Tx, events []CalendarEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	ids := make([]string, len(events))
+	for i := range events {
+		ids[i] = events[i].ID
+		events[i].Reminders = []EventReminder{}
+	}
+	rows, err := tx.Query(ctx,
+		`SELECT id, event_id, remind_at, channel, sent_at, created_at
+		   FROM event_reminders WHERE event_id = ANY($1) ORDER BY remind_at`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byEvent := map[string][]EventReminder{}
+	for rows.Next() {
+		var r EventReminder
+		if err := rows.Scan(&r.ID, &r.EventID, &r.RemindAt, &r.Channel, &r.SentAt, &r.CreatedAt); err != nil {
+			return err
+		}
+		byEvent[r.EventID] = append(byEvent[r.EventID], r)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range events {
+		if rs, ok := byEvent[events[i].ID]; ok {
+			events[i].Reminders = rs
 		}
 	}
 	return nil
@@ -245,13 +287,15 @@ type DueReminder struct {
 }
 
 // DueReminders returns unsent reminders whose time has passed, joined to their
-// event. The delivery loop sends each and marks it sent.
+// event. The delivery loop sends each and marks it sent. Rows are locked
+// (SKIP LOCKED) so two gateway replicas never deliver the same reminder.
 func DueReminders(ctx context.Context, tx pgx.Tx) ([]DueReminder, error) {
 	rows, err := tx.Query(ctx,
 		`SELECT r.id, r.event_id, r.channel, e.owner_id, e.title, e.location, e.start_at
 		   FROM event_reminders r JOIN calendar_events e ON e.id = r.event_id
 		  WHERE r.sent_at IS NULL AND r.remind_at <= now()
-		  ORDER BY r.remind_at`)
+		  ORDER BY r.remind_at
+		    FOR UPDATE OF r SKIP LOCKED`)
 	if err != nil {
 		return nil, err
 	}

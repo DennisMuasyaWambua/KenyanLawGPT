@@ -55,6 +55,11 @@ _SUMMARY_SYSTEM = (
 _SUMMARY_TEMPLATE = "Raw transcription:\n\n{transcript}"
 
 _MAX_TRANSCRIPT_CHARS = 12000
+_SUMMARIZING_STALE_MINUTES = 5
+_UPLOAD_GIVE_UP_MINUTES = 60
+# A recording that has started processing this many times without finishing is
+# assumed to be crashing the worker (e.g. OOM) and is failed rather than retried.
+_MAX_ATTEMPTS = 3
 
 
 def _extract_json(text: str) -> str:
@@ -141,41 +146,94 @@ class RecordingProcessor:
             # window (so we don't race a still-in-progress upload) pick it up too,
             # but only once the audio is actually present in storage.
             stuck = await conn.fetch(
-                "SELECT id::text AS id, object_key, filename, mime_type "
+                "SELECT id::text AS id, object_key, filename, mime_type, "
+                "EXTRACT(EPOCH FROM (now() - created_at)) / 60 AS age_minutes "
                 "FROM meeting_recordings WHERE status = 'recording' "
                 "AND created_at < now() - interval '2 minutes' ORDER BY created_at LIMIT 5")
+            # A worker restart mid-summary strands the row in 'summarizing' (the
+            # transcript is already saved). Re-run just the summary step.
+            resummarize = await conn.fetch(
+                "SELECT id::text AS id, transcript_text FROM meeting_recordings "
+                "WHERE status = 'summarizing' "
+                f"AND updated_at < now() - interval '{_SUMMARIZING_STALE_MINUTES} minutes' "
+                "ORDER BY updated_at LIMIT 5")
         handled = 0
+        for rec in resummarize:
+            log.info("recovering recording %s stuck in 'summarizing'", rec["id"])
+            await self._finish_summary(tenant_id, rec["id"], rec["transcript_text"] or "")
+            handled += 1
         for rec in pending:
             await self._process_one(tenant_id, rec["id"], rec["object_key"], rec["filename"], rec["mime_type"])
             handled += 1
         for rec in stuck:
             if not await self._object_exists(rec["object_key"]):
-                continue  # still recording, or audio never landed — leave as-is
+                # Still uploading, or the browser never finished (tab closed, network
+                # drop). Give up after a while so it doesn't sit "recording" forever.
+                if rec["age_minutes"] > _UPLOAD_GIVE_UP_MINUTES:
+                    await self._update(tenant_id, rec["id"], status="failed",
+                                       error="audio upload never completed — please record again")
+                continue
             log.info("recovering stuck recording %s (uploaded but not confirmed)", rec["id"])
             await self._update(tenant_id, rec["id"], status="transcribing")
             await self._process_one(tenant_id, rec["id"], rec["object_key"], rec["filename"], rec["mime_type"])
             handled += 1
         return handled
 
+    async def _get_transcriber(self):
+        if not self._transcriber:
+            # Building a Whisper model loads (and on first run downloads) hundreds
+            # of MB — keep that off the event loop so gRPC stays responsive.
+            self._transcriber = await asyncio.to_thread(make_transcriber, self.cfg)
+        return self._transcriber
+
     async def _process_one(self, tenant_id: str, rec_id: str, object_key: str,
                            filename: str, mime_type: str) -> None:
         try:
+            attempt = await self._claim_attempt(tenant_id, rec_id)
+            if attempt > _MAX_ATTEMPTS:
+                await self._update(tenant_id, rec_id, status="failed", error=(
+                    f"processing was interrupted {attempt - 1} times (the file may be too long "
+                    "or too large for this server) — try a shorter recording"))
+                return
             audio = await self._fetch_object(tenant_id, object_key)
-            if not self._transcriber:
-                self._transcriber = make_transcriber(self.cfg)
-            result = await self._transcriber.transcribe(audio, filename or "audio", mime_type or "")
+            transcriber = await self._get_transcriber()
+            result = await transcriber.transcribe(audio, filename or "audio", mime_type or "")
+            if result.provider == "mock":
+                # The offline mock emits a placeholder, not speech. Summarizing it
+                # would fabricate "meeting notes" from nothing, so fail loudly.
+                await self._update(tenant_id, rec_id, status="failed", error=(
+                    "Speech-to-text is not available on this server (no local Whisper). "
+                    "Install faster-whisper or set TRANSCRIBE_PROVIDER=openai."))
+                return
             transcript = (result.text or "").strip()
 
             await self._update(tenant_id, rec_id,
                                status="summarizing", transcript_text=transcript)
-
-            summary, err = await self._summarize(transcript)
-            await self._update(tenant_id, rec_id, status="complete",
-                               summary_text=summary, error=err)
-            log.info("recording %s transcribed (%d chars) + summarized", rec_id, len(transcript))
+            await self._finish_summary(tenant_id, rec_id, transcript)
+            log.info("recording %s transcribed (%d chars, lang=%s)", rec_id, len(transcript), result.language)
         except Exception as exc:  # noqa: BLE001
             log.exception("recording %s failed", rec_id)
-            await self._update(tenant_id, rec_id, status="failed", error=str(exc)[:500])
+            await self._update(tenant_id, rec_id, status="failed",
+                               error=(str(exc) or exc.__class__.__name__)[:500])
+
+    async def _claim_attempt(self, tenant_id: str, rec_id: str) -> int:
+        """Record that processing is starting and return the attempt number. It is
+        committed before the heavy work, so a hard crash still counts."""
+        async with tenant_tx(self.pool, tenant_id) as conn:
+            return await conn.fetchval(
+                "UPDATE meeting_recordings SET attempts = attempts + 1, updated_at = now() "
+                "WHERE id = $1 RETURNING attempts", rec_id)
+
+    async def _finish_summary(self, tenant_id: str, rec_id: str, transcript: str) -> None:
+        """Summarize a stored transcript and mark the recording complete. Never
+        leaves the row in 'summarizing': any failure still yields 'complete' with
+        the transcript and a note, because the transcript is the valuable part."""
+        try:
+            summary, err = await self._summarize(transcript)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("recording %s summary step crashed", rec_id)
+            summary, err = "", f"summary unavailable: {exc}"[:500]
+        await self._update(tenant_id, rec_id, status="complete", summary_text=summary, error=err)
 
     async def _summarize(self, transcript: str) -> tuple[str, str]:
         """Extract structured meeting insights (JSON) with the LOCAL provider only.

@@ -104,6 +104,40 @@ func envDur(key string, def time.Duration) time.Duration {
 	return def
 }
 
+func envBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return def
+}
+
+// isLocalEndpoint reports whether a host[:port] endpoint is a loopback/dev host,
+// where the object store is plain HTTP. A TLS-presigned URL against it makes the
+// browser's upload fail, so TLS defaults off there (and on everywhere else).
+func isLocalEndpoint(endpoint string) bool {
+	host := endpoint
+	if i := strings.LastIndex(host, ":"); i >= 0 {
+		host = host[:i]
+	}
+	switch host {
+	case "", "localhost", "127.0.0.1", "0.0.0.0", "minio", "host.docker.internal":
+		return true
+	}
+	return false
+}
+
+// defaultATBaseURL picks Africa's Talking's sandbox host only for the sandbox
+// app; any real username talks to production. (A production key sent to the
+// sandbox host is rejected, so reminders/SMS would silently never go out.)
+func defaultATBaseURL(username string) string {
+	if username == "" || username == "sandbox" {
+		return "https://api.sandbox.africastalking.com"
+	}
+	return "https://api.africastalking.com"
+}
+
 func Load() *Config {
 	return &Config{
 		Port:        env("PORT", "8080"),
@@ -135,7 +169,7 @@ func Load() *Config {
 
 		S3Endpoint:       env("S3_ENDPOINT", "localhost:9000"),
 		S3PublicEndpoint: env("S3_PUBLIC_ENDPOINT", ""),
-		S3PublicUseSSL:   env("S3_PUBLIC_USE_SSL", "true") == "true",
+		S3PublicUseSSL:   envBool("S3_PUBLIC_USE_SSL", !isLocalEndpoint(env("S3_PUBLIC_ENDPOINT", ""))),
 		S3AccessKey:      env("S3_ACCESS_KEY", "minioadmin"),
 		S3SecretKey:      env("S3_SECRET_KEY", "minioadmin"),
 		S3Bucket:         env("S3_BUCKET", "wakili-archives"),
@@ -145,7 +179,7 @@ func Load() *Config {
 		ATUsername: env("AT_USERNAME", ""),
 		ATAPIKey:   env("AT_API_KEY", ""),
 		ATSenderID: env("AT_SENDER_ID", "WAKILI"),
-		ATBaseURL:  env("AT_BASE_URL", "https://api.sandbox.africastalking.com"),
+		ATBaseURL:  env("AT_BASE_URL", defaultATBaseURL(env("AT_USERNAME", ""))),
 
 		WhatsAppBaseURL:    env("WHATSAPP_BASE_URL", "https://graph.facebook.com"),
 		WhatsAppAPIVersion: env("WHATSAPP_API_VERSION", "v21.0"),
@@ -170,7 +204,7 @@ func Load() *Config {
 		EmailFrom: env("EMAIL_FROM", "no-reply@wakili.ai"),
 
 		RateLimitPerMin:   envInt("RATE_LIMIT_PER_MIN", 300),
-		RemindersInterval: envDur("REMINDERS_INTERVAL", 10*time.Minute),
+		RemindersInterval: envDur("REMINDERS_INTERVAL", time.Minute),
 		ReconcileInterval: envDur("RECONCILE_INTERVAL", 15*time.Minute),
 	}
 }

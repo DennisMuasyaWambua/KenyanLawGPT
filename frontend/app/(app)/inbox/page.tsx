@@ -17,21 +17,35 @@ export default function InboxPage() {
   });
   const { data: clientsData } = useQuery({ queryKey: ["clients"], queryFn: () => api("/api/v1/clients") });
 
+  const [sendError, setSendError] = useState("");
+  const [sentNote, setSentNote] = useState("");
   const send = useMutation({
     mutationFn: (body: any) => api("/api/v1/messages/send", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["messages"] });
+      // The API answers 201 even when the provider rejected the message; keep the
+      // form open and say why, rather than silently closing on a failed send.
+      if (res?.message?.status === "failed") {
+        setSendError(res.error ? `Message was not delivered: ${res.error}` : "Message was not delivered.");
+        return;
+      }
+      setSendError("");
+      setSentNote(res?.message?.status === "queued"
+        ? "Saved as queued — this channel isn't connected to a delivery provider yet."
+        : "");
       setShowCompose(false);
     },
+    onError: (e) => setSendError((e as Error).message),
   });
 
   return (
     <div>
       <div className="flex items-center justify-between">
         <h2 className="font-display text-3xl font-bold text-navy">Communications Hub</h2>
-        <button className="btn-gold" onClick={() => setShowCompose(true)}>+ Compose</button>
+        <button className="btn-gold" onClick={() => { setSendError(""); setSentNote(""); setShowCompose(true); }}>+ Compose</button>
       </div>
-      <div className="mt-4 flex gap-2">
+      {sentNote && <p className="mt-3 rounded bg-amber-100 px-3 py-2 text-xs text-amber-800">{sentNote}</p>}
+      <div className="mt-4 flex flex-wrap gap-2">
         {CHANNELS.map((c) => (
           <button key={c}
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
@@ -81,7 +95,7 @@ export default function InboxPage() {
                 <select name="channel" className="input">
                   <option value="sms">SMS (Africa's Talking)</option>
                   <option value="email">Email</option>
-                  <option value="whatsapp">WhatsApp (stored)</option>
+                  <option value="whatsapp">WhatsApp</option>
                   <option value="inapp">In-app</option>
                 </select>
               </div>
@@ -95,10 +109,13 @@ export default function InboxPage() {
                 </select>
               </div>
             </div>
-            <div><label className="label">To (2547XX… or email)</label><input name="to" className="input" /></div>
+            <div>
+              <label className="label">To (07XX…, +2547XX… or email)</label>
+              <input name="to" className="input" placeholder="Leave blank to use the selected client's contact" />
+            </div>
             <div><label className="label">Subject (email)</label><input name="subject" className="input" /></div>
             <div><label className="label">Message</label><textarea name="body" className="input" rows={4} required /></div>
-            {send.isError && <p className="text-sm text-red-600">{(send.error as Error).message}</p>}
+            {sendError && <p className="text-sm text-red-600">{sendError}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-primary !bg-ink/20 !text-ink" onClick={() => setShowCompose(false)}>Cancel</button>
               <button className="btn-gold" disabled={send.isPending}>Send</button>

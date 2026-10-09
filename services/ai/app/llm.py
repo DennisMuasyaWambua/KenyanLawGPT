@@ -8,6 +8,7 @@ independent of any external service.
 from __future__ import annotations
 
 import re
+import time
 from typing import AsyncIterator, Optional, Protocol
 
 from .config import Config
@@ -367,28 +368,46 @@ class FallbackProvider:
     duplicating output, so it propagates."""
 
     def __init__(self, primary: LLMProvider, secondary: LLMProvider,
-                 primary_name: str = "primary", secondary_name: str = "fallback") -> None:
+                 primary_name: str = "primary", secondary_name: str = "fallback",
+                 cooldown_seconds: int = 300) -> None:
         self._primary = primary
         self._secondary = secondary
         self._pn = primary_name
         self._sn = secondary_name
+        # Circuit breaker: after a primary failure, skip it until this monotonic
+        # time. Without it every request (classification AND answer) pays the
+        # primary's full timeout before falling back.
+        self._cooldown = max(0, cooldown_seconds)
+        self._skip_until = 0.0
+
+    def _primary_open(self) -> bool:
+        return time.monotonic() >= self._skip_until
+
+    def _trip(self, op: str, e: Exception) -> None:
+        self._skip_until = time.monotonic() + self._cooldown
+        log().warning("LLM primary (%s) %s failed, using %s for the next %ss: %s",
+                      self._pn, op, self._sn, self._cooldown, e)
 
     async def complete(self, system: str, prompt: str, max_tokens: int = 2048, fast: bool = False) -> str:
-        try:
-            return await self._primary.complete(system, prompt, max_tokens, fast=fast)
-        except Exception as e:
-            log().warning("LLM primary (%s) complete failed, falling back to %s: %s", self._pn, self._sn, e)
-            return await self._secondary.complete(system, prompt, max_tokens, fast=fast)
+        if self._primary_open():
+            try:
+                return await self._primary.complete(system, prompt, max_tokens, fast=fast)
+            except Exception as e:
+                self._trip("complete", e)
+        return await self._secondary.complete(system, prompt, max_tokens, fast=fast)
 
     async def stream(self, system: str, prompt: str, max_tokens: int = 8192) -> AsyncIterator[str]:
+        if not self._primary_open():
+            async for tok in self._secondary.stream(system, prompt, max_tokens):
+                yield tok
+            return
         agen = self._primary.stream(system, prompt, max_tokens)
         try:
             first = await agen.__anext__()
         except StopAsyncIteration:
             return
         except Exception as e:
-            log().warning("LLM primary (%s) stream failed before first token, falling back to %s: %s",
-                          self._pn, self._sn, e)
+            self._trip("stream", e)
             async for tok in self._secondary.stream(system, prompt, max_tokens):
                 yield tok
             return
@@ -447,7 +466,8 @@ def make_llm(cfg: Config) -> LLMProvider:
             log().warning("ignoring unknown LLM_FALLBACK_PROVIDER=%r", fb)
             return primary
         log().info("LLM fallback enabled: primary=%s secondary=%s", cfg.llm_provider, fb)
-        return FallbackProvider(primary, secondary, cfg.llm_provider or "primary", fb)
+        return FallbackProvider(primary, secondary, cfg.llm_provider or "primary", fb,
+                                cooldown_seconds=cfg.llm_primary_cooldown_seconds)
     return primary
 
 

@@ -105,9 +105,11 @@ class RecordingProcessor:
                     await self.run_once()
                 except Exception:  # noqa: BLE001 — a bad tenant must not kill the loop
                     log.exception("recordings: processing pass failed")
-                await asyncio.sleep(max(5, self.cfg.recordings_poll_seconds))
+                await asyncio.sleep(max(2, self.cfg.recordings_poll_seconds))
 
         self._task = asyncio.create_task(_loop())
+        if self.cfg.recordings_prewarm and hasattr(self._transcriber, "warm"):
+            self._warm_task = asyncio.create_task(self._transcriber.warm())
         log.info("recording processor started (poll=%ss, whisper=%s, summary=local Ollama)",
                  self.cfg.recordings_poll_seconds, self.cfg.whisper_model)
 

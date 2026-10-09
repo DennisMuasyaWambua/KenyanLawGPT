@@ -68,3 +68,31 @@ async def test_lazy_transcriber_builds_once_and_retries_failed_builds(monkeypatc
     results = await asyncio.gather(*(lazy.transcribe(b"x", "a.wav") for _ in range(5)))
     assert all(r.provider == "mock" for r in results)
     assert calls["n"] == 2
+
+
+def test_whisper_never_disables_vad(monkeypatch):
+    """Regression: running Whisper with vad_filter=False on silent audio makes it
+    hallucinate and grind for minutes. The empty-result retry must only make the
+    VAD more sensitive."""
+    import sys
+    import types
+
+    calls = []
+
+    class FakeModel:
+        def __init__(self, *a, **kw):
+            pass
+
+        def transcribe(self, path, **kw):
+            calls.append(kw)
+            return iter(()), types.SimpleNamespace(language="en")
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel))
+    from app.transcription import FasterWhisperProvider
+
+    result = FasterWhisperProvider(Config())._run(b"\x00" * 10, "silence.webm")
+    assert result.text == ""
+    assert len(calls) == 2
+    assert all(kw["vad_filter"] is True for kw in calls)
+    assert all(kw["condition_on_previous_text"] is False for kw in calls)
+    assert calls[1]["vad_parameters"]["threshold"] < 0.5

@@ -114,7 +114,15 @@ class Config:
     transcribe_api_key: str = field(default_factory=lambda: _env("TRANSCRIBE_API_KEY"))
     transcribe_openai_model: str = field(default_factory=lambda: _env("TRANSCRIBE_OPENAI_MODEL", "whisper-1"))
     # Meeting-recording processor: how often to scan tenants for pending audio.
-    recordings_poll_seconds: int = field(default_factory=lambda: int(_env("RECORDINGS_POLL_SECONDS", "20")))
+    recordings_poll_seconds: int = field(default_factory=lambda: int(_env("RECORDINGS_POLL_SECONDS", "5")))
+    # Load Whisper at startup instead of on the first recording.
+    recordings_prewarm: bool = field(default_factory=lambda: _env_bool("RECORDINGS_PREWARM", True))
+    # Beam search width. 5 is Whisper's accuracy default; 1 (greedy) is faster on
+    # slow CPUs at a small accuracy cost.
+    whisper_beam_size: int = field(default_factory=lambda: int(_env("WHISPER_BEAM_SIZE", "5")))
+    # After the primary LLM fails, route straight to the fallback for this long
+    # instead of paying the primary's timeout on every request.
+    llm_primary_cooldown_seconds: int = field(default_factory=lambda: int(_env("LLM_PRIMARY_COOLDOWN_SECONDS", "300")))
 
     # Embeddings — voyage-law-2 (legal-domain, 1024-dim) when a key is present,
     # otherwise a deterministic hashing embedder so dev/tests run offline.

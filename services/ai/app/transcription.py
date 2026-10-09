@@ -65,7 +65,9 @@ class FasterWhisperProvider:
         from faster_whisper import WhisperModel  # imported lazily; heavy dep
 
         self._cfg = cfg
-        self._model = WhisperModel(cfg.whisper_model, device="cpu", compute_type="int8")
+        # Use every core explicitly (CTranslate2's default can under-subscribe).
+        self._model = WhisperModel(cfg.whisper_model, device="cpu", compute_type="int8",
+                                   cpu_threads=os.cpu_count() or 4)
 
     async def transcribe(self, audio: bytes, filename: str, mime_type: str = "") -> TranscriptResult:
         return await asyncio.to_thread(self._run, audio, filename)
@@ -76,12 +78,23 @@ class FasterWhisperProvider:
             tmp.write(audio)
             tmp.flush()
             language = None if self._cfg.transcribe_language in ("", "auto") else self._cfg.transcribe_language
-            segments, info = self._model.transcribe(tmp.name, language=language, vad_filter=True)
+            opts = dict(
+                language=language,
+                vad_filter=True,  # never off: see below
+                beam_size=max(1, self._cfg.whisper_beam_size),
+                # Conditioning on the previous window is what lets Whisper fall
+                # into repetition loops; independent windows are faster and safer.
+                condition_on_previous_text=False,
+            )
+            segments, info = self._model.transcribe(tmp.name, **opts)
             text = " ".join(seg.text.strip() for seg in segments).strip()
             if not text:
-                # The VAD filter can discard quiet speech wholesale (a distant or
-                # low-gain laptop mic). Retry once without it before giving up.
-                segments, info = self._model.transcribe(tmp.name, language=language, vad_filter=False)
+                # Quiet speech (distant/low-gain mic) can fall under the default
+                # VAD threshold. Retry with a more sensitive VAD — but never with
+                # VAD disabled: on silence Whisper then hallucinates text and its
+                # temperature fallback can grind for many minutes per recording.
+                segments, info = self._model.transcribe(
+                    tmp.name, **opts, vad_parameters={"threshold": 0.25})
                 text = " ".join(seg.text.strip() for seg in segments).strip()
         return TranscriptResult(text=text, language=getattr(info, "language", "") or "", provider="faster-whisper")
 
@@ -164,3 +177,12 @@ class LazyTranscriber:
 
     async def transcribe(self, audio: bytes, filename: str, mime_type: str = "") -> TranscriptResult:
         return await (await self._get()).transcribe(audio, filename, mime_type)
+
+    async def warm(self) -> None:
+        """Load the model ahead of the first recording (a cold Whisper load takes
+        tens of seconds, plus a one-off download on a fresh cache)."""
+        try:
+            await self._get()
+            log().info("transcriber warmed up")
+        except Exception as exc:  # noqa: BLE001 — retried lazily on first use
+            log().warning("transcriber warm-up failed (will retry on first use): %s", exc)

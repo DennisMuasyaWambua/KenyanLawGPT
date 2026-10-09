@@ -329,6 +329,16 @@ function RecordingCard({ r, onRetry, retrying }: { r: Recording; onRetry: () => 
         </div>
       )}
       {r.status === "complete" && r.error && <p className="mt-2 text-xs text-amber-700">Note: {r.error}</p>}
+      {/* The transcript is saved before the (slower, local-LLM) summary runs, so
+          show it right away instead of making the user wait for the notes. */}
+      {r.status === "summarizing" && r.transcript_text && (
+        <div className="mt-3">
+          <p className="mb-1 text-xs font-bold uppercase tracking-wide text-navy/60">
+            Transcript <span className="font-normal normal-case text-ink/50">· notes are still being generated…</span>
+          </p>
+          <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded bg-navy/5 p-3 text-xs leading-relaxed text-ink/80">{r.transcript_text}</pre>
+        </div>
+      )}
       {r.status === "complete" && (
         <>
           <div className="mt-2 flex flex-wrap items-center gap-3">

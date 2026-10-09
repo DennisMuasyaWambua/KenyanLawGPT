@@ -6,6 +6,11 @@ import { api, streamDraft } from "@/lib/api";
 import { downloadDocx, exportToGoogleDocs, googleDocsConfigured } from "@/lib/export";
 import CollabDocs from "@/components/CollabDocs";
 
+// Collaborative documents need the collab (Yjs) sync service. Until it is
+// deployed — signalled by baking NEXT_PUBLIC_COLLAB_URL — the tab stays hidden
+// rather than showing an editor that can never connect.
+const COLLAB_ENABLED = !!process.env.NEXT_PUBLIC_COLLAB_URL;
+
 const DOC_TYPES = [
   { value: "pleading", label: "Pleading (Statement of Claim)" },
   { value: "affidavit", label: "Affidavit" },
@@ -75,7 +80,7 @@ export default function DraftingPage() {
 
   return (
     <div className="flex h-[calc(100vh-6rem)] flex-col">
-      <div className="mb-3 flex gap-1 self-start rounded-lg bg-navy/5 p-1">
+      {COLLAB_ENABLED && <div className="mb-3 flex gap-1 self-start rounded-lg bg-navy/5 p-1">
         <button
           className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${
             mode === "ai" ? "bg-white text-navy shadow-sm" : "text-navy/60 hover:text-navy"
@@ -92,9 +97,9 @@ export default function DraftingPage() {
         >
           Documents
         </button>
-      </div>
+      </div>}
 
-      {mode === "docs" ? (
+      {COLLAB_ENABLED && mode === "docs" ? (
         <div className="flex-1 overflow-y-auto">
           <CollabDocs />
         </div>

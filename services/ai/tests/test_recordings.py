@@ -88,3 +88,11 @@ async def test_repeatedly_interrupted_recording_is_failed_not_retried_forever():
     await p._process_one("t", "r", "tenants/t/x", "a.webm", "audio/webm")
     assert len(updates) == 1 and updates[0]["status"] == "failed"
     assert "interrupted 3 times" in updates[0]["error"]
+
+
+@pytest.mark.asyncio
+async def test_empty_transcript_fails_with_microphone_hint():
+    p, updates = _processor(_FakeTranscriber(TranscriptResult("   ", "en", "faster-whisper")))
+    await p._process_one("t", "r", "tenants/t/x", "a.webm", "audio/webm")
+    assert len(updates) == 1 and updates[0]["status"] == "failed"
+    assert "No speech was detected" in updates[0]["error"]

@@ -121,6 +121,11 @@ export default function RecordingsPage() {
   const [error, setError] = useState("");
   const mediaRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Live input level: lets the user see the mic is actually picking up sound,
+  // and lets us refuse to upload a recording that is pure silence.
+  const [level, setLevel] = useState(0);
+  const peakRef = useRef(0);
+  const meterRef = useRef<{ ctx: AudioContext; raf: number } | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startedRef = useRef<number>(0);
 
@@ -131,7 +136,38 @@ export default function RecordingsPage() {
   });
   const recordings: Recording[] = data?.recordings || [];
   // Release the microphone if the user navigates away mid-recording.
+  function stopMeter() {
+    const m = meterRef.current;
+    if (m) { cancelAnimationFrame(m.raf); m.ctx.close().catch(() => {}); }
+    meterRef.current = null;
+    setLevel(0);
+  }
+
+  function startMeter(stream: MediaStream) {
+    peakRef.current = 0;
+    try {
+      const ctx = new AudioContext();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const buf = new Float32Array(analyser.fftSize);
+      const tick = () => {
+        analyser.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (const v of buf) sum += v * v;
+        const rms = Math.sqrt(sum / buf.length);
+        peakRef.current = Math.max(peakRef.current, rms);
+        setLevel(Math.min(1, rms * 8));
+        meterRef.current!.raf = requestAnimationFrame(tick);
+      };
+      meterRef.current = { ctx, raf: requestAnimationFrame(tick) };
+    } catch {
+      peakRef.current = 1; // no Web Audio: don't block uploads on a meter we couldn't run
+    }
+  }
+
   useEffect(() => () => {
+    stopMeter();
     const mr = mediaRef.current;
     if (mr && mr.state !== "inactive") { mr.onstop = null; mr.stop(); }
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -191,11 +227,17 @@ export default function RecordingsPage() {
       mr.onerror = () => setError("Recording failed — the microphone was interrupted.");
       mr.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
+        stopMeter();
+        if (peakRef.current < 0.002) {
+          setError("No sound was picked up by the microphone, so nothing was uploaded. Check that the right microphone is selected and unmuted, then try again.");
+          return;
+        }
         const blob = new Blob(chunksRef.current, { type: mr.mimeType || mimeType || "audio/webm" });
         if (blob.size === 0) { setError("No audio was captured. Check your microphone and try again."); return; }
         setBusy("Uploading & transcribing…");
         finalize.mutate(blob);
       };
+      startMeter(stream);
       startedRef.current = Date.now();
       // A timeslice flushes data periodically so a long meeting isn't held in one buffer.
       mr.start(5000);
@@ -240,6 +282,14 @@ export default function RecordingsPage() {
               <button className="btn-primary !bg-red-700" onClick={stop}>■ Stop &amp; process</button>
             )}
             {recording && <span className="animate-pulse text-sm text-red-600">● recording…</span>}
+            {recording && (
+              <span className="flex items-center gap-2 text-xs text-ink/60" title="Microphone input level">
+                mic
+                <span className="h-2 w-24 overflow-hidden rounded bg-navy/10">
+                  <span className="block h-full bg-green-600 transition-[width] duration-75" style={{ width: `${Math.round(level * 100)}%` }} />
+                </span>
+              </span>
+            )}
             {busy && <span className="text-sm text-gold-dim">{busy}</span>}
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}

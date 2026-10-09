@@ -199,6 +199,13 @@ class RecordingProcessor:
                     "Install faster-whisper or set TRANSCRIBE_PROVIDER=openai."))
                 return
             transcript = (result.text or "").strip()
+            if not transcript:
+                # Nothing intelligible: usually a muted/wrong microphone. Say so
+                # rather than reporting an empty "complete" recording.
+                await self._update(tenant_id, rec_id, status="failed", error=(
+                    "No speech was detected in this recording. Check that the right "
+                    "microphone is selected and unmuted, then record again."))
+                return
 
             await self._update(tenant_id, rec_id,
                                status="summarizing", transcript_text=transcript)

@@ -78,6 +78,11 @@ class FasterWhisperProvider:
             language = None if self._cfg.transcribe_language in ("", "auto") else self._cfg.transcribe_language
             segments, info = self._model.transcribe(tmp.name, language=language, vad_filter=True)
             text = " ".join(seg.text.strip() for seg in segments).strip()
+            if not text:
+                # The VAD filter can discard quiet speech wholesale (a distant or
+                # low-gain laptop mic). Retry once without it before giving up.
+                segments, info = self._model.transcribe(tmp.name, language=language, vad_filter=False)
+                text = " ".join(seg.text.strip() for seg in segments).strip()
         return TranscriptResult(text=text, language=getattr(info, "language", "") or "", provider="faster-whisper")
 
 

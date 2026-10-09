@@ -14,6 +14,9 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 # Google Identity Services client id — baked into the client bundle at build.
 ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID=
 ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
+# Collab (Yjs) sync endpoint. Empty => the Documents tab is hidden.
+ARG NEXT_PUBLIC_COLLAB_URL=
+ENV NEXT_PUBLIC_COLLAB_URL=$NEXT_PUBLIC_COLLAB_URL
 RUN npm run build
 
 # --- runtime (standalone) ---------------------------------------------------------

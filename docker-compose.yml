@@ -214,8 +214,9 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
         # NEXT_PUBLIC_* is baked at build time, so Google auth needs a rebuild.
         NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
-        # WebSocket endpoint for the collab (Yjs) sync server.
-        NEXT_PUBLIC_COLLAB_URL: ${NEXT_PUBLIC_COLLAB_URL:-ws://localhost:3100}
+        # WebSocket endpoint for the collab (Yjs) sync server. Empty => the
+        # Drafting "Documents" tab is hidden (e.g. ws://localhost:3100 in dev).
+        NEXT_PUBLIC_COLLAB_URL: ${NEXT_PUBLIC_COLLAB_URL:-}
     ports: ["127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"]
     depends_on:
       gateway: { condition: service_started }

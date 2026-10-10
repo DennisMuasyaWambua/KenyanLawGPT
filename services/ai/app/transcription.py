@@ -72,31 +72,65 @@ class FasterWhisperProvider:
     async def transcribe(self, audio: bytes, filename: str, mime_type: str = "") -> TranscriptResult:
         return await asyncio.to_thread(self._run, audio, filename)
 
+    def _pick_language(self, samples) -> str | None:
+        """The language to transcribe in. A pinned TRANSCRIBE_LANGUAGE wins.
+        Otherwise detect, but only among TRANSCRIBE_LANGUAGES (default en,sw):
+        free detection over ~100 languages misfires on Kenyan accents and
+        code-switching (e.g. labelling a meeting Yoruba), and Whisper then
+        transcribes — or translates — into the wrong language."""
+        pinned = self._cfg.transcribe_language
+        if pinned not in ("", "auto"):
+            return pinned
+        allowed = self._cfg.transcribe_languages
+        if not allowed:
+            return None  # unrestricted auto-detect
+        if len(allowed) == 1:
+            return allowed[0]
+        try:
+            # One 30 s window of speech is enough to choose between the allowed
+            # languages; each extra window is another full encoder pass.
+            _, _, probs = self._model.detect_language(
+                samples, vad_filter=True, language_detection_segments=1)
+            ranked = [p for p in probs if p[0] in allowed]
+            return max(ranked, key=lambda p: p[1])[0] if ranked else allowed[0]
+        except Exception as exc:  # noqa: BLE001 — detection is best-effort
+            log().warning("language detection failed (%s); using %s", exc, allowed[0])
+            return allowed[0]
+
     def _run(self, audio: bytes, filename: str) -> TranscriptResult:
+        from faster_whisper.audio import decode_audio
+
         suffix = os.path.splitext(filename)[1] or ".audio"
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
             tmp.write(audio)
             tmp.flush()
-            language = None if self._cfg.transcribe_language in ("", "auto") else self._cfg.transcribe_language
-            opts = dict(
-                language=language,
-                vad_filter=True,  # never off: see below
-                beam_size=max(1, self._cfg.whisper_beam_size),
-                # Conditioning on the previous window is what lets Whisper fall
-                # into repetition loops; independent windows are faster and safer.
-                condition_on_previous_text=False,
-            )
-            segments, info = self._model.transcribe(tmp.name, **opts)
+            samples = decode_audio(tmp.name, sampling_rate=16000)  # decode once
+        if len(samples) == 0:
+            return TranscriptResult(text="", language="", provider="faster-whisper")
+        language = self._pick_language(samples)
+        opts = dict(
+            language=language,
+            vad_filter=True,  # never off: see below
+            beam_size=max(1, self._cfg.whisper_beam_size),
+            # Conditioning on the previous window is what lets Whisper fall
+            # into repetition loops; independent windows are faster and safer.
+            condition_on_previous_text=False,
+        )
+        if self._cfg.transcribe_hotwords:
+            # Domain vocabulary (court names, legal terms) biases every window.
+            opts["hotwords"] = self._cfg.transcribe_hotwords
+        segments, info = self._model.transcribe(samples, **opts)
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+        if not text:
+            # Quiet speech (distant/low-gain mic) can fall under the default
+            # VAD threshold. Retry with a more sensitive VAD — but never with
+            # VAD disabled: on silence Whisper then hallucinates text and its
+            # temperature fallback can grind for many minutes per recording.
+            segments, info = self._model.transcribe(
+                samples, **opts, vad_parameters={"threshold": 0.25})
             text = " ".join(seg.text.strip() for seg in segments).strip()
-            if not text:
-                # Quiet speech (distant/low-gain mic) can fall under the default
-                # VAD threshold. Retry with a more sensitive VAD — but never with
-                # VAD disabled: on silence Whisper then hallucinates text and its
-                # temperature fallback can grind for many minutes per recording.
-                segments, info = self._model.transcribe(
-                    tmp.name, **opts, vad_parameters={"threshold": 0.25})
-                text = " ".join(seg.text.strip() for seg in segments).strip()
-        return TranscriptResult(text=text, language=getattr(info, "language", "") or "", provider="faster-whisper")
+        return TranscriptResult(text=text, language=language or getattr(info, "language", "") or "",
+                                provider="faster-whisper")
 
 
 class OpenAITranscriptionProvider:

@@ -87,7 +87,12 @@ def test_whisper_never_disables_vad(monkeypatch):
             calls.append(kw)
             return iter(()), types.SimpleNamespace(language="en")
 
+        def detect_language(self, samples, **kw):
+            return "yo", 0.6, [("yo", 0.6), ("sw", 0.3), ("en", 0.1)]
+
     monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel))
+    monkeypatch.setitem(sys.modules, "faster_whisper.audio",
+                        types.SimpleNamespace(decode_audio=lambda *a, **k: [0.0] * 16000))
     from app.transcription import FasterWhisperProvider
 
     result = FasterWhisperProvider(Config())._run(b"\x00" * 10, "silence.webm")
@@ -96,3 +101,21 @@ def test_whisper_never_disables_vad(monkeypatch):
     assert all(kw["vad_filter"] is True for kw in calls)
     assert all(kw["condition_on_previous_text"] is False for kw in calls)
     assert calls[1]["vad_parameters"]["threshold"] < 0.5
+    # Detection is restricted to the allowed languages: "yo" wins overall, but
+    # the best allowed language (sw) is what gets used.
+    assert all(kw["language"] == "sw" for kw in calls)
+
+
+def test_pinned_language_skips_detection(monkeypatch):
+    import types
+
+    from app.transcription import FasterWhisperProvider
+
+    p = FasterWhisperProvider.__new__(FasterWhisperProvider)
+    cfg = Config()
+    cfg.transcribe_language = "sw"
+    p._cfg = cfg
+    p._model = types.SimpleNamespace(detect_language=lambda *a, **k: (_ for _ in ()).throw(AssertionError("called")))
+    assert p._pick_language(None) == "sw"
+    cfg.transcribe_language, cfg.transcribe_languages = "auto", ["en"]
+    assert p._pick_language(None) == "en"

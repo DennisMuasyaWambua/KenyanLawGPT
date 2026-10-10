@@ -146,8 +146,15 @@ services:
       GMI_SYNTHETIC_DATA_OK: ${GMI_SYNTHETIC_DATA_OK:-false}
       # Multilingual speech-to-text. auto|whisper|openai|mock; cloud never auto.
       TRANSCRIBE_PROVIDER: ${TRANSCRIBE_PROVIDER:-auto}
-      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      # large-v3-turbo is far more accurate on Kenyan Swahili/English than
+      # small/base (needs ~2 GB RAM); see services/ai/app/config.py.
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
+      WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-1}
       TRANSCRIBE_LANGUAGE: ${TRANSCRIBE_LANGUAGE:-auto}
+      # Auto-detect only among these languages (comma-separated ISO codes).
+      TRANSCRIBE_LANGUAGES: ${TRANSCRIBE_LANGUAGES:-en,sw}
+      # Optional domain vocabulary, e.g. "Milimani, ELRC, plaint, affidavit".
+      TRANSCRIBE_HOTWORDS: ${TRANSCRIBE_HOTWORDS:-}
       TRANSCRIBE_BASE_URL: ${TRANSCRIBE_BASE_URL:-https://api.openai.com/v1}
       TRANSCRIBE_API_KEY: ${TRANSCRIBE_API_KEY:-}
       TRANSCRIBE_OPENAI_MODEL: ${TRANSCRIBE_OPENAI_MODEL:-whisper-1}

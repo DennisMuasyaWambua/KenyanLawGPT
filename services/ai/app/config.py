@@ -108,8 +108,18 @@ class Config:
     # auto|whisper|openai|mock.
     transcribe_provider: str = field(default_factory=lambda: _env("TRANSCRIBE_PROVIDER", "auto"))
     # 'small' balances Swahili/English code-switching against CPU cost (was 'base').
-    whisper_model: str = field(default_factory=lambda: _env("WHISPER_MODEL", "small"))
+    # large-v3-turbo: on Kenyan Swahili (FLEURS sw_ke) WER 36% vs 60% medium and
+    # 75% small; with greedy decoding it runs ~1x realtime on 4 CPU cores and
+    # needs ~2 GB RAM. Use "small" on boxes that can't spare the memory.
+    whisper_model: str = field(default_factory=lambda: _env("WHISPER_MODEL", "large-v3-turbo"))
     transcribe_language: str = field(default_factory=lambda: _env("TRANSCRIBE_LANGUAGE", "auto"))  # auto-detect
+    # When not pinned, auto-detect only among these (comma-separated ISO codes;
+    # empty => any language). Restricting to the firm's languages stops Kenyan
+    # English/Swahili being misdetected as an unrelated language.
+    transcribe_languages: list[str] = field(default_factory=lambda: [
+        c.strip().lower() for c in _env("TRANSCRIBE_LANGUAGES", "en,sw").split(",") if c.strip()])
+    # Optional domain vocabulary to bias recognition (e.g. "Milimani, ELRC, plaint").
+    transcribe_hotwords: str = field(default_factory=lambda: _env("TRANSCRIBE_HOTWORDS", ""))
     transcribe_base_url: str = field(default_factory=lambda: _env("TRANSCRIBE_BASE_URL", "https://api.openai.com/v1"))
     transcribe_api_key: str = field(default_factory=lambda: _env("TRANSCRIBE_API_KEY"))
     transcribe_openai_model: str = field(default_factory=lambda: _env("TRANSCRIBE_OPENAI_MODEL", "whisper-1"))
@@ -117,9 +127,9 @@ class Config:
     recordings_poll_seconds: int = field(default_factory=lambda: int(_env("RECORDINGS_POLL_SECONDS", "5")))
     # Load Whisper at startup instead of on the first recording.
     recordings_prewarm: bool = field(default_factory=lambda: _env_bool("RECORDINGS_PREWARM", True))
-    # Beam search width. 5 is Whisper's accuracy default; 1 (greedy) is faster on
-    # slow CPUs at a small accuracy cost.
-    whisper_beam_size: int = field(default_factory=lambda: int(_env("WHISPER_BEAM_SIZE", "5")))
+    # Beam search width. Greedy (1) is ~2x faster than Whisper's default 5 for
+    # large-v3-turbo on CPU at ~1.5 points of WER.
+    whisper_beam_size: int = field(default_factory=lambda: int(_env("WHISPER_BEAM_SIZE", "1")))
     # After the primary LLM fails, route straight to the fallback for this long
     # instead of paying the primary's timeout on every request.
     llm_primary_cooldown_seconds: int = field(default_factory=lambda: int(_env("LLM_PRIMARY_COOLDOWN_SECONDS", "300")))

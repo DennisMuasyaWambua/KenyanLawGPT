@@ -21,17 +21,22 @@ type User struct {
 	AuthProvider string     `json:"auth_provider"`
 	CreatedAt    time.Time  `json:"created_at"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
+	// Set while the account still has an admin-issued temporary password.
+	MustChangePassword    bool       `json:"must_change_password"`
+	TempPasswordExpiresAt *time.Time `json:"temp_password_expires_at,omitempty"`
 }
 
 // password_hash is nullable (Google accounts have none); COALESCE keeps the
 // scan into a plain string. An empty PasswordHash never matches CheckPassword.
 const userCols = "id, email, full_name, role, role_id, status, client_id, COALESCE(password_hash,''), " +
-	"google_sub, auth_provider, created_at, last_login_at, COALESCE(phone,'')"
+	"google_sub, auth_provider, created_at, last_login_at, COALESCE(phone,''), " +
+	"must_change_password, temp_password_expires_at"
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.RoleID, &u.Status, &u.ClientID,
-		&u.PasswordHash, &u.GoogleSub, &u.AuthProvider, &u.CreatedAt, &u.LastLoginAt, &u.Phone); err != nil {
+		&u.PasswordHash, &u.GoogleSub, &u.AuthProvider, &u.CreatedAt, &u.LastLoginAt, &u.Phone,
+		&u.MustChangePassword, &u.TempPasswordExpiresAt); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -72,9 +77,34 @@ func InsertUser(ctx context.Context, tx pgx.Tx, u *User) error {
 		provider = "password"
 	}
 	_, err := tx.Exec(ctx,
-		`INSERT INTO users (id, email, full_name, role, role_id, status, client_id, password_hash, google_sub, auth_provider, phone)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9,$10,$11)`,
-		u.ID, u.Email, u.FullName, u.Role, u.RoleID, u.Status, u.ClientID, u.PasswordHash, u.GoogleSub, provider, u.Phone)
+		`INSERT INTO users (id, email, full_name, role, role_id, status, client_id, password_hash, google_sub, auth_provider, phone,
+		                    must_change_password, temp_password_expires_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9,$10,$11,$12,$13)`,
+		u.ID, u.Email, u.FullName, u.Role, u.RoleID, u.Status, u.ClientID, u.PasswordHash, u.GoogleSub, provider, u.Phone,
+		u.MustChangePassword, u.TempPasswordExpiresAt)
+	return err
+}
+
+// SetPassword stores a password the user chose and clears any temporary-password state.
+func SetPassword(ctx context.Context, tx pgx.Tx, id, hash string) error {
+	_, err := tx.Exec(ctx, `UPDATE users SET password_hash = $2, must_change_password = false,
+		temp_password_expires_at = NULL WHERE id = $1`, id, hash)
+	return err
+}
+
+// SetTemporaryPassword replaces a user's password with an admin-issued one they
+// must change at next sign-in, usable until expires.
+func SetTemporaryPassword(ctx context.Context, tx pgx.Tx, id, hash string, expires time.Time) error {
+	_, err := tx.Exec(ctx, `UPDATE users SET password_hash = $2, must_change_password = true,
+		temp_password_expires_at = $3 WHERE id = $1`, id, hash, expires)
+	return err
+}
+
+// DropTemporaryPassword invalidates an unused temporary password (the user
+// signed in with Google instead), leaving the account Google-only.
+func DropTemporaryPassword(ctx context.Context, tx pgx.Tx, id string) error {
+	_, err := tx.Exec(ctx, `UPDATE users SET password_hash = NULL, must_change_password = false,
+		temp_password_expires_at = NULL WHERE id = $1`, id)
 	return err
 }
 

@@ -5,7 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api, clearSession, currentUser } from "@/lib/api";
 import { usePermissions } from "@/lib/usePermissions";
-import { BRAND } from "@/lib/brand";
+import { PRODUCT } from "@/lib/brand";
+import FirmMark from "@/components/FirmMark";
 
 // `perm` (optional) hides a nav item unless the caller holds that permission.
 const STAFF_NAV = [
@@ -31,7 +32,13 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const user = currentUser();
-  const { can, permissions } = usePermissions();
+  const { can, permissions, me } = usePermissions();
+  // The signed-in firm's own identity (the layout loads /auth/me before Shell renders).
+  const firmName: string = me?.tenant?.name || "";
+  const firmSlug: string = me?.tenant?.slug || "";
+  useEffect(() => {
+    if (firmName) document.title = firmName;
+  }, [firmName]);
   // Mobile: sidebar is an off-canvas drawer; static from `md` up.
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Desktop: sidebar can collapse to an icon rail that expands on hover; the
@@ -88,14 +95,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       >
         <div className="border-b border-white/10 px-3 py-4">
           <div className="flex items-center gap-3">
-            <img
-              src={BRAND.logo}
-              alt={BRAND.name}
-              className="h-10 w-10 shrink-0 rounded-md bg-white object-cover object-left ring-1 ring-white/20"
-            />
+            <FirmMark name={firmName} slug={firmSlug} />
             <div className={`min-w-0 ${hideOnRail}`}>
-              <h1 className="font-display text-lg font-bold leading-tight">{BRAND.short}</h1>
-              <p className="text-[11px] uppercase tracking-wide text-gold">{BRAND.sub}</p>
+              <h1 className="line-clamp-2 font-display text-base font-bold leading-tight" title={firmName}>{firmName}</h1>
+              <p className="text-[11px] uppercase tracking-wide text-gold">on {PRODUCT.name}</p>
             </div>
           </div>
         </div>
@@ -148,12 +151,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           >
             ☰
           </button>
-          <img
-            src={BRAND.logo}
-            alt=""
-            className="h-8 w-8 shrink-0 rounded bg-white object-cover object-left ring-1 ring-navy/10"
-          />
-          <span className="truncate font-display text-base font-bold text-navy">{BRAND.short}</span>
+          <FirmMark name={firmName} slug={firmSlug} className="h-8 w-8 text-sm" />
+          <span className="truncate font-display text-base font-bold text-navy">{firmName}</span>
         </header>
         <main className="flex-1 overflow-x-hidden p-4 sm:p-6 md:p-8">{children}</main>
       </div>

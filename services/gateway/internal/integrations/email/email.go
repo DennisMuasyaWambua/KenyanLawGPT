@@ -137,6 +137,13 @@ func (p *smtpProvider) Send(ctx context.Context, to, subject, body string) error
 	return c.Quit()
 }
 
+// Delivers reports whether p actually sends mail. The dev log-only provider
+// doesn't, so callers can surface credentials/links on screen instead.
+func Delivers(p Provider) bool {
+	_, logOnly := p.(*logProvider)
+	return !logOnly
+}
+
 type logProvider struct{}
 
 func (p *logProvider) Send(ctx context.Context, to, subject, body string) error {

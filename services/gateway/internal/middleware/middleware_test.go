@@ -97,3 +97,34 @@ func TestRBACMiddlewareGates(t *testing.T) {
 		t.Fatalf("paralegal blocked at staff gate: %d", w.Code)
 	}
 }
+
+func TestTemporaryPasswordSessionOnlyReachesPasswordChange(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tenant := &repository.Tenant{ID: tenantA, Slug: "a", Status: "active"}
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set(middleware.CtxTenant, tenant) },
+		middleware.Auth(&config.Config{JWTSecret: secret}), middleware.RequirePasswordChanged())
+	for _, p := range []string{"/api/v1/auth/me", "/api/v1/auth/change-password", "/api/v1/files"} {
+		r.GET(p, func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	}
+	get := func(path, token string) int {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	temp, _ := auth.IssueUserAccessToken(secret, "u1", tenantA, "a", "Associate", "r1", true, time.Minute)
+	normal, _ := auth.IssueUserAccessToken(secret, "u1", tenantA, "a", "Associate", "r1", false, time.Minute)
+	if c := get("/api/v1/files", temp); c != http.StatusForbidden {
+		t.Fatalf("temp-password session reached /files: %d", c)
+	}
+	for _, p := range []string{"/api/v1/auth/me", "/api/v1/auth/change-password"} {
+		if c := get(p, temp); c != http.StatusOK {
+			t.Fatalf("temp-password session blocked from %s: %d", p, c)
+		}
+	}
+	if c := get("/api/v1/files", normal); c != http.StatusOK {
+		t.Fatalf("normal session blocked: %d", c)
+	}
+}

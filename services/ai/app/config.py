@@ -101,6 +101,11 @@ class Config:
     # caller's requested answer budget so the answer always has room to land.
     gmi_cloud_reasoning_headroom: int = field(
         default_factory=lambda: _env_int("GMI_CLOUD_REASONING_HEADROOM", 6144))
+    # Hybrid models (Qwen3.x) think before answering unless told not to. On GMI
+    # that took a research answer from ~7 s to ~31 s (or a timeout) with no gain
+    # for retrieval-grounded synthesis, so thinking is switched off by default.
+    gmi_cloud_disable_thinking: bool = field(
+        default_factory=lambda: _env_bool("GMI_CLOUD_DISABLE_THINKING", True))
 
     # Speech-to-text (multilingual) for client-conversation recordings. Audio is
     # privileged/KDPA-sensitive, so "auto" only ever picks a LOCAL Whisper or the
@@ -130,6 +135,32 @@ class Config:
     # Beam search width. Greedy (1) is ~2x faster than Whisper's default 5 for
     # large-v3-turbo on CPU at ~1.5 points of WER.
     whisper_beam_size: int = field(default_factory=lambda: int(_env("WHISPER_BEAM_SIZE", "1")))
+    # Speaker diarization ("who spoke when") for meeting recordings, on-box via
+    # sherpa-onnx: pyannote-3.0 segmentation + a wespeaker voxceleb embedding.
+    # Missing model files or package => transcripts are produced without speakers.
+    diarization_enabled: bool = field(default_factory=lambda: _env_bool("DIARIZATION_ENABLED", True))
+    diarization_segmentation_model: str = field(default_factory=lambda: _env(
+        "DIARIZATION_SEGMENTATION_MODEL", "/opt/diarization/segmentation.onnx"))
+    diarization_embedding_model: str = field(default_factory=lambda: _env(
+        "DIARIZATION_EMBEDDING_MODEL", "/opt/diarization/embedding.onnx"))
+    # Clustering distance used only when the speaker count is unknown. Automatic
+    # counting is unreliable (measured on the sherpa-onnx sample meetings: 0.5
+    # merged two speakers into one, 0.4 split them into three), so the default
+    # errs towards over-splitting — renaming two labels to the same person merges
+    # them, but a collapsed transcript can't be recovered. The recording screen
+    # asks for the speaker count, which is the accurate path.
+    diarization_threshold: float = field(default_factory=lambda: float(_env("DIARIZATION_THRESHOLD", "0.4")))
+
+    # Meeting notes (summary, decisions, agreed action points). "gmi" sends the
+    # TRANSCRIPT TEXT (never audio) to GMI Cloud with local Ollama as fallback;
+    # "local" keeps everything on-box.
+    recordings_summary_provider: str = field(default_factory=lambda: _env("RECORDINGS_SUMMARY_PROVIDER", "gmi"))
+    recordings_summary_model: str = field(default_factory=lambda: _env("RECORDINGS_SUMMARY_MODEL"))
+    # ~100k chars is roughly a two-hour meeting; longer ones lose their middle
+    # (never their end, where action points are agreed).
+    recordings_summary_max_chars: int = field(
+        default_factory=lambda: _env_int("RECORDINGS_SUMMARY_MAX_CHARS", 100000))
+
     # After the primary LLM fails, route straight to the fallback for this long
     # instead of paying the primary's timeout on every request.
     llm_primary_cooldown_seconds: int = field(default_factory=lambda: int(_env("LLM_PRIMARY_COOLDOWN_SECONDS", "300")))

@@ -57,7 +57,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 				}
 				body := fmt.Sprintf("Court date reminder: %s (%s) on %s at %s. Purpose: %s",
 					m.Title, m.Reference, localtime.Format(cd.Date, ""), cd.Courtroom, cd.Purpose)
-				notifyFile(ctx, tx, sms, mail, wa, m, body)
+				notifyFile(ctx, tx, sms, mail, wa, t.Name, m, body)
 				if err := repository.MarkReminded(ctx, tx, "court_dates", cd.ID); err != nil {
 					return err
 				}
@@ -70,7 +70,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 				}
 				body := fmt.Sprintf("Deadline reminder: %q for %s (%s) due %s",
 					d.Title, m.Title, m.Reference, localtime.Format(d.DueAt, ""))
-				notifyFile(ctx, tx, sms, mail, wa, m, body)
+				notifyFile(ctx, tx, sms, mail, wa, t.Name, m, body)
 				if err := repository.MarkReminded(ctx, tx, "deadlines", d.ID); err != nil {
 					return err
 				}
@@ -105,7 +105,7 @@ func runRemindersOnce(ctx context.Context, database *db.DB, sms *africastalking.
 					}
 				}
 				for uid := range recipients {
-					notifyUser(ctx, tx, mail, sms, wa, uid, rem.Channel, "C. Karwitha C.K Advocates calendar reminder", body)
+					notifyUser(ctx, tx, mail, sms, wa, uid, rem.Channel, t.Name+" calendar reminder", body)
 				}
 				if err := repository.MarkReminderSent(ctx, tx, rem.ReminderID); err != nil {
 					return err
@@ -168,7 +168,7 @@ func deliverReminder(ctx context.Context, wa *whatsapp.Client, sms *africastalki
 	return ""
 }
 
-func notifyFile(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, mail email.Provider, wa *whatsapp.Client, m *repository.File, body string) {
+func notifyFile(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, mail email.Provider, wa *whatsapp.Client, firmName string, m *repository.File, body string) {
 	// In-app notification for the assigned advocate (or file creator), plus
 	// WhatsApp/SMS to their phone if set, with email as the fallback.
 	target := m.CreatedBy
@@ -180,7 +180,7 @@ func notifyFile(ctx context.Context, tx pgx.Tx, sms *africastalking.Client, mail
 	})
 	if u, err := repository.UserByID(ctx, tx, target); err == nil {
 		if deliverReminder(ctx, wa, sms, u.Phone, body) == "" {
-			if err := mail.Send(ctx, u.Email, "C. Karwitha C.K Advocates reminder", body); err != nil {
+			if err := mail.Send(ctx, u.Email, firmName+" reminder", body); err != nil {
 				logging.L(ctx).Warn("reminder email failed", "err", err)
 			}
 		}

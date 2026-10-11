@@ -1,16 +1,20 @@
 """RecordingProcessor state transitions, exercised with fakes (no DB / storage)."""
 import pytest
 
+import json
+
 from app.config import Config
-from app.recordings import RecordingProcessor, _extract_json
+from app.recordings import RecordingProcessor, _clip_transcript, _extract_json
 from app.transcription import TranscriptResult
 
 
 class _FakeTranscriber:
     def __init__(self, result=None, exc=None):
         self._result, self._exc = result, exc
+        self.kwargs = {}
 
-    async def transcribe(self, audio, filename, mime_type=""):
+    async def transcribe(self, audio, filename, mime_type="", **kwargs):
+        self.kwargs = kwargs
         if self._exc:
             raise self._exc
         return self._result
@@ -96,3 +100,67 @@ async def test_empty_transcript_fails_with_microphone_hint():
     await p._process_one("t", "r", "tenants/t/x", "a.webm", "audio/webm")
     assert len(updates) == 1 and updates[0]["status"] == "failed"
     assert "No speech was detected" in updates[0]["error"]
+
+
+@pytest.mark.asyncio
+async def test_speaker_segments_become_labelled_transcript():
+    segs = [{"speaker": 1, "start": 0.0, "end": 2.0, "text": "Tutafile plaint kesho."},
+            {"speaker": 2, "start": 2.5, "end": 4.0, "text": "Sawa, nitaleta ID."}]
+    t = _FakeTranscriber(TranscriptResult("Tutafile plaint kesho. Sawa, nitaleta ID.", "sw",
+                                          "faster-whisper", segments=segs))
+    p, updates = _processor(t)
+    await p._process_one("t", "r", "tenants/t/x", "a.webm", "audio/webm", num_speakers=2)
+    assert t.kwargs == {"diarize": True, "num_speakers": 2}
+    assert updates[0]["transcript_text"] == (
+        "[00:00] Speaker 1: Tutafile plaint kesho.\n[00:02] Speaker 2: Sawa, nitaleta ID.")
+    assert json.loads(updates[0]["transcript_segments"]) == segs
+    assert updates[-1]["status"] == "complete"
+
+
+class _FakeLLM:
+    def __init__(self, reply=None, exc=None):
+        self.reply, self.exc, self.prompts = reply, exc, []
+
+    async def complete(self, system, prompt, max_tokens=2048, fast=False):
+        self.prompts.append(prompt)
+        if self.exc:
+            raise self.exc
+        return self.reply
+
+
+def _summarizer(provider="gmi", key="k"):
+    cfg = Config()
+    cfg.recordings_summary_provider, cfg.gmi_cloud_api_key = provider, key
+    return RecordingProcessor(pool=None, cfg=cfg)
+
+
+@pytest.mark.asyncio
+async def test_notes_use_gmi_when_configured():
+    p = _summarizer()
+    p._gmi_llm, p._local_llm = _FakeLLM('{"action_items": []}'), _FakeLLM(exc=AssertionError("local used"))
+    assert await p._summarize("Speaker 1: hi") == ('{"action_items": []}', "")
+
+
+@pytest.mark.asyncio
+async def test_notes_fall_back_to_local_with_a_note_when_gmi_fails():
+    p = _summarizer()
+    p._gmi_llm, p._local_llm = _FakeLLM(exc=RuntimeError("402 credits")), _FakeLLM('{"a": 1}')
+    summary, note = await p._summarize("Speaker 1: hi")
+    assert summary == '{"a": 1}'
+    assert "on-box model" in note and "402 credits" in note
+
+
+@pytest.mark.asyncio
+async def test_notes_stay_local_when_configured_or_no_key():
+    for provider, key in (("local", "k"), ("gmi", "")):
+        p = _summarizer(provider, key)
+        p._gmi_llm, p._local_llm = _FakeLLM(exc=AssertionError("gmi used")), _FakeLLM('{"a": 1}')
+        assert await p._summarize("x") == ('{"a": 1}', "")
+
+
+def test_clipping_keeps_the_end_of_the_meeting():
+    t = "start " + "x" * 50000 + " AGREED: client to bring title deed by Friday"
+    out = _clip_transcript(t, 12000)
+    assert len(out) < 12100
+    assert out.startswith("start ") and out.endswith("title deed by Friday")
+    assert _clip_transcript("short", 12000) == "short"

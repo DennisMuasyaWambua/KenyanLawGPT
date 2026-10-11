@@ -12,6 +12,9 @@ COPY --from=build /wheels /wheels
 COPY requirements.txt .
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
  && rm -rf /wheels
+# Speaker-diarization models (~33 MB, checksum-verified) baked in at build time.
+COPY scripts/fetch_diarization_models.py /tmp/
+RUN python /tmp/fetch_diarization_models.py /opt/diarization && rm /tmp/fetch_diarization_models.py
 # Pre-create the Whisper cache dir owned by the runtime user so the named volume
 # mounted over it inherits writable ownership.
 RUN mkdir -p /home/wakili/.cache/huggingface && chown -R wakili:wakili /home/wakili/.cache

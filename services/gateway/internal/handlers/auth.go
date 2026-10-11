@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,14 +13,105 @@ import (
 
 	"github.com/wakiliai/gateway/internal/auth"
 	"github.com/wakiliai/gateway/internal/integrations/google"
+	"github.com/wakiliai/gateway/internal/logging"
+	"github.com/wakiliai/gateway/internal/middleware"
 	"github.com/wakiliai/gateway/internal/repository"
+	"github.com/wakiliai/gateway/internal/services"
 )
 
-// Signup is disabled. Firms are provisioned only via the super-admin control
-// center; staff are onboarded by a Partner/Managing Partner. This prevents
-// duplicate law firms from public self-registration.
+// firmSignup is what a law firm owner fills in on the public signup page.
+type firmSignup struct {
+	FirmName        string `json:"firm_name" binding:"required"`
+	Slug            string `json:"slug"` // workspace address; derived from the firm name when empty
+	RegNumber       string `json:"reg_number"`
+	Phone           string `json:"phone"`
+	DataResidencyKE *bool  `json:"data_residency_ke"`
+}
+
+func (f *firmSignup) provisionInput() *services.ProvisionInput {
+	slug := strings.ToLower(strings.TrimSpace(f.Slug))
+	if slug == "" {
+		slug = services.SlugFromName(f.FirmName)
+	}
+	residency := true
+	if f.DataResidencyKE != nil {
+		residency = *f.DataResidencyKE
+	}
+	// Plan is never taken from the public request: every self-signup starts on
+	// the starter plan; upgrades go through the platform admin.
+	return &services.ProvisionInput{
+		FirmName: strings.TrimSpace(f.FirmName), Slug: slug, Plan: "starter",
+		RegNumber: strings.TrimSpace(f.RegNumber), Phone: f.Phone, DataResidencyKE: residency,
+	}
+}
+
+// Signup lets a law firm owner create their firm's workspace: it provisions the
+// tenant (schema, default designation roles, owner as Managing Partner), emails
+// the owner their sign-in details, and signs them straight in so the onboarding
+// wizard can take over. Runs outside tenant context.
 func (s *Server) Signup(c *gin.Context) {
-	c.JSON(http.StatusForbidden, gin.H{"error": "public sign-up is disabled — ask a partner to onboard you"})
+	if !s.Cfg.PublicSignupEnabled {
+		c.JSON(http.StatusForbidden, gin.H{"error": "self-service sign-up is closed — contact us to set up your firm"})
+		return
+	}
+	var in struct {
+		firmSignup
+		OwnerName     string `json:"owner_name" binding:"required"`
+		OwnerEmail    string `json:"owner_email" binding:"required,email"`
+		OwnerPassword string `json:"owner_password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	prov := in.provisionInput()
+	prov.OwnerName, prov.OwnerEmail, prov.OwnerPassword = strings.TrimSpace(in.OwnerName), in.OwnerEmail, in.OwnerPassword
+	s.provisionAndSignIn(c, prov)
+}
+
+func (s *Server) provisionAndSignIn(c *gin.Context, prov *services.ProvisionInput) {
+	tenant, owner, err := services.ProvisionTenant(c.Request.Context(), s.DB, s.Cfg, prov)
+	var verr *services.ValidationError
+	if errors.As(err, &verr) {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": verr.Msg})
+		return
+	}
+	if err != nil {
+		logging.L(c.Request.Context()).Error("firm signup failed", "err", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create your firm — please try again"})
+		return
+	}
+	s.sendWelcome(c, tenant, owner)
+	// issueTokens resolves the tenant from the request context, which public
+	// routes don't have; the freshly provisioned firm is the right one.
+	c.Set(middleware.CtxTenant, tenant)
+	var resp gin.H
+	if err := s.DB.WithTenant(c.Request.Context(), tenant.ID, tenant.SchemaName, func(tx pgx.Tx) error {
+		var err error
+		resp, err = s.issueTokens(c, tx, owner)
+		return err
+	}); err != nil {
+		// The firm exists; the owner can still sign in normally.
+		logging.L(c.Request.Context()).Error("signup token issue failed", "err", err)
+		c.JSON(http.StatusCreated, gin.H{"tenant": gin.H{"slug": tenant.Slug, "name": tenant.Name}})
+		return
+	}
+	c.JSON(http.StatusCreated, resp)
+}
+
+// sendWelcome emails the owner their workspace address — they need it (or
+// the slug) to sign in again later. Best effort.
+func (s *Server) sendWelcome(c *gin.Context, tenant *repository.Tenant, owner *repository.User) {
+	loginURL := fmt.Sprintf("%s/login?firm=%s", strings.TrimRight(s.Cfg.AppBaseURL, "/"), tenant.Slug)
+	body := fmt.Sprintf(
+		"Welcome to Advocatus, %s.\n\nYour firm workspace for %s is ready.\n\n"+
+			"Firm ID: %s\nSign in: %s\nEmail: %s\n\n"+
+			"Next steps: review your firm's roles and permissions, then add your team — "+
+			"each member is emailed a temporary password to sign in with.\n",
+		owner.FullName, tenant.Name, tenant.Slug, loginURL, owner.Email)
+	if err := s.Mail.Send(c.Request.Context(), owner.Email, "Your Advocatus workspace for "+tenant.Name, body); err != nil {
+		logging.L(c.Request.Context()).Warn("welcome email failed", "tenant", tenant.Slug, "err", err)
+	}
 }
 
 type loginInput struct {
@@ -38,7 +132,8 @@ func (s *Server) issueTokens(c *gin.Context, tx pgx.Tx, user *repository.User) (
 	if user.RoleID != nil {
 		roleID = *user.RoleID
 	}
-	access, err := auth.IssueAccessTokenWithRole(s.Cfg.JWTSecret, user.ID, tenant.ID, tenant.Slug, user.Role, roleID, s.Cfg.AccessTTL)
+	access, err := auth.IssueUserAccessToken(s.Cfg.JWTSecret, user.ID, tenant.ID, tenant.Slug, user.Role, roleID,
+		user.MustChangePassword, s.Cfg.AccessTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +152,7 @@ func (s *Server) issueTokens(c *gin.Context, tx pgx.Tx, user *repository.User) (
 		"user": gin.H{
 			"id": user.ID, "email": user.Email, "full_name": user.FullName,
 			"role": user.Role, "client_id": user.ClientID,
+			"must_change_password": user.MustChangePassword,
 		},
 		"tenant": gin.H{"id": tenant.ID, "slug": tenant.Slug, "name": tenant.Name, "plan": tenant.Plan},
 	}, nil
@@ -82,9 +178,63 @@ func (s *Server) Login(c *gin.Context) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "account disabled"})
 			return errHandled
 		}
+		if user.MustChangePassword && user.TempPasswordExpiresAt != nil && time.Now().After(*user.TempPasswordExpiresAt) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "your temporary password has expired — ask your firm administrator to resend your login"})
+			return errHandled
+		}
 		if err := repository.TouchLastLogin(c.Request.Context(), tx, user.ID); err != nil {
 			return err
 		}
+		resp, err = s.issueTokens(c, tx, user)
+		return err
+	})
+	if ok && resp != nil {
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+// ChangePassword replaces the caller's password. It is the one action open to
+// a temporary-password session; the reissued tokens no longer carry the flag.
+func (s *Server) ChangePassword(c *gin.Context) {
+	var in struct {
+		CurrentPassword string `json:"current_password" binding:"required"`
+		NewPassword     string `json:"new_password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	if len(in.NewPassword) < 8 {
+		badRequest(c, "your new password must be at least 8 characters")
+		return
+	}
+	if in.NewPassword == in.CurrentPassword {
+		badRequest(c, "choose a password different from your current one")
+		return
+	}
+	hash, err := auth.HashPassword(in.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash failed"})
+		return
+	}
+	var resp gin.H
+	ok := s.withTenant(c, func(tx pgx.Tx) error {
+		user, err := repository.UserByID(c.Request.Context(), tx, s.claims(c).UserID())
+		if err != nil {
+			return err
+		}
+		if !auth.CheckPassword(user.PasswordHash, in.CurrentPassword) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "your current password is incorrect"})
+			return errHandled
+		}
+		if err := repository.SetPassword(c.Request.Context(), tx, user.ID, hash); err != nil {
+			return err
+		}
+		// Sign out other sessions (e.g. someone else who saw the emailed password).
+		if err := repository.RevokeUserRefreshTokens(c.Request.Context(), tx, user.ID); err != nil {
+			return err
+		}
+		user.MustChangePassword, user.TempPasswordExpiresAt = false, nil
 		resp, err = s.issueTokens(c, tx, user)
 		return err
 	})
@@ -136,6 +286,14 @@ func (s *Server) GoogleLogin(c *gin.Context) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "account disabled"})
 			return errHandled
 		}
+		if user.MustChangePassword {
+			// Google proved who they are, so the emailed temporary password has
+			// no further use — retire it rather than leave it valid in an inbox.
+			if err := repository.DropTemporaryPassword(c.Request.Context(), tx, user.ID); err != nil {
+				return err
+			}
+			user.MustChangePassword, user.TempPasswordExpiresAt, user.PasswordHash = false, nil, ""
+		}
 		if err := repository.TouchLastLogin(c.Request.Context(), tx, user.ID); err != nil {
 			return err
 		}
@@ -147,10 +305,33 @@ func (s *Server) GoogleLogin(c *gin.Context) {
 	}
 }
 
-// GoogleSignup is disabled for the same reason as Signup — no public firm
-// self-registration.
+// GoogleSignup is Signup for an owner who authenticates with Google (no
+// password). The firm details are still required.
 func (s *Server) GoogleSignup(c *gin.Context) {
-	c.JSON(http.StatusForbidden, gin.H{"error": "public sign-up is disabled — ask a partner to onboard you"})
+	if !s.Cfg.PublicSignupEnabled {
+		c.JSON(http.StatusForbidden, gin.H{"error": "self-service sign-up is closed — contact us to set up your firm"})
+		return
+	}
+	var in struct {
+		firmSignup
+		Credential string `json:"credential" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	ident, err := google.Verify(c.Request.Context(), in.Credential, s.Cfg.GoogleClientID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid Google credential"})
+		return
+	}
+	if !ident.EmailVerified {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Google email is not verified"})
+		return
+	}
+	prov := in.provisionInput()
+	prov.OwnerName, prov.OwnerEmail, prov.GoogleSub = ident.Name, ident.Email, ident.Sub
+	s.provisionAndSignIn(c, prov)
 }
 
 // Refresh rotates the refresh token: the presented token is atomically
@@ -220,9 +401,17 @@ func (s *Server) Me(c *gin.Context) {
 	})
 	if ok {
 		tenant := s.tenant(c)
+		// Read fresh, not from the 30 s tenant cache, so finishing onboarding
+		// takes effect on the very next page load.
+		if fresh, err := repository.TenantByID(c.Request.Context(), s.DB.Pool, tenant.ID); err == nil {
+			tenant = fresh
+		}
+		isOwner := tenant.OwnerUserID != nil && *tenant.OwnerUserID == user.ID
 		c.JSON(http.StatusOK, gin.H{"user": user, "permissions": perms, "tenant": gin.H{
 			"id": tenant.ID, "slug": tenant.Slug, "name": tenant.Name, "plan": tenant.Plan,
-			"data_residency_ke": tenant.DataResidencyKE,
+			"data_residency_ke": tenant.DataResidencyKE, "reg_number": tenant.RegNumber, "phone": tenant.Phone,
+			"onboarding_completed": tenant.OnboardingCompletedAt != nil, "is_owner": isOwner,
+			"owner_user_id": tenant.OwnerUserID,
 		}})
 	}
 }

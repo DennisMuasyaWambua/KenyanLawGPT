@@ -119,3 +119,64 @@ def test_pinned_language_skips_detection(monkeypatch):
     assert p._pick_language(None) == "sw"
     cfg.transcribe_language, cfg.transcribe_languages = "auto", ["en"]
     assert p._pick_language(None) == "en"
+
+
+def test_diarize_requests_word_timings_and_labels_speakers(monkeypatch):
+    import sys
+    import types
+
+    from app.diarization import Turn
+
+    calls = []
+    W = types.SimpleNamespace
+
+    class FakeModel:
+        def __init__(self, *a, **kw):
+            pass
+
+        def transcribe(self, samples, **kw):
+            calls.append(kw)
+            seg = W(text=" Habari. Karibu.", words=[W(start=0.1, end=0.6, word=" Habari."),
+                                                    W(start=1.6, end=2.0, word=" Karibu.")])
+            return iter([seg]), W(language="sw")
+
+    class FakeDiarizer:
+        def diarize(self, samples, num_speakers=0):
+            assert num_speakers == 2
+            return [Turn(0.0, 1.0, 5), Turn(1.5, 2.5, 9)]
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel))
+    monkeypatch.setitem(sys.modules, "faster_whisper.audio",
+                        types.SimpleNamespace(decode_audio=lambda *a, **k: [0.0] * 16000))
+    from app.transcription import FasterWhisperProvider
+
+    cfg = Config()
+    cfg.transcribe_language = "sw"
+    p = FasterWhisperProvider(cfg)
+    p._diarizer, p._diarizer_built = FakeDiarizer(), True
+    result = p._run(b"x", "m.webm", diarize=True, num_speakers=2)
+    assert calls[0]["word_timestamps"] is True
+    assert result.text == "Habari. Karibu."
+    assert [(u["speaker"], u["text"]) for u in result.segments] == [(1, "Habari."), (2, "Karibu.")]
+
+    # Archive ingestion (no diarize) keeps the cheaper path and no speakers.
+    calls.clear()
+    assert p._run(b"x", "m.webm").segments == []
+    assert "word_timestamps" not in calls[0]
+
+
+def test_failed_diarization_keeps_the_transcript(monkeypatch):
+    import types
+
+    from app.transcription import FasterWhisperProvider
+
+    p = FasterWhisperProvider.__new__(FasterWhisperProvider)
+    p._cfg = Config()
+
+    class Broken:
+        def diarize(self, *a, **k):
+            raise RuntimeError("onnx exploded")
+
+    p._diarizer, p._diarizer_built = Broken(), True
+    seg = types.SimpleNamespace(words=[types.SimpleNamespace(start=0, end=1, word=" hi")])
+    assert p._speakers([0.0], [seg], 0) == []

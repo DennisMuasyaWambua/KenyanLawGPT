@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { setSession } from "@/lib/api";
 import GoogleButton from "@/components/GoogleButton";
-import { BRAND } from "@/lib/brand";
+import FirmMark from "@/components/FirmMark";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
@@ -64,8 +64,10 @@ export default function InviteAcceptPage() {
     <main className="flex min-h-screen items-center justify-center bg-navy p-6">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <img src={BRAND.logo} alt={BRAND.name} className="mx-auto mb-3 h-16 w-16 rounded-md bg-white object-contain p-1" />
-          <h1 className="font-display text-2xl font-bold text-white">{BRAND.short}</h1>
+          <div className="mb-3 flex justify-center">
+            <FirmMark name={firmName || firm} slug={firm} className="h-16 w-16 text-2xl" />
+          </div>
+          <h1 className="font-display text-2xl font-bold text-white">{firmName || "Accept your invite"}</h1>
           <p className="mt-2 text-sm text-white/60">
             {invite ? `Join ${firmName || firm} as ${invite.role}` : "Accept your invite"}
           </p>

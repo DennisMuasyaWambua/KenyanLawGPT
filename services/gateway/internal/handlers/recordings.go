@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -20,11 +22,14 @@ import (
 // URL for the browser to upload the audio straight to R2.
 func (s *Server) CreateRecording(c *gin.Context) {
 	var in struct {
-		FileID         *string `json:"file_id"`
+		FileID           *string `json:"file_id"`
 		ClientID         *string `json:"client_id"`
 		Filename         string  `json:"filename" binding:"required"`
 		MimeType         string  `json:"mime_type"`
 		ConsentConfirmed bool    `json:"consent_confirmed"`
+		// How many people are in the meeting (0 = estimate). Knowing it makes the
+		// speaker labels far more accurate.
+		NumSpeakers int `json:"num_speakers" binding:"min=0,max=10"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, err.Error())
@@ -45,6 +50,7 @@ func (s *Server) CreateRecording(c *gin.Context) {
 	r := &repository.Recording{
 		ID: id, FileID: in.FileID, AdvocateUserID: s.claims(c).UserID(), ClientID: in.ClientID,
 		ObjectKey: key, Filename: in.Filename, MimeType: in.MimeType, ConsentConfirmed: true, Status: "recording",
+		NumSpeakers: in.NumSpeakers,
 	}
 	if s.withTenant(c, func(tx pgx.Tx) error {
 		return repository.InsertRecording(c.Request.Context(), tx, r)
@@ -131,6 +137,53 @@ func (s *Server) GetRecording(c *gin.Context) {
 	}
 }
 
+// SetRecordingSpeakers names the speaker labels ("Speaker 1" -> "Adv. Wanjiru").
+// Giving two labels the same name merges them in the transcript view, which is
+// how a speaker the diarizer split in two is corrected. Authz mirrors GetRecording.
+func (s *Server) SetRecordingSpeakers(c *gin.Context) {
+	var in struct {
+		Names map[string]string `json:"names"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	names := map[string]string{}
+	for label, name := range in.Names {
+		n, err := strconv.Atoi(label)
+		if err != nil || n < 1 || n > 20 {
+			badRequest(c, "speaker labels are numbers from 1 to 20")
+			return
+		}
+		name = strings.TrimSpace(name)
+		if len([]rune(name)) > 80 {
+			badRequest(c, "speaker names are limited to 80 characters")
+			return
+		}
+		if name != "" {
+			names[strconv.Itoa(n)] = name
+		}
+	}
+	ok := s.withTenant(c, func(tx pgx.Tx) error {
+		r, err := repository.GetRecording(c.Request.Context(), tx, c.Param("id"))
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "recording not found"})
+			return errHandled
+		}
+		if err != nil {
+			return err
+		}
+		if r.AdvocateUserID != s.claims(c).UserID() && !s.can(c, rbac.PermRecordingsViewAll) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "not allowed to edit this recording"})
+			return errHandled
+		}
+		return repository.SetSpeakerNames(c.Request.Context(), tx, r.ID, names)
+	})
+	if ok {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "speaker_names": names})
+	}
+}
+
 // ShareRecording emails a recording's structured notes + transcript to a
 // recipient. Authz mirrors GetRecording (own, or view_all). The email body is
 // built server-side from the stored recording — the client only supplies the
@@ -186,12 +239,52 @@ func formatRecordingEmail(r *repository.Recording) string {
 	b.WriteString(formatInsights(r.SummaryText))
 	b.WriteString("\n\nFULL TRANSCRIPT\n")
 	b.WriteString(strings.Repeat("-", 48) + "\n")
-	if strings.TrimSpace(r.TranscriptText) == "" {
+	if t := speakerTranscript(r); t != "" {
+		b.WriteString(t + "\n")
+	} else if strings.TrimSpace(r.TranscriptText) == "" {
 		b.WriteString("(no transcript)\n")
 	} else {
 		b.WriteString(r.TranscriptText + "\n")
 	}
 	return b.String()
+}
+
+// speakerTranscript renders the diarized utterances with the names the user
+// gave each speaker ("[01:12] Adv. Wanjiru: …"), merging consecutive lines that
+// now belong to the same name. "" when the recording has no speaker data.
+func speakerTranscript(r *repository.Recording) string {
+	var segs []repository.Utterance
+	if len(r.TranscriptSegments) == 0 || json.Unmarshal(r.TranscriptSegments, &segs) != nil || len(segs) == 0 {
+		return ""
+	}
+	names := map[string]string{}
+	_ = json.Unmarshal(r.SpeakerNames, &names)
+	label := func(n int) string {
+		if name := names[strconv.Itoa(n)]; name != "" {
+			return name
+		}
+		return fmt.Sprintf("Speaker %d", n)
+	}
+	var lines []string
+	prev := ""
+	for _, u := range segs {
+		who := label(u.Speaker)
+		if who == prev && len(lines) > 0 {
+			lines[len(lines)-1] += " " + u.Text
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("[%s] %s: %s", clock(u.Start), who, u.Text))
+		prev = who
+	}
+	return strings.Join(lines, "\n")
+}
+
+func clock(seconds float64) string {
+	t := int(seconds)
+	if t >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", t/3600, t%3600/60, t%60)
+	}
+	return fmt.Sprintf("%02d:%02d", t/60, t%60)
 }
 
 // formatInsights turns the AI worker's structured-JSON summary into readable

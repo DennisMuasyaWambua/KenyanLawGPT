@@ -110,6 +110,10 @@ func seedFirm(ctx context.Context, database *db.DB, cfg *config.Config, store *s
 		return err
 	}
 	fmt.Printf("provisioned %s (%s)\n", f.Slug, tenant.ID)
+	// Demo firms arrive fully populated; skip the new-firm setup wizard.
+	if err := repository.CompleteTenantOnboarding(ctx, database.Pool, tenant.ID); err != nil {
+		return err
+	}
 
 	hash, err := auth.HashPassword(demoPassword)
 	if err != nil {

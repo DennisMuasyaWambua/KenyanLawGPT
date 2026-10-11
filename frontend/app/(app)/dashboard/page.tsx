@@ -2,11 +2,11 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, fmtKES } from "@/lib/api";
-import { BRAND } from "@/lib/brand";
+import FirmMark from "@/components/FirmMark";
 import { usePermissions } from "@/lib/usePermissions";
 
 export default function Dashboard() {
-  const { can, permissions } = usePermissions();
+  const { can, permissions, me } = usePermissions();
   const { data } = useQuery({ queryKey: ["dashboard"], queryFn: () => api("/api/v1/dashboard") });
   const { data: notif } = useQuery({
     queryKey: ["notifications"],
@@ -32,8 +32,9 @@ export default function Dashboard() {
         aria-hidden
         className="pointer-events-none absolute inset-0 z-0 flex select-none flex-col items-center justify-center opacity-[0.07]"
       >
-        <img src={BRAND.logo} alt="" className="w-2/3 max-w-lg" />
-        <p className="mt-4 font-display text-4xl font-bold text-navy">{BRAND.name}</p>
+        <FirmMark name={me?.tenant?.name || ""} slug={me?.tenant?.slug}
+          className="h-48 w-48 text-7xl sm:h-64 sm:w-64" />
+        <p className="mt-4 px-4 text-center font-display text-4xl font-bold text-navy">{me?.tenant?.name}</p>
       </div>
       <div className="relative z-10">
       <h2 className="font-display text-3xl font-bold text-navy">Dashboard</h2>

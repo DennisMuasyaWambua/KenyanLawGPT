@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -44,5 +45,37 @@ func TestRefreshTokenHashing(t *testing.T) {
 	}
 	if HashRefreshToken(raw) != hash {
 		t.Fatal("hash mismatch")
+	}
+}
+
+func TestPasswordChangeClaimRoundTrip(t *testing.T) {
+	tok, err := IssueUserAccessToken("s", "u", "t", "slug", "Associate", "r", true, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl, err := ParseAccessToken("s", tok)
+	if err != nil || !cl.PasswordChange {
+		t.Fatalf("flag lost: %+v %v", cl, err)
+	}
+	tok, _ = IssueAccessTokenWithRole("s", "u", "t", "slug", "Associate", "r", time.Minute)
+	if cl, _ := ParseAccessToken("s", tok); cl.PasswordChange {
+		t.Fatal("ordinary token must not carry the flag")
+	}
+}
+
+func TestTemporaryPasswordShape(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 50; i++ {
+		p, err := NewTemporaryPassword()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p) != 14 || p[4] != '-' || p[9] != '-' || strings.ContainsAny(p, "0O1lI") {
+			t.Fatalf("bad temporary password %q", p)
+		}
+		if seen[p] {
+			t.Fatalf("duplicate temporary password %q", p)
+		}
+		seen[p] = true
 	}
 }

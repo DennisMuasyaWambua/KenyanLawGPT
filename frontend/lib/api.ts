@@ -19,6 +19,8 @@ export function getTenant(): string {
 
 export function setSession(tenant: string, access: string, refresh: string, user: unknown) {
   localStorage.setItem("wakili_tenant", tenant);
+  // Survives sign-out so the login form remembers this device's firm.
+  localStorage.setItem("wakili_last_firm", tenant);
   localStorage.setItem("wakili_access", access);
   localStorage.setItem("wakili_refresh", refresh);
   localStorage.setItem("wakili_user", JSON.stringify(user));
@@ -30,7 +32,9 @@ export function clearSession() {
   );
 }
 
-export function currentUser(): { id: string; full_name: string; email: string; role: string } | null {
+export function currentUser(): {
+  id: string; full_name: string; email: string; role: string; must_change_password?: boolean;
+} | null {
   if (typeof localStorage === "undefined") return null;
   const raw = localStorage.getItem("wakili_user");
   return raw ? JSON.parse(raw) : null;
@@ -73,9 +77,21 @@ export async function api<T = any>(path: string, init?: RequestInit): Promise<T>
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    // Signed in with an emailed temporary password: the gateway serves nothing
+    // else until the user picks their own.
+    if (body.code === "password_change_required" && typeof window !== "undefined" &&
+        window.location.pathname !== "/change-password") {
+      window.location.href = "/change-password";
+    }
     throw new Error(body.error || `${res.status} ${res.statusText}`);
   }
   return res.json();
+}
+
+/** Where to send someone right after they sign in. */
+export function landingPathFor(user: { role?: string; must_change_password?: boolean }): string {
+  if (user.must_change_password) return "/change-password";
+  return user.role === "client" ? "/portal" : "/dashboard";
 }
 
 // Streaming draft: POST + ReadableStream SSE parsing (EventSource can't POST).

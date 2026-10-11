@@ -1,12 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Providers from "./providers";
-import { BRAND } from "@/lib/brand";
+import { PRODUCT } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: BRAND.name,
+  title: PRODUCT.name,
   description: "Multi-tenant legal practice management: files, AI research, drafting, billing.",
-  icons: { icon: BRAND.logo },
 };
 
 export const viewport: Viewport = {

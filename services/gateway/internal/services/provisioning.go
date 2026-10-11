@@ -22,6 +22,7 @@ type ProvisionInput struct {
 	Plan            string `json:"plan"`
 	RegNumber       string `json:"reg_number"` // LSK / firm registration number
 	DataResidencyKE bool   `json:"data_residency_ke"`
+	Phone           string `json:"phone"`
 	OwnerName       string `json:"owner_name"`
 	OwnerEmail      string `json:"owner_email" binding:"required,email"`
 	OwnerPassword   string `json:"owner_password"`
@@ -31,6 +32,29 @@ type ProvisionInput struct {
 }
 
 var slugSanitize = regexp.MustCompile(`[^a-z0-9]+`)
+
+// A slug becomes a subdomain and an HTTP header value: 3-40 lowercase letters,
+// digits and inner hyphens.
+var validSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$`)
+
+// ValidationError is a provisioning failure the requester can fix (taken name
+// or address, weak password). Other errors are internal and must not be echoed
+// to a public caller.
+type ValidationError struct{ Msg string }
+
+func (e *ValidationError) Error() string { return e.Msg }
+
+func invalid(format string, a ...any) error { return &ValidationError{Msg: fmt.Sprintf(format, a...)} }
+
+// SlugFromName turns a firm name into a workspace address ("Mwangi & Co.
+// Advocates" -> "mwangi-co-advocates") without the random suffix deriveSlug adds.
+func SlugFromName(name string) string {
+	s := strings.Trim(slugSanitize.ReplaceAllString(strings.ToLower(name), "-"), "-")
+	if len(s) > 40 {
+		s = strings.TrimRight(s[:40], "-")
+	}
+	return s
+}
 
 // deriveSlug builds a valid tenant slug from a firm/owner name, appending a
 // short random suffix so solo (auto-provisioned) signups don't collide.
@@ -64,11 +88,16 @@ func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, i
 		in.Slug = deriveSlug(in.OwnerName)
 	}
 	if !google && len(in.OwnerPassword) < 8 {
-		return nil, nil, fmt.Errorf("owner_password must be at least 8 characters")
+		return nil, nil, invalid("owner_password must be at least 8 characters")
 	}
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
-	if len(slug) < 3 || len(slug) > 40 || strings.ContainsAny(slug, " _./\\") {
-		return nil, nil, fmt.Errorf("invalid slug: use 3-40 chars, lowercase letters, digits and hyphens")
+	if !validSlug.MatchString(slug) {
+		return nil, nil, invalid("invalid slug: use 3-40 chars, lowercase letters, digits and hyphens")
+	}
+	if taken, err := repository.TenantSlugExists(ctx, database.Pool, slug); err != nil {
+		return nil, nil, fmt.Errorf("slug check: %w", err)
+	} else if taken {
+		return nil, nil, invalid("the workspace address %q is already taken — choose another", slug)
 	}
 	if in.Plan == "" {
 		in.Plan = "starter"
@@ -77,7 +106,7 @@ func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, i
 	if exists, err := repository.TenantNameExists(ctx, database.Pool, in.FirmName); err != nil {
 		return nil, nil, fmt.Errorf("firm name check: %w", err)
 	} else if exists {
-		return nil, nil, fmt.Errorf("a firm named %q already exists", in.FirmName)
+		return nil, nil, invalid("a firm named %q already exists", in.FirmName)
 	}
 	tenantID := uuid.New()
 	schema := "tenant_" + strings.ReplaceAll(tenantID.String(), "-", "")
@@ -88,6 +117,7 @@ func ProvisionTenant(ctx context.Context, database *db.DB, cfg *config.Config, i
 		SchemaName:      schema,
 		Plan:            in.Plan,
 		RegNumber:       in.RegNumber,
+		Phone:           strings.TrimSpace(in.Phone),
 		DataResidencyKE: in.DataResidencyKE,
 		Status:          "active",
 	}

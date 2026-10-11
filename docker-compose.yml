@@ -158,6 +158,13 @@ services:
       TRANSCRIBE_BASE_URL: ${TRANSCRIBE_BASE_URL:-https://api.openai.com/v1}
       TRANSCRIBE_API_KEY: ${TRANSCRIBE_API_KEY:-}
       TRANSCRIBE_OPENAI_MODEL: ${TRANSCRIBE_OPENAI_MODEL:-whisper-1}
+      # On-box speaker labels for meeting transcripts (models baked into the image).
+      DIARIZATION_ENABLED: ${DIARIZATION_ENABLED:-true}
+      DIARIZATION_THRESHOLD: ${DIARIZATION_THRESHOLD:-0.4}
+      # Meeting notes / action points: gmi (transcript text to GMI Cloud, local
+      # Ollama fallback) or local (fully on-box). Audio never leaves either way.
+      RECORDINGS_SUMMARY_PROVIDER: ${RECORDINGS_SUMMARY_PROVIDER:-gmi}
+      RECORDINGS_SUMMARY_MODEL: ${RECORDINGS_SUMMARY_MODEL:-}
       # Whisper weights are downloaded on first use; persisted so a container
       # rebuild doesn't re-download them (see the whispercache volume).
       HF_HOME: /home/wakili/.cache/huggingface

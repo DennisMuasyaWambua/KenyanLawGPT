@@ -18,9 +18,11 @@ func (s *Server) Register(r *gin.Engine) {
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 	r.GET("/metrics", metrics.Handler())
 
-	// Firm signup happens before a tenant exists.
-	r.POST("/api/v1/signup", s.Signup)
-	r.POST("/api/v1/signup/google", s.GoogleSignup)
+	// Firm signup happens before a tenant exists. Each call provisions a whole
+	// schema, so it is capped per client IP.
+	signup := r.Group("/api/v1/signup", middleware.RateLimitPerIP(s.RDB, "signup", 5))
+	signup.POST("", s.Signup)
+	signup.POST("/google", s.GoogleSignup)
 
 	// Provider webhooks (no tenant subdomain, no JWT; idempotent handlers).
 	wh := r.Group("/webhooks")
@@ -57,12 +59,15 @@ func (s *Server) Register(r *gin.Engine) {
 	api.POST("/auth/google", s.GoogleLogin)
 	api.POST("/auth/refresh", s.Refresh)
 	api.GET("/auth/invite/:token", s.GetInvite)
+	api.GET("/firm/info", s.FirmInfo)
 	api.POST("/auth/invite/:token/accept", s.AcceptInvite)
 
-	// Everything below requires a valid JWT bound to this tenant.
-	priv := api.Group("", middleware.Auth(s.Cfg), middleware.Audit(s.DB))
+	// Everything below requires a valid JWT bound to this tenant. A session
+	// opened with a temporary password is limited to changing it.
+	priv := api.Group("", middleware.Auth(s.Cfg), middleware.RequirePasswordChanged(), middleware.Audit(s.DB))
 	priv.GET("/auth/me", s.Me)
 	priv.POST("/auth/logout", s.Logout)
+	priv.POST("/auth/change-password", s.ChangePassword)
 	priv.GET("/notifications", s.ListNotifications)
 
 	// Client portal — reachable by every role, scoped to own records.
@@ -112,6 +117,7 @@ func (s *Server) Register(r *gin.Engine) {
 	member.POST("/recordings/:id/uploaded", perm(rbac.PermRecordingsCreate), s.MarkRecordingUploaded)
 	member.POST("/recordings/:id/retry", perm(rbac.PermRecordingsCreate), s.RetryRecording)
 	member.POST("/recordings/:id/share", perm(rbac.PermRecordingsViewOwn), s.ShareRecording)
+	member.PUT("/recordings/:id/speakers", perm(rbac.PermRecordingsViewOwn), s.SetRecordingSpeakers)
 	member.GET("/files/:id/recordings", perm(rbac.PermRecordingsViewOwn), s.FileRecordings)
 
 	// Calendar: the personal calendar is available to every member; shared-event
@@ -163,6 +169,11 @@ func (s *Server) Register(r *gin.Engine) {
 	member.POST("/users/invite", perm(rbac.PermUsersInvite), s.InviteUser)
 	member.PATCH("/users/:id", perm(rbac.PermUsersRemove), s.UpdateUser)
 	member.PATCH("/users/:id/role", perm(rbac.PermUsersManageRoles), s.ChangeUserRole)
+	member.POST("/users/:id/resend-login", perm(rbac.PermUsersInvite), s.ResendLogin)
+
+	// Firm profile + the post-signup onboarding wizard.
+	member.PATCH("/firm", perm(rbac.PermFirmSettingsEdit), s.UpdateFirm)
+	member.POST("/firm/onboarding/complete", perm(rbac.PermFirmSettingsEdit), s.CompleteOnboarding)
 
 	member.GET("/permissions", perm(rbac.PermRolesManage), s.ListPermissions)
 	member.GET("/role-templates", perm(rbac.PermRolesManage), s.ListRoleTemplates)

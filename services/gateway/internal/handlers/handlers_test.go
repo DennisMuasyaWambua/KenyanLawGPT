@@ -97,18 +97,45 @@ func TestGoogleLoginUnverifiedEmail(t *testing.T) {
 	}
 }
 
-func TestGoogleSignupDisabled(t *testing.T) {
+func TestSignupClosedWhenDisabled(t *testing.T) {
+	s := testServer() // PublicSignupEnabled defaults to false here
+	for name, h := range map[string]gin.HandlerFunc{"password": s.Signup, "google": s.GoogleSignup} {
+		w := call(http.MethodPost, "/s", "/s", `{}`, h, nil, nil)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("%s signup with PUBLIC_SIGNUP_ENABLED=false: want 403, got %d: %s", name, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestSignupRequiresFirmAndOwnerDetails(t *testing.T) {
 	s := testServer()
-	w := call(http.MethodPost, "/gs", "/gs", `{}`, s.GoogleSignup, nil, nil)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("public signup is disabled; want 403, got %d: %s", w.Code, w.Body.String())
+	s.Cfg.PublicSignupEnabled = true
+	for _, body := range []string{
+		`{}`,
+		`{"owner_name":"A","owner_email":"a@b.co","owner_password":"longenough"}`,                     // no firm
+		`{"firm_name":"Mwangi Advocates","owner_name":"A","owner_password":"longenough"}`,             // no email
+		`{"firm_name":"Mwangi Advocates","owner_name":"A","owner_email":"nope","owner_password":"x"}`, // bad email
+	} {
+		w := call(http.MethodPost, "/s", "/s", body, s.Signup, nil, nil)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("body %s: want 400 before any provisioning, got %d: %s", body, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestSignupNeverTakesPlanFromRequest(t *testing.T) {
+	in := firmSignup{FirmName: "Mwangi & Co. Advocates"}
+	got := in.provisionInput()
+	if got.Plan != "starter" || got.Slug != "mwangi-co-advocates" || !got.DataResidencyKE {
+		t.Fatalf("unexpected provision input: %+v", got)
 	}
 }
 
 func TestGoogleSignupUnverifiedEmail(t *testing.T) {
 	stubGoogle(t, http.StatusOK, `{"aud":"client-123","sub":"s","email":"a@b.com","email_verified":"false"}`)
 	s := testServer()
-	w := call(http.MethodPost, "/gs", "/gs", `{"credential":"x"}`, s.GoogleSignup, nil, nil)
+	s.Cfg.PublicSignupEnabled = true
+	w := call(http.MethodPost, "/gs", "/gs", `{"credential":"x","firm_name":"Firm"}`, s.GoogleSignup, nil, nil)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("want 403, got %d: %s", w.Code, w.Body.String())
 	}
@@ -193,5 +220,90 @@ func TestParseTime(t *testing.T) {
 	}
 	if _, ok := parseTime("2026-08-08T10:30:00Z"); !ok {
 		t.Error("RFC3339 should parse")
+	}
+}
+
+// --- Temporary passwords / first-login change ---------------------------------
+
+func TestChangePasswordValidation(t *testing.T) {
+	s := testServer()
+	claims := &auth.Claims{UserID: "u1", TenantID: "t1"}
+	for _, body := range []string{
+		`{"current_password":"Kp7m-Qx4r-Ze9t"}`,
+		`{"current_password":"Kp7m-Qx4r-Ze9t","new_password":"short"}`,
+		`{"current_password":"Kp7m-Qx4r-Ze9t","new_password":"Kp7m-Qx4r-Ze9t"}`,
+	} {
+		w := call(http.MethodPost, "/cp", "/cp", body, s.ChangePassword, aTenant(), claims)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("body %s: want 400, got %d: %s", body, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestResendLoginGuards(t *testing.T) {
+	s := testServer()
+	owner := "owner-1"
+	tenant := aTenant()
+	tenant.OwnerUserID = &owner
+	// Nobody resets their own password here, and nobody but the owner resets the owner.
+	w := call(http.MethodPost, "/u/:id", "/u/u1", `{}`, s.ResendLogin, tenant, &auth.Claims{UserID: "u1"})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("self reset: want 400, got %d", w.Code)
+	}
+	w = call(http.MethodPost, "/u/:id", "/u/owner-1", `{}`, s.ResendLogin, tenant, &auth.Claims{UserID: "u2"})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("owner reset by partner: want 403, got %d", w.Code)
+	}
+}
+
+func TestCreateUserRejectsShortExplicitPassword(t *testing.T) {
+	s := testServer()
+	w := call(http.MethodPost, "/u", "/u", `{"email":"a@b.co","full_name":"A","role_id":"r","password":"short"}`,
+		s.CreateUser, aTenant(), &auth.Claims{UserID: "u1"})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Speaker-labelled transcripts ---------------------------------------------
+
+func TestSpeakerTranscriptUsesNamesAndMergesRenamedSpeakers(t *testing.T) {
+	r := &repository.Recording{
+		TranscriptSegments: []byte(`[{"speaker":1,"start":2,"end":4,"text":"Good morning."},
+			{"speaker":2,"start":5,"end":6,"text":"Morning, wakili."},
+			{"speaker":3,"start":6,"end":7,"text":"I brought the title deed."},
+			{"speaker":1,"start":3700,"end":3702,"text":"Thank you."}]`),
+		// The diarizer split the client into speakers 2 and 3; naming both merges them.
+		SpeakerNames: []byte(`{"1":"Adv. Wanjiru","2":"Client","3":"Client"}`),
+	}
+	want := "[00:02] Adv. Wanjiru: Good morning.\n" +
+		"[00:05] Client: Morning, wakili. I brought the title deed.\n" +
+		"[1:01:40] Adv. Wanjiru: Thank you."
+	if got := speakerTranscript(r); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if got := speakerTranscript(&repository.Recording{TranscriptSegments: []byte(`[]`)}); got != "" {
+		t.Fatalf("no segments should render nothing, got %q", got)
+	}
+}
+
+func TestSetRecordingSpeakersValidatesLabels(t *testing.T) {
+	s := testServer()
+	for _, body := range []string{`{"names":{"x":"A"}}`, `{"names":{"0":"A"}}`, `{"names":{"99":"A"}}`} {
+		w := call(http.MethodPut, "/r/:id", "/r/1", body, s.SetRecordingSpeakers, aTenant(), &auth.Claims{UserID: "u1"})
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("body %s: want 400, got %d", body, w.Code)
+		}
+	}
+}
+
+func TestFirmInfoExposesOnlyNameAndSlug(t *testing.T) {
+	s := testServer()
+	owner := "u-owner"
+	tenant := aTenant()
+	tenant.OwnerUserID, tenant.RegNumber = &owner, "LSK/1"
+	w := call(http.MethodGet, "/f", "/f", "", s.FirmInfo, tenant, nil)
+	if w.Code != http.StatusOK || w.Body.String() != `{"firm":{"name":"Firm A","slug":"firm-a"}}` {
+		t.Fatalf("got %d %s", w.Code, w.Body.String())
 	}
 }

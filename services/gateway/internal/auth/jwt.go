@@ -16,6 +16,9 @@ type Claims struct {
 	Slug     string `json:"slug"`
 	Role     string `json:"role"`          // denormalized role name (display / legacy)
 	RoleID   string `json:"rid,omitempty"` // firm-scoped role id — source of truth for permissions
+	// PasswordChange marks a session opened with a temporary password: until it
+	// is replaced, the gateway only serves the change-password flow.
+	PasswordChange bool `json:"pwc,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -28,9 +31,16 @@ func IssueAccessToken(secret, userID, tenantID, slug, role string, ttl time.Dura
 // IssueAccessTokenWithRole embeds the firm-scoped role id used by the permission
 // middleware to resolve the caller's granted permissions.
 func IssueAccessTokenWithRole(secret, userID, tenantID, slug, role, roleID string, ttl time.Duration) (string, error) {
+	return IssueUserAccessToken(secret, userID, tenantID, slug, role, roleID, false, ttl)
+}
+
+// IssueUserAccessToken is IssueAccessTokenWithRole plus the must-change-password
+// flag for sessions opened with a temporary password.
+func IssueUserAccessToken(secret, userID, tenantID, slug, role, roleID string, passwordChange bool, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := &Claims{
 		UserID: userID, TenantID: tenantID, Slug: slug, Role: role, RoleID: roleID,
+		PasswordChange: passwordChange,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "wakiliai",
 			Subject:   userID,

@@ -187,6 +187,9 @@ class GMICloudProvider:
         self._api_key = cfg.gmi_cloud_api_key
         self._model = model or cfg.gmi_cloud_model
         self._reasoning = self._is_reasoning_model(self._model, cfg)
+        # Ask hybrid models to answer directly (no thinking phase). Pure
+        # chain-of-thought models (DeepSeek-R1 distill) can't be switched off.
+        self._no_think = cfg.gmi_cloud_disable_thinking and not self._reasoning
         # Populated after every complete() so callers (e.g. the A/B script) can
         # print cost alongside the answer without re-parsing the response.
         self.last_usage: dict = {}
@@ -201,6 +204,21 @@ class GMICloudProvider:
             return True
         m = model.lower()
         return "deepseek-r1" in m or "-r1-" in m or m.endswith("-r1")
+
+    def _with_thinking_control(self, payload: dict) -> dict:
+        if self._no_think:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        return payload
+
+    def _thinking_rejected(self, resp) -> bool:
+        """A model that doesn't accept chat_template_kwargs answers 400; stop
+        sending it for this provider instance and let the caller retry."""
+        if self._no_think and resp.status_code == 400:
+            log().warning("gmi_cloud model %s rejected enable_thinking=false; retrying without it",
+                          self._model)
+            self._no_think = False
+            return True
+        return False
 
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
@@ -230,17 +248,21 @@ class GMICloudProvider:
         import time
 
         self._guard_synthetic()
-        payload = {
-            "model": self._model,
-            "max_tokens": self._answer_budget(max_tokens, fast),
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-        }
+        def build() -> dict:
+            return self._with_thinking_control({
+                "model": self._model,
+                "max_tokens": self._answer_budget(max_tokens, fast),
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            })
+
         started = time.perf_counter()
         async with self._httpx.AsyncClient(timeout=300) as client:
-            resp = await client.post(f"{self._base}/chat/completions", json=payload, headers=self._headers())
+            resp = await client.post(f"{self._base}/chat/completions", json=build(), headers=self._headers())
+            if self._thinking_rejected(resp):
+                resp = await client.post(f"{self._base}/chat/completions", json=build(), headers=self._headers())
             resp.raise_for_status()
             data = resp.json()
         self._log_usage(data.get("usage") or {}, (time.perf_counter() - started) * 1000)
@@ -267,15 +289,15 @@ class GMICloudProvider:
         budget — otherwise the trace eats it all and ``content`` is empty. Cheap
         ``fast`` classification calls keep their tight budget; instruct models
         stop at EOS and simply ignore any unused room."""
-        if fast:
-            return max_tokens
+        if fast or self._no_think:
+            return max_tokens  # no thinking phase to budget for
         return max_tokens + max(0, self._cfg.gmi_cloud_reasoning_headroom)
 
     async def stream(self, system: str, prompt: str, max_tokens: int = 8192) -> AsyncIterator[str]:
         import json as _json
 
         self._guard_synthetic()
-        payload = {
+        payload = self._with_thinking_control({
             "model": self._model,
             "max_tokens": self._answer_budget(max_tokens, fast=False),
             "stream": True,
@@ -283,7 +305,7 @@ class GMICloudProvider:
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-        }
+        })
         # For reasoning models, suppress the leading <think>...</think> block
         # token-by-token (tags may split across chunks) exactly like Ollama; for
         # instruct models pass every delta straight through.

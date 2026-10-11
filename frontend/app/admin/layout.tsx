@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { adminApi, clearAdminSession, currentAdmin } from "@/lib/admin";
-import { BRAND } from "@/lib/brand";
+import { PRODUCT } from "@/lib/brand";
 
 const NAV = [
   { href: "/admin", label: "Overview", icon: "▦" },
@@ -68,7 +68,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       >
         <div className="border-b border-white/10 p-5">
           <div className="flex items-center gap-3">
-            <img src={BRAND.logo} alt={BRAND.name} className="h-10 w-10 shrink-0 rounded-md bg-white object-cover object-left ring-1 ring-white/20" />
+            <span aria-label={PRODUCT.name} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gold font-display text-lg font-bold text-navy">A</span>
             <div className="min-w-0">
               <h1 className="font-display text-lg font-bold leading-tight">Control Center</h1>
               <p className="text-[11px] uppercase tracking-wide text-gold">Platform admin</p>
@@ -108,7 +108,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           >
             ☰
           </button>
-          <img src={BRAND.logo} alt="" className="h-8 w-8 shrink-0 rounded bg-white object-cover object-left ring-1 ring-navy/10" />
+          <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-gold font-display font-bold text-navy">A</span>
           <span className="truncate font-display text-base font-bold text-navy">Control Center</span>
         </header>
         <main className="flex-1 overflow-x-hidden p-4 sm:p-6 md:p-8">{children}</main>

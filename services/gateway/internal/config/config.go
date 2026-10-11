@@ -26,6 +26,10 @@ type Config struct {
 	GoogleClientID string // Google Identity Services OAuth client id (id-token audience)
 	AppBaseURL     string // public frontend origin, used to build invite links
 
+	// PublicSignupEnabled lets a law firm owner create their firm's workspace
+	// from the public landing page (otherwise firms come only from /admin).
+	PublicSignupEnabled bool
+
 	// Bootstrap super-admin (platform control plane). Idempotently ensured on
 	// startup when both are set; leave empty in envs that shouldn't seed one.
 	PlatformAdminEmail    string
@@ -157,6 +161,8 @@ func Load() *Config {
 
 		GoogleClientID: env("GOOGLE_CLIENT_ID", ""),
 		AppBaseURL:     env("APP_BASE_URL", "http://localhost:3000"),
+
+		PublicSignupEnabled: envBool("PUBLIC_SIGNUP_ENABLED", true),
 
 		PlatformAdminEmail:    env("PLATFORM_ADMIN_EMAIL", ""),
 		PlatformAdminPassword: env("PLATFORM_ADMIN_PASSWORD", ""),

@@ -18,3 +18,6 @@ faster-whisper>=1.0
 # faster-whisper calls av.open(..., metadata_errors=...), which PyAV 19 removed:
 # with an unpinned av every transcription fails with a TypeError. 16.1 verified.
 av>=11,<17
+# On-box speaker diarization (pyannote segmentation + speaker embedding as ONNX;
+# no PyTorch). Models are baked into the image by the Dockerfile.
+sherpa-onnx>=1.12,<1.14

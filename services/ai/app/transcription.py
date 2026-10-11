@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from .config import Config
@@ -37,17 +37,22 @@ class TranscriptResult:
     text: str
     language: str = ""
     provider: str = ""
+    # Speaker-attributed utterances ([{speaker, start, end, text}]) when
+    # diarization was requested and succeeded; empty otherwise.
+    segments: list[dict] = field(default_factory=list)
 
 
 class TranscriptionProvider(Protocol):
-    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "") -> TranscriptResult: ...
+    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "", *,
+                         diarize: bool = False, num_speakers: int = 0) -> TranscriptResult: ...
 
 
 class MockTranscriptionProvider:
     """Deterministic offline transcriber: no real ASR, clearly watermarked so a
     mock transcript is never mistaken for a real client conversation."""
 
-    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "") -> TranscriptResult:
+    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "", *,
+                         diarize: bool = False, num_speakers: int = 0) -> TranscriptResult:
         return TranscriptResult(
             text=(f"[offline mock transcript for {filename} — configure a transcription "
                   f"provider (TRANSCRIBE_PROVIDER=whisper|openai) for real speech-to-text; "
@@ -68,9 +73,22 @@ class FasterWhisperProvider:
         # Use every core explicitly (CTranslate2's default can under-subscribe).
         self._model = WhisperModel(cfg.whisper_model, device="cpu", compute_type="int8",
                                    cpu_threads=os.cpu_count() or 4)
+        self._diarizer = None
+        self._diarizer_built = False
 
-    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "") -> TranscriptResult:
-        return await asyncio.to_thread(self._run, audio, filename)
+    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "", *,
+                         diarize: bool = False, num_speakers: int = 0) -> TranscriptResult:
+        return await asyncio.to_thread(self._run, audio, filename, diarize, num_speakers)
+
+    def _get_diarizer(self):
+        # Built on first use (only meeting recordings ask for speakers), once:
+        # a missing model is logged a single time, not on every recording.
+        if not self._diarizer_built:
+            from .diarization import make_diarizer
+
+            self._diarizer = make_diarizer(self._cfg)
+            self._diarizer_built = True
+        return self._diarizer
 
     def _pick_language(self, samples) -> str | None:
         """The language to transcribe in. A pinned TRANSCRIBE_LANGUAGE wins.
@@ -97,7 +115,8 @@ class FasterWhisperProvider:
             log().warning("language detection failed (%s); using %s", exc, allowed[0])
             return allowed[0]
 
-    def _run(self, audio: bytes, filename: str) -> TranscriptResult:
+    def _run(self, audio: bytes, filename: str, diarize: bool = False,
+             num_speakers: int = 0) -> TranscriptResult:
         from faster_whisper.audio import decode_audio
 
         suffix = os.path.splitext(filename)[1] or ".audio"
@@ -119,7 +138,14 @@ class FasterWhisperProvider:
         if self._cfg.transcribe_hotwords:
             # Domain vocabulary (court names, legal terms) biases every window.
             opts["hotwords"] = self._cfg.transcribe_hotwords
+        if diarize:
+            # Word timings let each word be attributed to a speaker turn. They
+            # also enable skipping silent stretches where Whisper hallucinates
+            # (phantom "Thank you." etc. during pauses in a meeting).
+            opts["word_timestamps"] = True
+            opts["hallucination_silence_threshold"] = 2.0
         segments, info = self._model.transcribe(samples, **opts)
+        segments = list(segments)
         text = " ".join(seg.text.strip() for seg in segments).strip()
         if not text:
             # Quiet speech (distant/low-gain mic) can fall under the default
@@ -128,9 +154,27 @@ class FasterWhisperProvider:
             # temperature fallback can grind for many minutes per recording.
             segments, info = self._model.transcribe(
                 samples, **opts, vad_parameters={"threshold": 0.25})
+            segments = list(segments)
             text = " ".join(seg.text.strip() for seg in segments).strip()
+        utterances = self._speakers(samples, segments, num_speakers) if diarize and text else []
         return TranscriptResult(text=text, language=language or getattr(info, "language", "") or "",
-                                provider="faster-whisper")
+                                provider="faster-whisper", segments=utterances)
+
+    def _speakers(self, samples, segments, num_speakers: int) -> list[dict]:
+        """Who said what. Best-effort: on any failure the transcript is kept
+        without speaker labels rather than failing the recording."""
+        from .diarization import Word, assign_speakers
+
+        diarizer = self._get_diarizer()
+        if diarizer is None:
+            return []
+        try:
+            turns = diarizer.diarize(samples, num_speakers)
+        except Exception as exc:  # noqa: BLE001
+            log().warning("speaker diarization failed (%s); transcript kept without speakers", exc)
+            return []
+        words = [Word(w.start, w.end, w.word) for seg in segments for w in (getattr(seg, "words", None) or [])]
+        return assign_speakers(words, turns)
 
 
 class OpenAITranscriptionProvider:
@@ -145,7 +189,9 @@ class OpenAITranscriptionProvider:
         self._cfg = cfg
         self._base = cfg.transcribe_base_url.rstrip("/")
 
-    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "") -> TranscriptResult:
+    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "", *,
+                         diarize: bool = False, num_speakers: int = 0) -> TranscriptResult:
+        # No speaker labels from the cloud endpoint; diarize is accepted and ignored.
         files = {"file": (filename, audio, mime_type or "application/octet-stream")}
         data = {"model": self._cfg.transcribe_openai_model, "response_format": "verbose_json"}
         if self._cfg.transcribe_language not in ("", "auto"):
@@ -209,8 +255,10 @@ class LazyTranscriber:
                     self._inner = await asyncio.to_thread(make_transcriber, self._cfg)
         return self._inner
 
-    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "") -> TranscriptResult:
-        return await (await self._get()).transcribe(audio, filename, mime_type)
+    async def transcribe(self, audio: bytes, filename: str, mime_type: str = "", *,
+                         diarize: bool = False, num_speakers: int = 0) -> TranscriptResult:
+        return await (await self._get()).transcribe(
+            audio, filename, mime_type, diarize=diarize, num_speakers=num_speakers)
 
     async def warm(self) -> None:
         """Load the model ahead of the first recording (a cold Whisper load takes

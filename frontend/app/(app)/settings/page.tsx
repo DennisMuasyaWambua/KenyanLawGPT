@@ -1,26 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { usePermissions } from "@/lib/usePermissions";
+import RolesManager, { type Role } from "@/components/RolesManager";
+import AddMemberForm from "@/components/AddMemberForm";
 
-type Role = {
-  id: string;
-  name: string;
-  description: string;
-  is_protected: boolean;
-  permissions: string[];
-  member_count: number;
-};
-type PermissionDef = { key: string; resource: string; action: string; label: string };
-type Template = { name: string; description: string; is_protected: boolean; permissions: string[] };
 
 export default function SettingsPage() {
   const qc = useQueryClient();
   const { can } = usePermissions();
   const [kdpaResult, setKdpaResult] = useState("");
-  const [inviteLink, setInviteLink] = useState("");
+  const [resent, setResent] = useState<Record<string, string>>({});
 
   const canViewUsers = can("users.view");
   const canInvite = can("users.invite");
@@ -36,12 +28,16 @@ export default function SettingsPage() {
 
   const roles: Role[] = rolesData?.roles || [];
 
-  const inviteUser = useMutation({
-    mutationFn: (body: any) => api("/api/v1/users/invite", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: (d: any) => {
-      setInviteLink(d.accept_url || "");
+  const resendLogin = useMutation({
+    mutationFn: (id: string) => api(`/api/v1/users/${id}/resend-login`, { method: "POST" }),
+    onSuccess: (d: any, id) => {
+      setResent((prev) => ({
+        ...prev,
+        [id]: d.credentials_emailed ? "New login emailed ✓" : `Email not sent — temporary password: ${d.temp_password}`,
+      }));
       qc.invalidateQueries({ queryKey: ["users"] });
     },
+    onError: (e, id) => setResent((prev) => ({ ...prev, [id]: (e as Error).message })),
   });
   const createUser = useMutation({
     mutationFn: (body: any) => api("/api/v1/users", { method: "POST", body: JSON.stringify(body) }),
@@ -79,9 +75,11 @@ export default function SettingsPage() {
         <div className="card mt-4 text-sm">
           <p><b>{meData?.tenant?.name}</b> · plan: {meData?.tenant?.plan}</p>
           <p className="text-xs text-ink/60">
-            Tenant: {meData?.tenant?.slug} · KDPA data residency (Kenya):{" "}
+            Firm ID: {meData?.tenant?.slug} · KDPA data residency (Kenya):{" "}
             {meData?.tenant?.data_residency_ke ? "✓ enabled" : "—"}
           </p>
+          {can("firm_settings.edit") && meData?.tenant && <FirmProfile tenant={meData.tenant} />}
+          <a href="/change-password" className="mt-3 inline-block text-xs font-semibold text-navy hover:underline">Change my password</a>
         </div>
       </div>
 
@@ -101,6 +99,19 @@ export default function SettingsPage() {
                       <td className="p-3">
                         <div className="font-medium">{u.full_name}</div>
                         <div className="text-xs text-ink/50">{u.email}</div>
+                        {u.must_change_password && (
+                          <span className="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                            awaiting first sign-in
+                          </span>
+                        )}
+                        {canInvite && u.status === "active" && u.id !== meData?.user?.id && u.id !== meData?.tenant?.owner_user_id && (
+                          <button className="ml-2 text-[11px] text-navy hover:underline disabled:opacity-50"
+                            disabled={resendLogin.isPending}
+                            onClick={() => confirm(`Email ${u.full_name} a new temporary password? Their current password stops working.`) && resendLogin.mutate(u.id)}>
+                            resend login
+                          </button>
+                        )}
+                        {resent[u.id] && <div className="mt-1 break-all text-[11px] text-gold-dim">{resent[u.id]}</div>}
                       </td>
                       <td className="p-3">
                         {u.role_id && canChangeRoles ? (
@@ -134,26 +145,14 @@ export default function SettingsPage() {
 
             <div className="space-y-6">
               {canInvite && (
-                <form className="card space-y-3"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const fd = new FormData(e.currentTarget);
-                    setInviteLink("");
-                    inviteUser.mutate({ email: fd.get("email"), full_name: fd.get("full_name"), role_id: fd.get("role_id") });
-                    (e.target as HTMLFormElement).reset();
-                  }}>
-                  <h4 className="font-display text-lg font-bold text-navy">Invite a firm member</h4>
-                  <p className="text-xs text-ink/50">They&apos;ll get an email link to set a password (or sign in with Google), joining with the role you pick.</p>
-                  <input name="full_name" className="input" placeholder="Full name" />
-                  <input name="email" type="email" className="input" placeholder="Email" required />
-                  <select name="role_id" className="input" required defaultValue="">
-                    <option value="" disabled>Select a role…</option>
-                    {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                  </select>
-                  {inviteUser.isError && <p className="text-xs text-red-600">{(inviteUser.error as Error).message}</p>}
-                  {inviteLink && <p className="break-all text-xs text-gold-dim">Invite sent. Dev link: <code>{inviteLink}</code></p>}
-                  <button className="btn-gold w-full" disabled={inviteUser.isPending}>Send invite</button>
-                </form>
+                <div className="card space-y-3">
+                  <h4 className="font-display text-lg font-bold text-navy">Add a firm member</h4>
+                  <p className="text-xs text-ink/50">
+                    They&apos;re emailed a temporary password and choose their own at first sign-in (or sign in with
+                    Google using the same email). What they can do is set by the role.
+                  </p>
+                  <AddMemberForm roles={roles} />
+                </div>
               )}
 
               {canInvite && (
@@ -163,7 +162,7 @@ export default function SettingsPage() {
                     const fd = new FormData(e.currentTarget);
                     createUser.mutate({
                       email: fd.get("email"), full_name: fd.get("full_name"),
-                      password: fd.get("password"), client_id: fd.get("client_id") || null,
+                      password: fd.get("password") || "", client_id: fd.get("client_id") || null,
                     });
                     (e.target as HTMLFormElement).reset();
                   }}>
@@ -171,13 +170,20 @@ export default function SettingsPage() {
                   <input name="full_name" className="input" placeholder="Full name" required />
                   <input name="email" type="email" className="input" placeholder="Email" required />
                   <div className="grid grid-cols-2 gap-2">
-                    <input name="password" className="input" placeholder="Temp password" required />
+                    <input name="password" className="input" placeholder="Password (blank = email one)" minLength={8} />
                     <select name="client_id" className="input" required defaultValue="">
                       <option value="" disabled>Link to client…</option>
                       {(clientsData?.clients || []).map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
                   {createUser.isError && <p className="text-xs text-red-600">{(createUser.error as Error).message}</p>}
+                  {createUser.data && (
+                    <p className="break-all text-xs text-gold-dim">
+                      {(createUser.data as any).credentials_emailed !== false
+                        ? "Portal account created."
+                        : `Portal account created; email not sent — temporary password: ${(createUser.data as any).temp_password}`}
+                    </p>
+                  )}
                   <button className="btn-primary w-full" disabled={createUser.isPending}>Create portal account</button>
                 </form>
               )}
@@ -220,150 +226,36 @@ export default function SettingsPage() {
   );
 }
 
-// --- Roles manager ----------------------------------------------------------
-
-function RolesManager({ roles }: { roles: Role[] }) {
+function FirmProfile({ tenant }: { tenant: { name: string; reg_number?: string; phone?: string } }) {
   const qc = useQueryClient();
-  const [editing, setEditing] = useState<Role | "new" | null>(null);
-
-  const { data: catalogData } = useQuery({ queryKey: ["permissions"], queryFn: () => api("/api/v1/permissions") });
-  const { data: templatesData } = useQuery({ queryKey: ["role-templates"], queryFn: () => api("/api/v1/role-templates") });
-  const catalog: PermissionDef[] = catalogData?.permissions || [];
-  const templates: Template[] = templatesData?.templates || [];
-
-  const del = useMutation({
-    mutationFn: (id: string) => api(`/api/v1/roles/${id}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["roles"] }),
-  });
-
-  return (
-    <section>
-      <div className="flex items-center justify-between">
-        <h3 className="font-display text-xl font-bold text-navy">Roles &amp; permissions</h3>
-        <button className="btn-gold !py-1.5 !text-sm" onClick={() => setEditing("new")}>+ New role</button>
-      </div>
-
-      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-        {roles.map((r) => (
-          <div key={r.id} className="card !py-3">
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="font-semibold text-navy">{r.name}</span>
-                {r.is_protected && <span className="ml-2 rounded bg-navy/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-navy">protected</span>}
-                <p className="text-xs text-ink/50">{r.description || "—"}</p>
-                <p className="mt-1 text-xs text-ink/40">{r.permissions.length} permissions · {r.member_count} member{r.member_count === 1 ? "" : "s"}</p>
-              </div>
-              <div className="flex gap-2 text-xs">
-                <button className="text-navy hover:underline disabled:opacity-40" disabled={r.is_protected} onClick={() => setEditing(r)}>Edit</button>
-                <button className="text-red-600 hover:underline disabled:opacity-40"
-                  disabled={r.is_protected || r.member_count > 0}
-                  title={r.member_count > 0 ? "Reassign members first" : ""}
-                  onClick={() => confirm(`Delete role "${r.name}"?`) && del.mutate(r.id)}>Delete</button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-      {del.isError && <p className="mt-2 text-xs text-red-600">{(del.error as Error).message}</p>}
-
-      {editing && (
-        <RoleEditor
-          role={editing === "new" ? null : editing}
-          catalog={catalog}
-          templates={templates}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); qc.invalidateQueries({ queryKey: ["roles"] }); }}
-        />
-      )}
-    </section>
-  );
-}
-
-function RoleEditor({
-  role, catalog, templates, onClose, onSaved,
-}: {
-  role: Role | null;
-  catalog: PermissionDef[];
-  templates: Template[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [name, setName] = useState(role?.name || "");
-  const [description, setDescription] = useState(role?.description || "");
-  const [selected, setSelected] = useState<Set<string>>(new Set(role?.permissions || []));
-
+  const [editing, setEditing] = useState(false);
   const save = useMutation({
-    mutationFn: () => {
-      const body = { name, description, permissions: [...selected] };
-      return role
-        ? api(`/api/v1/roles/${role.id}`, { method: "PATCH", body: JSON.stringify(body) })
-        : api("/api/v1/roles", { method: "POST", body: JSON.stringify(body) });
-    },
-    onSuccess: onSaved,
+    mutationFn: (body: Record<string, string>) => api("/api/v1/firm", { method: "PATCH", body: JSON.stringify(body) }),
+    onSuccess: () => { setEditing(false); qc.invalidateQueries({ queryKey: ["me"] }); },
   });
-
-  const byResource = useMemo(() => {
-    const groups: Record<string, PermissionDef[]> = {};
-    for (const p of catalog) (groups[p.resource] ||= []).push(p);
-    return Object.entries(groups);
-  }, [catalog]);
-
-  function toggle(key: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
+  if (!editing) {
+    return (
+      <p className="mt-2 text-xs text-ink/60">
+        LSK / registration no.: {tenant.reg_number || "—"} · Phone: {tenant.phone || "—"}
+        <button className="ml-2 font-semibold text-navy hover:underline" onClick={() => setEditing(true)}>Edit firm details</button>
+      </p>
+    );
   }
-  function applyTemplate(t: Template) {
-    setSelected(new Set(t.permissions));
-    if (!name) setName(t.name);
-    if (!description) setDescription(t.description);
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h3 className="font-display text-xl font-bold text-navy">{role ? `Edit ${role.name}` : "New role"}</h3>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <input className="input" placeholder="Role name" value={name} onChange={(e) => setName(e.target.value)} />
-          <input className="input" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
-        </div>
-
-        {!role && templates.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-ink/50">Start from a template:</span>
-            {templates.filter((t) => !t.is_protected).map((t) => (
-              <button key={t.name} className="rounded border border-navy/20 px-2 py-1 hover:border-gold" onClick={() => applyTemplate(t)}>{t.name}</button>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-4 space-y-4">
-          {byResource.map(([resource, perms]) => (
-            <div key={resource}>
-              <p className="mb-1 text-xs font-bold uppercase tracking-wide text-navy/60">{resource.replace("_", " ")}</p>
-              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                {perms.map((p) => (
-                  <label key={p.key} className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={selected.has(p.key)} onChange={() => toggle(p.key)} />
-                    {p.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {save.isError && <p className="mt-3 text-xs text-red-600">{(save.error as Error).message}</p>}
-        <div className="mt-5 flex justify-end gap-2">
-          <button className="btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn-gold" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? "Saving…" : role ? "Save changes" : "Create role"}
-          </button>
-        </div>
+    <form className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        save.mutate({ name: String(fd.get("name")), reg_number: String(fd.get("reg_number")), phone: String(fd.get("phone")) });
+      }}>
+      <input name="name" className="input" defaultValue={tenant.name} required aria-label="Firm name" />
+      <input name="reg_number" className="input" defaultValue={tenant.reg_number} placeholder="LSK / registration no." aria-label="Registration number" />
+      <input name="phone" className="input" defaultValue={tenant.phone} placeholder="Phone" aria-label="Phone" />
+      {save.isError && <p className="text-xs text-red-600 sm:col-span-3">{(save.error as Error).message}</p>}
+      <div className="flex gap-2 sm:col-span-3">
+        <button className="btn-gold !py-1.5" disabled={save.isPending}>{save.isPending ? "Saving…" : "Save"}</button>
+        <button type="button" className="btn-outline" onClick={() => setEditing(false)}>Cancel</button>
       </div>
-    </div>
+    </form>
   );
 }

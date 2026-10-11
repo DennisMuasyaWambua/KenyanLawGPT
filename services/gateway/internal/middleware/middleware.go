@@ -135,6 +135,13 @@ func Tenant(database *db.DB, cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
+// InvalidateTenant drops a cached tenant so profile edits show up immediately.
+func InvalidateTenant(slug string) {
+	tcache.mu.Lock()
+	delete(tcache.m, strings.ToLower(slug))
+	tcache.mu.Unlock()
+}
+
 func TenantFrom(c *gin.Context) *repository.Tenant {
 	v, _ := c.Get(CtxTenant)
 	t, _ := v.(*repository.Tenant)
@@ -167,6 +174,29 @@ func Auth(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		c.Set(CtxClaims, claims)
+		c.Next()
+	}
+}
+
+// passwordChangeAllowed are the only routes a temporary-password session may
+// use: enough to load the profile, set a new password, or sign out.
+var passwordChangeAllowed = map[string]bool{
+	"/api/v1/auth/me":              true,
+	"/api/v1/auth/change-password": true,
+	"/api/v1/auth/logout":          true,
+}
+
+// RequirePasswordChanged enforces the first-login password change server-side:
+// a session opened with an emailed temporary password can do nothing else until
+// the user picks their own password (which reissues the token without the flag).
+func RequirePasswordChanged() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if cl := ClaimsFrom(c); cl != nil && cl.PasswordChange && !passwordChangeAllowed[c.FullPath()] {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "please set a new password before continuing", "code": "password_change_required",
+			})
+			return
+		}
 		c.Next()
 	}
 }
@@ -335,6 +365,26 @@ func RateLimit(rdb *redis.Client, perMin int) gin.HandlerFunc {
 			}
 			if n > int64(perMin) {
 				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
+				return
+			}
+		}
+		c.Next()
+	}
+}
+
+// RateLimitPerIP caps an expensive public endpoint (firm signup provisions a
+// whole schema) per client IP per hour. Fails open if Redis is unavailable,
+// like RateLimit.
+func RateLimitPerIP(rdb *redis.Client, name string, perHour int) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		key := "rl:" + name + ":" + c.ClientIP() + ":" + time.Now().Format("2006010215")
+		n, err := rdb.Incr(c.Request.Context(), key).Result()
+		if err == nil {
+			if n == 1 {
+				rdb.Expire(c.Request.Context(), key, 65*time.Minute)
+			}
+			if n > int64(perHour) {
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts — please try again later"})
 				return
 			}
 		}

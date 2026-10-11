@@ -201,7 +201,7 @@ class DraftingEngine:
             log().warning("draft grounding retrieval failed: %s", exc)
 
         system = (
-            "You are C. Karwitha C.K Advocates' drafting engine for Kenyan legal documents. Produce a "
+            "You are the drafting engine of a Kenyan law firm. Produce a "
             "complete, professional draft in the house style of Kenyan practice. Use the "
             "provided template as the structural skeleton, fill in what the instructions "
             "and file facts support, and leave square-bracket placeholders for anything "

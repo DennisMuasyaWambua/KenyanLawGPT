@@ -58,9 +58,9 @@ func (s *Server) InviteUser(c *gin.Context) {
 	tenant := s.tenant(c)
 	acceptURL := fmt.Sprintf("%s/invite/%s?firm=%s", strings.TrimRight(s.Cfg.AppBaseURL, "/"), rawToken, tenant.Slug)
 	body := fmt.Sprintf(
-		"You've been invited to join %s on C. Karwitha C.K Advocates as %s.\n\nAccept your invite and set up your account:\n%s\n\nThis link expires in 72 hours.",
+		"You've been invited to join %s on Advocatus as %s.\n\nAccept your invite and set up your account:\n%s\n\nThis link expires in 72 hours.",
 		tenant.Name, inv.Role, acceptURL)
-	if err := s.Mail.Send(c.Request.Context(), inv.Email, "You're invited to C. Karwitha C.K Advocates", body); err != nil {
+	if err := s.Mail.Send(c.Request.Context(), inv.Email, "You're invited to join "+tenant.Name, body); err != nil {
 		// The invite is persisted; surface the link so onboarding isn't blocked by email.
 		c.JSON(http.StatusCreated, gin.H{"invite": inv, "accept_url": acceptURL, "email_error": err.Error()})
 		return

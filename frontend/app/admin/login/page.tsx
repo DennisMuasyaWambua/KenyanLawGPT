@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { setAdminSession } from "@/lib/admin";
-import { BRAND } from "@/lib/brand";
+import ProductMark from "@/components/ProductMark";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
@@ -39,7 +39,7 @@ export default function AdminLoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-navy p-6">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <img src={BRAND.logo} alt={BRAND.name} className="mx-auto mb-4 w-full max-w-xs rounded-lg bg-white p-3 shadow-lg" />
+          <div className="mb-6"><ProductMark light href="/admin/login" /></div>
           <h1 className="font-display text-2xl font-bold text-white">Control Center</h1>
           <p className="mt-1 text-xs uppercase tracking-widest text-gold">Platform administration</p>
         </div>

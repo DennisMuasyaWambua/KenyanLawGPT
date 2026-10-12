@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, fmtDate } from "@/lib/api";
+import { api, currentUser, fmtDate, getTenant, holdSignOutRedirect, loginPath, SESSION_EXPIRED } from "@/lib/api";
+import {
+  appendChunk, deleteSession, listSessions, loadAudio, saveSession, updateSession, type LocalRecording,
+} from "@/lib/recordingStore";
 import { usePermissions } from "@/lib/usePermissions";
 
 type Utterance = { speaker: number; start: number; end: number; text: string };
@@ -13,6 +16,8 @@ type Recording = {
   num_speakers?: number;
   transcript_segments?: Utterance[] | null;
   speaker_names?: Record<string, string> | null;
+  /** Speech-to-text output before the Kenyan-English AI correction ("" = none). */
+  transcript_raw?: string;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -171,6 +176,8 @@ export default function RecordingsPage() {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [sessionExpired, setSessionExpired] = useState(false);
   const mediaRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   // Live input level: lets the user see the mic is actually picking up sound,
@@ -179,7 +186,18 @@ export default function RecordingsPage() {
   const peakRef = useRef(0);
   const meterRef = useRef<{ ctx: AudioContext; raf: number } | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const startedRef = useRef<number>(0);
+  // The recording in progress, mirrored to IndexedDB chunk by chunk (see
+  // lib/recordingStore) so it survives a lock screen, crash or lost session.
+  const sessionRef = useRef<LocalRecording | null>(null);
+  const writesRef = useRef<Promise<void>>(Promise.resolve());
+  const persistedRef = useRef(true);
+  const wakeRef = useRef<WakeLockSentinel | null>(null);
+  const releaseHoldRef = useRef<(() => void) | null>(null);
+  // Recordings saved on this device that haven't reached cloud storage yet.
+  const [localRecs, setLocalRecs] = useState<LocalRecording[]>([]);
+  const [sending, setSending] = useState<string[]>([]);
+  // Last resort when the browser can't store audio locally and the upload failed.
+  const [unsaved, setUnsaved] = useState<{ url: string; name: string } | null>(null);
 
   const { data } = useQuery({
     queryKey: ["recordings"],
@@ -187,7 +205,7 @@ export default function RecordingsPage() {
     refetchInterval: (q) => ((q.state.data?.recordings || []).some((r: Recording) => PENDING.includes(r.status)) ? 4000 : false),
   });
   const recordings: Recording[] = data?.recordings || [];
-  // Release the microphone if the user navigates away mid-recording.
+
   function stopMeter() {
     const m = meterRef.current;
     if (m) { cancelAnimationFrame(m.raf); m.ctx.close().catch(() => {}); }
@@ -218,45 +236,173 @@ export default function RecordingsPage() {
     }
   }
 
-  useEffect(() => () => {
-    stopMeter();
-    const mr = mediaRef.current;
-    if (mr && mr.state !== "inactive") { mr.onstop = null; mr.stop(); }
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-  }, []);
-  const { data: filesData } = useQuery({ queryKey: ["files"], queryFn: () => api("/api/v1/files"), enabled: canCreate });
+  // Keep the screen on while recording: an auto-locking device can suspend the
+  // microphone. The browser drops the lock whenever the page is hidden, so it is
+  // re-taken each time the page comes back.
+  async function keepAwake() {
+    try {
+      wakeRef.current = (await navigator.wakeLock?.request("screen")) ?? null;
+    } catch {
+      /* unsupported, or refused (e.g. battery saver) — recording carries on */
+    }
+  }
+  function releaseWake() {
+    wakeRef.current?.release().catch(() => {});
+    wakeRef.current = null;
+  }
 
-  const finalize = useMutation({
-    mutationFn: async (blob: Blob) => {
-      const mime = blob.type || "audio/webm";
-      const filename = `recording-${new Date().toISOString().replace(/[:.]/g, "-")}.${extFor(mime)}`;
-      // 1) create the row (consent gate) + get a presigned R2 URL
+  function releaseHold() {
+    releaseHoldRef.current?.();
+    releaseHoldRef.current = null;
+  }
+
+  async function refreshLocal() {
+    try {
+      setLocalRecs(await listSessions(getTenant(), currentUser()?.id || ""));
+    } catch {
+      /* IndexedDB unavailable: nothing to recover */
+    }
+  }
+
+  /** Put a recording's audio in cloud storage and hand it to the transcription
+   *  worker. Reuses the server row of an earlier, interrupted attempt. */
+  async function upload(rec: LocalRecording, audio: Blob) {
+    if (audio.size === 0) throw new Error("No audio was captured. Check your microphone and try again.");
+    const mime = audio.type || rec.mimeType || "audio/webm";
+    const duration = JSON.stringify({ duration_seconds: rec.durationSeconds });
+    let id = rec.serverId;
+    let url = "";
+    if (id) {
+      try {
+        const r = await api<{ uploaded: boolean; status?: string; upload_url?: string }>(
+          `/api/v1/recordings/${id}/upload-url`, { method: "POST" });
+        if (r.uploaded) {
+          // The audio got there last time; only the hand-off may be missing.
+          if (r.status === "recording") await api(`/api/v1/recordings/${id}/uploaded`, { method: "POST", body: duration });
+          return;
+        }
+        url = r.upload_url || "";
+      } catch (e) {
+        if ((e as Error).message === SESSION_EXPIRED) throw e;
+        id = undefined; // that row can no longer take the audio: start a new one
+      }
+    }
+    if (!id || !url) {
+      const filename = `recording-${new Date(rec.startedAt).toISOString().replace(/[:.]/g, "-")}.${extFor(mime)}`;
+      // Consent was confirmed before this recording could start.
       const res = await api<{ recording: Recording; upload_url: string }>("/api/v1/recordings", {
         method: "POST",
         body: JSON.stringify({
-          file_id: fileId || undefined, filename, mime_type: mime, consent_confirmed: true, num_speakers: numSpeakers,
+          file_id: rec.fileId || undefined, filename, mime_type: mime, consent_confirmed: true, num_speakers: rec.numSpeakers,
         }),
       });
-      // 2) upload audio straight to R2
-      let put: Response;
+      id = res.recording.id;
+      url = res.upload_url;
+      rec.serverId = id;
+      await updateSession(rec.id, { serverId: id }).catch(() => {});
+    }
+    let put: Response;
+    try {
+      put = await fetch(url, { method: "PUT", body: audio, headers: { "Content-Type": mime } });
+    } catch {
+      // fetch rejects (no status) on network/CORS/mixed-content failures.
+      throw new Error("Could not reach file storage to upload the audio. Check your connection.");
+    }
+    if (!put.ok) throw new Error(`Upload failed (${put.status}).`);
+    await api(`/api/v1/recordings/${id}/uploaded`, { method: "POST", body: duration });
+  }
+
+  /** Upload a recording, deleting the on-device copy only once it's safely
+   *  stored. One tab at a time per recording. Returns whether it was sent. */
+  async function send(rec: LocalRecording, audio?: Blob): Promise<boolean> {
+    const attempt = async (): Promise<boolean> => {
+      setSending((s) => [...s, rec.id]);
+      const release = holdSignOutRedirect();
       try {
-        put = await fetch(res.upload_url, { method: "PUT", body: blob, headers: { "Content-Type": mime } });
-      } catch {
-        // fetch rejects (no status) on network/CORS/mixed-content failures.
-        throw new Error("Could not reach file storage to upload the audio. Check your connection and try again.");
+        await upload(rec, audio ?? (await loadAudio(rec)));
+        await deleteSession(rec.id).catch(() => {});
+        qc.invalidateQueries({ queryKey: ["recordings"] });
+        return true;
+      } catch (e) {
+        const msg = (e as Error).message;
+        await updateSession(rec.id, { error: msg }).catch(() => {});
+        if (msg === SESSION_EXPIRED) setSessionExpired(true);
+        else setError(msg);
+        return false;
+      } finally {
+        release();
+        setSending((s) => s.filter((x) => x !== rec.id));
+        refreshLocal();
       }
-      if (!put.ok) throw new Error(`upload failed (${put.status})`);
-      // 3) hand off to the transcription worker
-      const duration = Math.round((Date.now() - startedRef.current) / 1000);
-      await api(`/api/v1/recordings/${res.recording.id}/uploaded`, { method: "POST", body: JSON.stringify({ duration_seconds: duration }) });
-    },
-    onSuccess: () => { setBusy(""); qc.invalidateQueries({ queryKey: ["recordings"] }); },
-    onError: (e) => {
-      setBusy("");
-      setError((e as Error).message);
-      qc.invalidateQueries({ queryKey: ["recordings"] });
-    },
-  });
+    };
+    const locks = navigator.locks;
+    if (!locks?.request) return attempt();
+    return locks.request(`advocatus-upload-${rec.id}`, { ifAvailable: true }, (lock) => (lock ? attempt() : false));
+  }
+
+  async function discard(rec: LocalRecording) {
+    if (!confirm("Delete this recording from this device? It has not been uploaded and cannot be recovered.")) return;
+    await deleteSession(rec.id).catch(() => {});
+    refreshLocal();
+  }
+
+  // On arrival: upload anything stopped normally but never sent (e.g. the
+  // session had expired), and list interrupted recordings for the user to decide.
+  useEffect(() => {
+    (async () => {
+      try {
+        const recs = await listSessions(getTenant(), currentUser()?.id || "");
+        setLocalRecs(recs);
+        for (const r of recs) if (r.state === "pending") await send(r);
+      } catch {
+        /* IndexedDB unavailable */
+      }
+    })();
+  }, []);
+
+  // While recording or uploading: re-take the screen wake lock when the page
+  // returns, flush buffered audio to the device when it is hidden (a locked or
+  // backgrounded tab may be killed), and warn before closing the tab.
+  const active = recording || sending.length > 0 || !!busy;
+  useEffect(() => {
+    if (!active) return;
+    const onVisibility = () => {
+      const mr = mediaRef.current;
+      if (document.visibilityState === "visible") {
+        if (mr?.state === "recording") keepAwake();
+      } else if (mr?.state === "recording") {
+        mr.requestData();
+      }
+    };
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, [active]);
+
+  // Leaving the page mid-recording stops the microphone but keeps what was
+  // recorded on the device; it is uploaded on the next visit.
+  useEffect(() => () => {
+    stopMeter();
+    releaseWake();
+    releaseHold();
+    const mr = mediaRef.current;
+    const session = sessionRef.current;
+    if (mr && mr.state !== "inactive") {
+      mr.onstop = () => {
+        if (session && persistedRef.current) {
+          const durationSeconds = Math.round((Date.now() - session.startedAt) / 1000);
+          writesRef.current.then(() => updateSession(session.id, { state: "pending", durationSeconds })).catch(() => {});
+        }
+      };
+      mr.stop();
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+  }, []);
+  const { data: filesData } = useQuery({ queryKey: ["files"], queryFn: () => api("/api/v1/files"), enabled: canCreate });
 
   const retry = useMutation({
     mutationFn: (id: string) => api(`/api/v1/recordings/${id}/retry`, { method: "POST" }),
@@ -264,8 +410,45 @@ export default function RecordingsPage() {
     onError: (e) => setError((e as Error).message),
   });
 
+  async function stopped(mr: MediaRecorder, stream: MediaStream, session: LocalRecording) {
+    stream.getTracks().forEach((t) => t.stop());
+    stopMeter();
+    releaseWake();
+    setRecording(false);
+    mediaRef.current = null;
+    sessionRef.current = null;
+    await writesRef.current; // every chunk is on the device before anything else happens
+    const audio = new Blob(chunksRef.current, { type: mr.mimeType || session.mimeType });
+    chunksRef.current = [];
+    const durationSeconds = Math.round((Date.now() - session.startedAt) / 1000);
+    if (peakRef.current < 0.002 || audio.size === 0) {
+      await deleteSession(session.id).catch(() => {});
+      releaseHold();
+      setError(audio.size === 0
+        ? "No audio was captured. Check your microphone and try again."
+        : "No sound was picked up by the microphone, so nothing was uploaded. Check that the right microphone is selected and unmuted, then try again.");
+      return;
+    }
+    const rec: LocalRecording = { ...session, mimeType: audio.type, durationSeconds, state: "pending" };
+    if (persistedRef.current) {
+      await updateSession(session.id, { mimeType: rec.mimeType, durationSeconds, state: "pending" }).catch(() => {});
+    } else {
+      await deleteSession(session.id).catch(() => {}); // incomplete on-device copy
+    }
+    setBusy("Uploading…");
+    const ok = await send(rec, audio);
+    setBusy("");
+    releaseHold();
+    if (!ok && !persistedRef.current) {
+      setUnsaved({ url: URL.createObjectURL(audio), name: `recording-${new Date(session.startedAt).toISOString().slice(0, 16)}.${extFor(audio.type)}` });
+    }
+    refreshLocal();
+  }
+
   async function start() {
     setError("");
+    setNotice("");
+    setSessionExpired(false);
     if (!consent) { setError("Confirm client consent before recording."); return; }
     try {
       if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
@@ -276,26 +459,42 @@ export default function RecordingsPage() {
       streamRef.current = stream;
       const mimeType = pickMime();
       const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      chunksRef.current = [];
-      mr.ondataavailable = (e) => e.data.size > 0 && chunksRef.current.push(e.data);
-      mr.onerror = () => setError("Recording failed — the microphone was interrupted.");
-      mr.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        stopMeter();
-        if (peakRef.current < 0.002) {
-          setError("No sound was picked up by the microphone, so nothing was uploaded. Check that the right microphone is selected and unmuted, then try again.");
-          return;
-        }
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType || mimeType || "audio/webm" });
-        if (blob.size === 0) { setError("No audio was captured. Check your microphone and try again."); return; }
-        setBusy("Uploading & transcribing…");
-        finalize.mutate(blob);
+      const now = Date.now();
+      const session: LocalRecording = {
+        id: crypto.randomUUID(), tenant: getTenant(), userId: currentUser()?.id || "",
+        startedAt: now, updatedAt: now, mimeType: mr.mimeType || mimeType || "audio/webm",
+        fileId, numSpeakers, durationSeconds: 0, state: "recording",
       };
+      sessionRef.current = session;
+      persistedRef.current = true;
+      writesRef.current = saveSession(session).catch(() => { persistedRef.current = false; });
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size === 0) return;
+        chunksRef.current.push(e.data);
+        const secs = Math.round((Date.now() - session.startedAt) / 1000);
+        writesRef.current = writesRef.current
+          .then(() => (persistedRef.current ? appendChunk(session.id, e.data, secs) : undefined))
+          .catch(() => { persistedRef.current = false; });
+      };
+      mr.onerror = () => setError("Recording failed — the microphone was interrupted.");
+      mr.onstop = () => { void stopped(mr, stream, session); };
+      // The OS can take the microphone away (device locked, a phone call):
+      // finish with what was captured instead of losing it.
+      stream.getAudioTracks().forEach((t) => {
+        t.onended = () => {
+          if (mr.state === "inactive") return;
+          setNotice("The microphone was cut off (the device may have locked or another app took it). The audio recorded up to that point has been kept.");
+          mr.stop();
+        };
+      });
       startMeter(stream);
-      startedRef.current = Date.now();
-      // A timeslice flushes data periodically so a long meeting isn't held in one buffer.
+      // A timeslice flushes data every few seconds, which is what gets saved to
+      // the device as the meeting goes on.
       mr.start(5000);
       mediaRef.current = mr;
+      releaseHoldRef.current = holdSignOutRedirect();
+      keepAwake();
       setRecording(true);
     } catch (e) {
       const name = (e as DOMException)?.name;
@@ -307,15 +506,20 @@ export default function RecordingsPage() {
 
   function stop() {
     mediaRef.current?.stop();
-    setRecording(false);
   }
+
+  // A recording counts as interrupted once its heartbeat is stale; a fresh one
+  // is still being captured (here or in another tab).
+  const unsent = localRecs.filter((r) =>
+    r.id !== sessionRef.current?.id && (r.state === "pending" || Date.now() - r.updatedAt > 60_000));
 
   return (
     <div>
       <h2 className="font-display text-3xl font-bold text-navy">Meeting recordings</h2>
       <p className="mt-1 text-sm text-ink/60">
-        Audio never leaves our servers: it&apos;s transcribed and each speaker identified on-box. To write the notes and
-        agreed action points, the transcript text is processed by our AI model provider.
+        The audio is kept in secure cloud storage so you can listen back. Speech-to-text and speaker identification run
+        on our own servers; to correct Kenyan English and write the notes and agreed action points, the transcript text
+        is processed by our AI model provider.
       </p>
 
       {canCreate && (
@@ -353,7 +557,54 @@ export default function RecordingsPage() {
             )}
             {busy && <span className="text-sm text-gold-dim">{busy}</span>}
           </div>
+          {recording && (
+            <p className="text-xs text-ink/50">
+              Audio is saved on this device as you record, so it isn&apos;t lost if the page closes. Keep this tab open
+              until the meeting ends.
+            </p>
+          )}
+          {notice && <p className="text-sm text-amber-700">{notice}</p>}
+          {sessionExpired && (
+            <p className="text-sm text-red-600">
+              Your session expired before the recording could be uploaded. It is saved on this device —{" "}
+              <a className="font-semibold underline" href={loginPath()}>sign in again</a> and it will upload automatically.
+            </p>
+          )}
           {error && <p className="text-sm text-red-600">{error}</p>}
+          {unsaved && (
+            <p className="text-sm text-red-600">
+              This browser could not keep a copy of the audio.{" "}
+              <a className="font-semibold underline" href={unsaved.url} download={unsaved.name}>Save the audio file</a>{" "}
+              before leaving this page so the meeting isn&apos;t lost.
+            </p>
+          )}
+        </div>
+      )}
+
+      {unsent.length > 0 && (
+        <div className="card mt-4 border border-amber-300 bg-amber-50">
+          <p className="text-sm font-semibold text-navy">Saved on this device — not uploaded yet</p>
+          <ul className="mt-2 space-y-2">
+            {unsent.map((r) => {
+              const isSending = sending.includes(r.id);
+              return (
+                <li key={r.id} className="flex flex-wrap items-center gap-3 text-xs text-ink/70">
+                  <span>
+                    {fmtDate(new Date(r.startedAt).toISOString())} · {clock(r.durationSeconds)}
+                    {r.state === "recording" && " · interrupted"}
+                  </span>
+                  {r.error && !isSending && <span className="text-red-600">{r.error}</span>}
+                  <button className="font-semibold text-navy hover:underline disabled:opacity-50" disabled={isSending}
+                    onClick={() => send(r)}>
+                    {isSending ? "Uploading…" : "⇪ Upload now"}
+                  </button>
+                  {!isSending && (
+                    <button className="text-red-700 hover:underline" onClick={() => discard(r)}>Discard</button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 
@@ -369,6 +620,7 @@ export default function RecordingsPage() {
 
 function RecordingCard({ r, onRetry, retrying }: { r: Recording; onRetry: () => void; retrying: boolean }) {
   const [open, setOpen] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
   const insights = parseInsights(r.summary_text);
   const hasSpeakers = (r.transcript_segments || []).length > 0;
   const badge = r.status === "complete" ? "bg-green-100 text-green-800"
@@ -382,6 +634,7 @@ function RecordingCard({ r, onRetry, retrying }: { r: Recording; onRetry: () => 
         </div>
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}>{STATUS_LABEL[r.status] || r.status}</span>
       </div>
+      {r.status !== "recording" && <AudioControls id={r.id} />}
       {r.status === "failed" && (
         <div className="mt-2 flex flex-wrap items-center gap-3">
           {r.error && <p className="text-xs text-red-600">{r.error}</p>}
@@ -429,10 +682,21 @@ function RecordingCard({ r, onRetry, retrying }: { r: Recording; onRetry: () => 
               </div>
               <div className="min-w-0">
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <p className="text-xs font-bold uppercase tracking-wide text-navy/60">Transcript</p>
-                  {hasSpeakers && <SpeakerNamer r={r} ins={insights} />}
+                  <p className="text-xs font-bold uppercase tracking-wide text-navy/60">
+                    Transcript
+                    {r.transcript_raw && (
+                      <button className="ml-2 font-normal normal-case text-navy hover:underline"
+                        title="The transcript was proofread by AI for Kenyan English (names, places, legal terms)."
+                        onClick={() => setShowRaw(!showRaw)}>
+                        {showRaw ? "· show AI-corrected" : "· AI-corrected — show original"}
+                      </button>
+                    )}
+                  </p>
+                  {hasSpeakers && !showRaw && <SpeakerNamer r={r} ins={insights} />}
                 </div>
-                {hasSpeakers ? <TranscriptView r={r} ins={insights} /> : (
+                {showRaw && r.transcript_raw ? (
+                  <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap rounded bg-navy/5 p-3 text-xs leading-relaxed text-ink/80">{r.transcript_raw}</pre>
+                ) : hasSpeakers ? <TranscriptView r={r} ins={insights} /> : (
                   <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded bg-navy/5 p-3 text-xs leading-relaxed text-ink/80">{r.transcript_text || "—"}</pre>
                 )}
               </div>
@@ -440,6 +704,34 @@ function RecordingCard({ r, onRetry, retrying }: { r: Recording; onRetry: () => 
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** Listen to or download the original audio, kept alongside the transcript.
+ *  Links are short-lived, so they are fetched on demand. */
+function AudioControls({ id }: { id: string }) {
+  const [src, setSrc] = useState("");
+  const [err, setErr] = useState("");
+  const links = () => api<{ url: string; download_url: string }>(`/api/v1/recordings/${id}/audio`);
+  async function listen() {
+    setErr("");
+    try { setSrc((await links()).url); } catch (e) { setErr((e as Error).message); }
+  }
+  async function download() {
+    setErr("");
+    try { window.location.href = (await links()).download_url; } catch (e) { setErr((e as Error).message); }
+  }
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-3">
+      {src ? (
+        // A long pause can outlive the signed link; fetch a fresh one on error.
+        <audio controls autoPlay src={src} className="h-8 w-full max-w-md" onError={() => setSrc("")} />
+      ) : (
+        <button className="text-xs text-navy hover:underline" onClick={listen}>▶ Listen</button>
+      )}
+      <button className="text-xs text-navy hover:underline" onClick={download}>⬇ Audio</button>
+      {err && <span className="text-xs text-red-600">{err}</span>}
     </div>
   );
 }

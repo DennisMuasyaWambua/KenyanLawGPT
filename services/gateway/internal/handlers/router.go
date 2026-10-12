@@ -114,6 +114,8 @@ func (s *Server) Register(r *gin.Engine) {
 	member.GET("/recordings", perm(rbac.PermRecordingsViewOwn), s.ListRecordings)
 	member.POST("/recordings", perm(rbac.PermRecordingsCreate), s.CreateRecording)
 	member.GET("/recordings/:id", perm(rbac.PermRecordingsViewOwn), s.GetRecording)
+	member.GET("/recordings/:id/audio", perm(rbac.PermRecordingsViewOwn), s.RecordingAudio)
+	member.POST("/recordings/:id/upload-url", perm(rbac.PermRecordingsCreate), s.RecordingUploadURL)
 	member.POST("/recordings/:id/uploaded", perm(rbac.PermRecordingsCreate), s.MarkRecordingUploaded)
 	member.POST("/recordings/:id/retry", perm(rbac.PermRecordingsCreate), s.RetryRecording)
 	member.POST("/recordings/:id/share", perm(rbac.PermRecordingsViewOwn), s.ShareRecording)
@@ -141,6 +143,8 @@ func (s *Server) Register(r *gin.Engine) {
 
 	member.POST("/research/query", perm(rbac.PermResearchQuery), s.ResearchQuery)
 	member.POST("/research/reason", perm(rbac.PermResearchReason), s.ResearchReason)
+	member.POST("/research/query/stream", perm(rbac.PermResearchQuery), s.ResearchQueryStream)
+	member.POST("/research/reason/stream", perm(rbac.PermResearchReason), s.ResearchReasonStream)
 	member.POST("/drafting/stream", perm(rbac.PermDraftingCreate), s.DraftStream)
 
 	// Real-time collaborative documents (metadata + sharing; Yjs sync is the collab service).

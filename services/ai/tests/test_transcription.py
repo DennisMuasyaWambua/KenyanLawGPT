@@ -180,3 +180,23 @@ def test_failed_diarization_keeps_the_transcript(monkeypatch):
     p._diarizer, p._diarizer_built = Broken(), True
     seg = types.SimpleNamespace(words=[types.SimpleNamespace(start=0, end=1, word=" hi")])
     assert p._speakers([0.0], [seg], 0) == []
+
+
+def test_single_speaker_skips_the_diarizer():
+    import types
+
+    from app.transcription import FasterWhisperProvider
+
+    p = FasterWhisperProvider.__new__(FasterWhisperProvider)
+    p._cfg = Config()
+
+    class MustNotRun:
+        def diarize(self, *a, **k):
+            raise AssertionError("diarizer called for a one-person recording")
+
+    p._diarizer, p._diarizer_built = MustNotRun(), True
+    W = types.SimpleNamespace
+    segs = [W(words=[W(start=0.0, end=0.5, word=" Dictating"), W(start=0.6, end=1.0, word=" notes.")]),
+            W(words=[W(start=9.0, end=9.5, word=" End.")])]
+    assert p._speakers([0.0], segs, 1) == [
+        {"speaker": 1, "start": 0.0, "end": 9.5, "text": "Dictating notes. End."}]

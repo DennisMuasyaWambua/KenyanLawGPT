@@ -59,6 +59,49 @@ func (s *Server) CreateRecording(c *gin.Context) {
 	}
 }
 
+// RecordingUploadURL re-issues the upload link for one of the caller's own
+// recordings, so a browser retrying an interrupted upload (lost connection,
+// expired session) completes the same row instead of leaving a stray one that
+// later fails. {"uploaded": true} means the audio is already in storage and
+// nothing needs sending.
+func (s *Server) RecordingUploadURL(c *gin.Context) {
+	var rec *repository.Recording
+	ok := s.withTenant(c, func(tx pgx.Tx) error {
+		r, err := repository.GetRecording(c.Request.Context(), tx, c.Param("id"))
+		if err == pgx.ErrNoRows || (err == nil && r.AdvocateUserID != s.claims(c).UserID()) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "recording not found or not yours"})
+			return errHandled
+		}
+		rec = r
+		return err
+	})
+	if !ok {
+		return
+	}
+	tenantID := s.tenant(c).ID
+	exists, err := s.Store.Exists(c.Request.Context(), tenantID, rec.ObjectKey)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "could not reach file storage"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusOK, gin.H{"uploaded": true, "status": rec.Status})
+		return
+	}
+	// Only a row still waiting for its audio can take it; a row the worker
+	// already gave up on ("upload never completed") stays failed.
+	if rec.Status != "recording" {
+		c.JSON(http.StatusConflict, gin.H{"error": "this recording is no longer waiting for audio"})
+		return
+	}
+	uploadURL, err := s.Store.PresignPut(c.Request.Context(), tenantID, rec.ObjectKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not presign upload"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"uploaded": false, "upload_url": uploadURL})
+}
+
 // MarkRecordingUploaded flips a recording to "transcribing" after the browser
 // finishes the R2 upload; the AI background worker takes it from there.
 func (s *Server) MarkRecordingUploaded(c *gin.Context) {
@@ -135,6 +178,50 @@ func (s *Server) GetRecording(c *gin.Context) {
 	if ok {
 		c.JSON(http.StatusOK, gin.H{"recording": rec})
 	}
+}
+
+// RecordingAudio returns short-lived links to a recording's original audio: one
+// to play it in the page, one that downloads it. The audio is kept after
+// transcription so the transcript can always be checked against the source.
+// Authz mirrors GetRecording.
+func (s *Server) RecordingAudio(c *gin.Context) {
+	var rec *repository.Recording
+	ok := s.withTenant(c, func(tx pgx.Tx) error {
+		r, err := repository.GetRecording(c.Request.Context(), tx, c.Param("id"))
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "recording not found"})
+			return errHandled
+		}
+		if err != nil {
+			return err
+		}
+		if r.AdvocateUserID != s.claims(c).UserID() && !s.can(c, rbac.PermRecordingsViewAll) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "not allowed to listen to this recording"})
+			return errHandled
+		}
+		rec = r
+		return nil
+	})
+	if !ok {
+		return
+	}
+	// A row still "recording" has no confirmed upload yet.
+	if rec.Status == "recording" || rec.ObjectKey == "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "the audio for this recording has not finished uploading"})
+		return
+	}
+	tenantID := s.tenant(c).ID
+	playURL, err := s.Store.PresignGet(c.Request.Context(), tenantID, rec.ObjectKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not sign audio link"})
+		return
+	}
+	downloadURL, err := s.Store.PresignDownload(c.Request.Context(), tenantID, rec.ObjectKey, rec.Filename)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not sign audio link"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"url": playURL, "download_url": downloadURL, "mime_type": rec.MimeType})
 }
 
 // SetRecordingSpeakers names the speaker labels ("Speaker 1" -> "Adv. Wanjiru").

@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { streamResearch } from "@/lib/api";
 import { Chunk } from "@/components/CitationCard";
 import CitationChain from "@/components/CitationChain";
 import JudgeInsightPanel, { JudgePattern } from "@/components/JudgeInsightPanel";
@@ -17,26 +16,39 @@ type Result = {
   judge_pattern?: JudgePattern;
 };
 
+type Item = { id: string; q: string; mode: "query" | "reason"; r: Result; status: "searching" | "writing" | "done"; error?: string };
+
 export default function ResearchPage() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"query" | "reason">("query");
   const [includeSuperseded, setIncludeSuperseded] = useState(false);
-  const [history, setHistory] = useState<{ q: string; r: Result }[]>([]);
+  const [history, setHistory] = useState<Item[]>([]);
+  const [busy, setBusy] = useState(false);
 
-  const ask = useMutation({
-    mutationFn: async () => {
-      const path = mode === "query" ? "/api/v1/research/query" : "/api/v1/research/reason";
-      const r = await api<Result & { context?: Chunk[] }>(path, {
-        method: "POST",
-        body: JSON.stringify({ query, include_superseded: includeSuperseded, max_hops: 3 }),
+  // The answer is streamed: sources (or the reasoning trace) appear as soon as
+  // retrieval finishes, then the answer fills in as the model writes it.
+  async function ask() {
+    const id = crypto.randomUUID();
+    const q = query;
+    const update = (f: (it: Item) => Item) => setHistory((h) => h.map((it) => (it.id === id ? f(it) : it)));
+    setHistory((h) => [{ id, q, mode, r: { answer: "", intent: "", chunks: [] }, status: "searching" }, ...h]);
+    setQuery("");
+    setBusy(true);
+    try {
+      await streamResearch(mode, { query: q, include_superseded: includeSuperseded, max_hops: 3 }, {
+        onStart: (p) => update((it) => ({
+          ...it, status: "writing",
+          r: { ...it.r, intent: p.intent || "", chunks: p.chunks || p.context || [], steps: p.steps },
+        })),
+        onText: (t) => update((it) => ({ ...it, status: "writing", r: { ...it.r, answer: it.r.answer + t } })),
       });
-      return { ...r, chunks: r.chunks || r.context || [] };
-    },
-    onSuccess: (r) => {
-      setHistory((h) => [{ q: query, r }, ...h]);
-      setQuery("");
-    },
-  });
+      update((it) => ({ ...it, status: "done" }));
+    } catch (e) {
+      update((it) => ({ ...it, status: "done", error: (e as Error).message }));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div>
@@ -49,7 +61,7 @@ export default function ResearchPage() {
 
       <form
         className="card mt-6 space-y-3"
-        onSubmit={(e) => { e.preventDefault(); if (query.trim()) ask.mutate(); }}
+        onSubmit={(e) => { e.preventDefault(); if (query.trim() && !busy) ask(); }}
       >
         <textarea className="input" rows={3} value={query} onChange={(e) => setQuery(e.target.value)}
           placeholder='e.g. "What must an employer prove for a termination to be fair under the Employment Act, and how have the courts applied it?"' />
@@ -67,16 +79,15 @@ export default function ResearchPage() {
               onChange={(e) => setIncludeSuperseded(e.target.checked)} />
             include superseded/overturned law (historical)
           </label>
-          <button className="btn-gold" disabled={ask.isPending}>
-            {ask.isPending ? "Researching…" : "Ask"}
+          <button className="btn-gold" disabled={busy}>
+            {busy ? "Researching…" : "Ask"}
           </button>
         </div>
-        {ask.isError && <p className="text-sm text-red-600">{(ask.error as Error).message}</p>}
       </form>
 
       <div className="mt-8 space-y-8">
-        {history.map((item, i) => (
-          <div key={i}>
+        {history.map((item) => (
+          <div key={item.id}>
             <p className="mb-2 text-sm font-semibold text-navy">Q: {item.q}</p>
             {item.r.intent && (
               <p className="mb-2 text-[10px] uppercase tracking-wide text-ink/40">
@@ -98,10 +109,26 @@ export default function ResearchPage() {
                 <JudgeInsightPanel pattern={item.r.judge_pattern} />
               </div>
             )}
-            <div className="card whitespace-pre-line text-sm leading-relaxed">{item.r.answer}</div>
-            <div className="mt-3">
-              <CitationChain chunks={item.r.chunks} />
-            </div>
+            {item.status === "searching" ? (
+              <div className="card animate-pulse text-sm text-ink/50">
+                {item.mode === "reason" ? "Tracing authorities through the law graph…" : "Searching Kenyan law and your firm's documents…"}
+              </div>
+            ) : (
+              (item.r.answer || item.status === "writing") && (
+                <div className="card whitespace-pre-line text-sm leading-relaxed">
+                  {item.r.answer}
+                  {item.status === "writing" && (
+                    <span className="ml-0.5 inline-block animate-pulse text-gold">{item.r.answer ? "▍" : "Writing the answer…"}</span>
+                  )}
+                </div>
+              )
+            )}
+            {item.error && <p className="mt-2 text-sm text-red-600">{item.error}</p>}
+            {item.r.chunks.length > 0 && (
+              <div className="mt-3">
+                <CitationChain chunks={item.r.chunks} />
+              </div>
+            )}
           </div>
         ))}
       </div>

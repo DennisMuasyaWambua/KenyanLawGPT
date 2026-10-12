@@ -82,6 +82,142 @@ func (s *Server) ResearchQuery(c *gin.Context) {
 	})
 }
 
+// startSSE switches the response to Server-Sent Events and returns a writer
+// that sends (and flushes) one event per call; event "" is a plain data line.
+func startSSE(c *gin.Context) func(event string, payload any) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	flusher, _ := c.Writer.(http.Flusher)
+	return func(event string, payload any) {
+		buf, err := json.Marshal(payload)
+		if err != nil {
+			return
+		}
+		if event != "" {
+			fmt.Fprintf(c.Writer, "event: %s\n", event)
+		}
+		fmt.Fprintf(c.Writer, "data: %s\n\n", buf)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+}
+
+// ResearchQueryStream is ResearchQuery over SSE: a "sources" event as soon as
+// retrieval finishes, then the answer text as the model writes it, then "done".
+// The advocate reads the sources and the first sentences while the rest of the
+// answer is still being generated.
+func (s *Server) ResearchQueryStream(c *gin.Context) {
+	var in struct {
+		Query             string `json:"query" binding:"required"`
+		FileID            string `json:"file_id"`
+		TopK              int32  `json:"top_k"`
+		IncludeSuperseded bool   `json:"include_superseded"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	tenant := s.tenant(c)
+	ctx := grpcclient.Ctx(c.Request.Context(), tenant.ID, middleware.TraceID(c))
+	stream, err := s.AI.Retrieval.RetrieveStream(ctx, &wakiliv1.TenantScopedQuery{
+		Tenant:            grpcclient.TC(tenant.ID, tenant.Plan, tenant.DataResidencyKE),
+		Query:             in.Query,
+		TopK:              in.TopK,
+		IncludeSuperseded: in.IncludeSuperseded,
+		FileId:            in.FileID,
+		TraceId:           middleware.TraceID(c),
+	})
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "ai service unavailable", "detail": err.Error()})
+		return
+	}
+	sse := startSSE(c)
+	for {
+		ev, err := stream.Recv()
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			logging.L(c.Request.Context()).Error("research stream", "err", err)
+			sse("error", gin.H{"error": "the research answer was interrupted — please try again"})
+			return
+		}
+		switch {
+		case ev.IsFinal:
+			sse("done", gin.H{"trace_id": ev.TraceId})
+		case ev.Text != "":
+			sse("", gin.H{"text": ev.Text})
+		default:
+			sse("sources", gin.H{
+				"intent": ev.ClassifiedIntent.String(), "chunks": chunksJSON(ev.Chunks), "trace_id": ev.TraceId,
+			})
+		}
+	}
+}
+
+// ResearchReasonStream is ResearchReason over SSE: a "trace" event with the
+// reasoning steps and evidence, then the answer text, then "done".
+func (s *Server) ResearchReasonStream(c *gin.Context) {
+	var in struct {
+		Query             string `json:"query" binding:"required"`
+		FileID            string `json:"file_id"`
+		MaxHops           int32  `json:"max_hops"`
+		IncludeSuperseded bool   `json:"include_superseded"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	tenant := s.tenant(c)
+	ctx := grpcclient.Ctx(c.Request.Context(), tenant.ID, middleware.TraceID(c))
+	stream, err := s.AI.Reasoning.ReasonStream(ctx, &wakiliv1.ReasoningRequest{
+		Tenant:            grpcclient.TC(tenant.ID, tenant.Plan, tenant.DataResidencyKE),
+		Query:             in.Query,
+		MaxHops:           in.MaxHops,
+		FileId:            in.FileID,
+		IncludeSuperseded: in.IncludeSuperseded,
+		TraceId:           middleware.TraceID(c),
+	})
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "ai service unavailable", "detail": err.Error()})
+		return
+	}
+	sse := startSSE(c)
+	for {
+		ev, err := stream.Recv()
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			logging.L(c.Request.Context()).Error("reasoning stream", "err", err)
+			sse("error", gin.H{"error": "the reasoning answer was interrupted — please try again"})
+			return
+		}
+		switch {
+		case ev.IsFinal:
+			sse("done", gin.H{"trace_id": ev.TraceId})
+		case ev.Text != "":
+			sse("", gin.H{"text": ev.Text})
+		default:
+			sse("trace", gin.H{"steps": stepsJSON(ev.Steps), "context": chunksJSON(ev.Context), "trace_id": ev.TraceId})
+		}
+	}
+}
+
+func stepsJSON(steps []*wakiliv1.ReasoningStep) []gin.H {
+	out := make([]gin.H, 0, len(steps))
+	for _, st := range steps {
+		out = append(out, gin.H{
+			"hop": st.Hop, "description": st.Description,
+			"node_ids": st.NodeIds, "edge_types": st.EdgeTypes,
+		})
+	}
+	return out
+}
+
 // ResearchReason exposes the multi-hop graph reasoning trace.
 func (s *Server) ResearchReason(c *gin.Context) {
 	var in struct {
@@ -108,15 +244,8 @@ func (s *Server) ResearchReason(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "ai service unavailable", "detail": err.Error()})
 		return
 	}
-	steps := make([]gin.H, 0, len(resp.Steps))
-	for _, st := range resp.Steps {
-		steps = append(steps, gin.H{
-			"hop": st.Hop, "description": st.Description,
-			"node_ids": st.NodeIds, "edge_types": st.EdgeTypes,
-		})
-	}
 	c.JSON(http.StatusOK, gin.H{
-		"answer": resp.Answer, "steps": steps, "context": chunksJSON(resp.Context), "trace_id": resp.TraceId,
+		"answer": resp.Answer, "steps": stepsJSON(resp.Steps), "context": chunksJSON(resp.Context), "trace_id": resp.TraceId,
 	})
 }
 
@@ -166,26 +295,7 @@ func (s *Server) DraftStream(c *gin.Context) {
 		return
 	}
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-	flusher, _ := c.Writer.(http.Flusher)
-
-	sse := func(event string, payload any) {
-		buf, err := json.Marshal(payload)
-		if err != nil {
-			return
-		}
-		if event != "" {
-			fmt.Fprintf(c.Writer, "event: %s\n", event)
-		}
-		fmt.Fprintf(c.Writer, "data: %s\n\n", buf)
-		if flusher != nil {
-			flusher.Flush()
-		}
-	}
-
+	sse := startSSE(c)
 	var full strings.Builder
 	var citations []*wakiliv1.Provenance
 	for {

@@ -43,6 +43,8 @@ class Config:
     s3_secret_key: str = field(default_factory=lambda: _env("S3_SECRET_KEY", "minioadmin"))
     s3_bucket: str = field(default_factory=lambda: _env("S3_BUCKET", "wakili-archives"))
     s3_use_ssl: bool = field(default_factory=lambda: _env_bool("S3_USE_SSL", False))
+    # Pinned so the client never has to ask the store (Cloudflare R2 wants "auto").
+    s3_region: str = field(default_factory=lambda: _env("S3_REGION", "us-east-1"))
 
     # Redis — backs the async firm-ingestion job queue. Unreachable => the queue
     # transparently falls back to an in-process worker (single-instance dev).
@@ -76,8 +78,11 @@ class Config:
     # provider with ``gmi_cloud_deepseek_model`` / ``gmi_cloud_qwen_model``.
     gmi_cloud_base_url: str = field(default_factory=lambda: _env("GMI_CLOUD_BASE_URL", "https://api.gmi-serving.com/v1"))
     gmi_cloud_api_key: str = field(default_factory=lambda: _env("GMI_CLOUD_API_KEY"))
+    # Default: Qwen3 Instruct. It answers directly, while the DeepSeek-R1 distill
+    # writes thousands of tokens of hidden reasoning first — far slower to the
+    # first word of a research answer or a meeting's notes.
     gmi_cloud_model: str = field(default_factory=lambda: _env(
-        "GMI_CLOUD_MODEL", "deepseek-ai/DeepSeek-R1-Distill-Llama-70B"))
+        "GMI_CLOUD_MODEL", "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"))
     # DeepSeek distill is a chain-of-thought model (emits <think>...</think>);
     # Qwen3-235B-Instruct is not. The provider strips reasoning only for the
     # former — see GMICloudProvider._is_reasoning_model.
@@ -150,12 +155,23 @@ class Config:
     # them, but a collapsed transcript can't be recovered. The recording screen
     # asks for the speaker count, which is the accurate path.
     diarization_threshold: float = field(default_factory=lambda: float(_env("DIARIZATION_THRESHOLD", "0.4")))
+    # How far the 10 s analysis window slides, as a fraction of it. sherpa's
+    # default 0.1 embeds every second of audio ~10 times. Measured on a 17.5 min,
+    # 4-speaker AMI meeting (4 CPU cores): 0.1 took 729 s at 30.6% DER, 0.5 took
+    # 141 s at 25.8% DER — five times faster and no less accurate.
+    diarization_window_shift: float = field(
+        default_factory=lambda: float(_env("DIARIZATION_WINDOW_SHIFT", "0.5")))
 
     # Meeting notes (summary, decisions, agreed action points). "gmi" sends the
     # TRANSCRIPT TEXT (never audio) to GMI Cloud with local Ollama as fallback;
     # "local" keeps everything on-box.
     recordings_summary_provider: str = field(default_factory=lambda: _env("RECORDINGS_SUMMARY_PROVIDER", "gmi"))
     recordings_summary_model: str = field(default_factory=lambda: _env("RECORDINGS_SUMMARY_MODEL"))
+    # Proofread the Whisper transcript for Kenyan English (names, places, courts,
+    # legal terms) with the GMI notes model before the notes are written. Only
+    # runs when notes go to GMI: the small on-box model does more harm than good.
+    recordings_transcript_cleanup: bool = field(
+        default_factory=lambda: _env_bool("RECORDINGS_TRANSCRIPT_CLEANUP", True))
     # ~100k chars is roughly a two-hour meeting; longer ones lose their middle
     # (never their end, where action points are agreed).
     recordings_summary_max_chars: int = field(

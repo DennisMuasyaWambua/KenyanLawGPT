@@ -39,6 +39,11 @@ class RetrievalServiceStub:
                 request_serializer=wakili_dot_v1_dot_retrieval__pb2.TenantScopedQuery.SerializeToString,
                 response_deserializer=wakili_dot_v1_dot_retrieval__pb2.RankedContext.FromString,
                 _registered_method=True)
+        self.RetrieveStream = channel.unary_stream(
+                '/wakili.v1.RetrievalService/RetrieveStream',
+                request_serializer=wakili_dot_v1_dot_retrieval__pb2.TenantScopedQuery.SerializeToString,
+                response_deserializer=wakili_dot_v1_dot_retrieval__pb2.RetrievalEvent.FromString,
+                _registered_method=True)
 
 
 class RetrievalServiceServicer:
@@ -52,6 +57,13 @@ class RetrievalServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RetrieveStream(self, request, context):
+        """Same retrieval, with the answer streamed as the model writes it.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_RetrievalServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -59,6 +71,11 @@ def add_RetrievalServiceServicer_to_server(servicer, server):
                     servicer.Retrieve,
                     request_deserializer=wakili_dot_v1_dot_retrieval__pb2.TenantScopedQuery.FromString,
                     response_serializer=wakili_dot_v1_dot_retrieval__pb2.RankedContext.SerializeToString,
+            ),
+            'RetrieveStream': grpc.unary_stream_rpc_method_handler(
+                    servicer.RetrieveStream,
+                    request_deserializer=wakili_dot_v1_dot_retrieval__pb2.TenantScopedQuery.FromString,
+                    response_serializer=wakili_dot_v1_dot_retrieval__pb2.RetrievalEvent.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -88,6 +105,33 @@ class RetrievalService:
             '/wakili.v1.RetrievalService/Retrieve',
             wakili_dot_v1_dot_retrieval__pb2.TenantScopedQuery.SerializeToString,
             wakili_dot_v1_dot_retrieval__pb2.RankedContext.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RetrieveStream(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/wakili.v1.RetrievalService/RetrieveStream',
+            wakili_dot_v1_dot_retrieval__pb2.TenantScopedQuery.SerializeToString,
+            wakili_dot_v1_dot_retrieval__pb2.RetrievalEvent.FromString,
             options,
             channel_credentials,
             insecure,

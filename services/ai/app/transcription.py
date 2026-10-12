@@ -163,8 +163,13 @@ class FasterWhisperProvider:
     def _speakers(self, samples, segments, num_speakers: int) -> list[dict]:
         """Who said what. Best-effort: on any failure the transcript is kept
         without speaker labels rather than failing the recording."""
-        from .diarization import Word, assign_speakers
+        from .diarization import Turn, Word, assign_speakers
 
+        words = [Word(w.start, w.end, w.word) for seg in segments for w in (getattr(seg, "words", None) or [])]
+        if num_speakers == 1:
+            # One voice: nothing to tell apart, so skip the diarizer (the
+            # costliest stage of processing a meeting).
+            return assign_speakers(words, [Turn(0.0, float("inf"), 0)])
         diarizer = self._get_diarizer()
         if diarizer is None:
             return []
@@ -173,7 +178,6 @@ class FasterWhisperProvider:
         except Exception as exc:  # noqa: BLE001
             log().warning("speaker diarization failed (%s); transcript kept without speakers", exc)
             return []
-        words = [Word(w.start, w.end, w.word) for seg in segments for w in (getattr(seg, "words", None) or [])]
         return assign_speakers(words, turns)
 
 

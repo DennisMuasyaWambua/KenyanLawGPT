@@ -51,7 +51,8 @@ class Diarizer:
         config = s.OfflineSpeakerDiarizationConfig(
             segmentation=s.OfflineSpeakerSegmentationModelConfig(
                 pyannote=s.OfflineSpeakerSegmentationPyannoteModelConfig(
-                    model=self._cfg.diarization_segmentation_model),
+                    model=self._cfg.diarization_segmentation_model,
+                    window_shift_ratio=self._cfg.diarization_window_shift),
                 num_threads=self._threads),
             embedding=s.SpeakerEmbeddingExtractorConfig(
                 model=self._cfg.diarization_embedding_model, num_threads=self._threads),

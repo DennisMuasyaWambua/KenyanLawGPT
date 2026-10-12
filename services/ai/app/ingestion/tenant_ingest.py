@@ -43,7 +43,7 @@ class TenantIngestor:
         self.transcriber = transcriber or LazyTranscriber(cfg)
         self._minio = Minio(
             cfg.s3_endpoint, access_key=cfg.s3_access_key,
-            secret_key=cfg.s3_secret_key, secure=cfg.s3_use_ssl,
+            secret_key=cfg.s3_secret_key, secure=cfg.s3_use_ssl, region=cfg.s3_region or None,
         )
 
     async def _fetch_object(self, tenant_id: str, object_key: str) -> bytes:

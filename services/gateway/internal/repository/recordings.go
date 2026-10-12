@@ -29,6 +29,9 @@ type Recording struct {
 	NumSpeakers        int             `json:"num_speakers"`
 	TranscriptSegments json.RawMessage `json:"transcript_segments"`
 	SpeakerNames       json.RawMessage `json:"speaker_names"`
+	// What speech recognition produced before the Kenyan-English AI correction
+	// ("" when nothing was corrected).
+	TranscriptRaw string `json:"transcript_raw"`
 }
 
 // Utterance is one entry of TranscriptSegments.
@@ -41,14 +44,14 @@ type Utterance struct {
 
 const recordingCols = `id, file_id, advocate_user_id, client_id, object_key, filename, mime_type,
 	duration_seconds, consent_confirmed, status, transcript_text, summary_text, error, created_at, updated_at,
-	num_speakers, transcript_segments, speaker_names`
+	num_speakers, transcript_segments, speaker_names, transcript_raw`
 
 func scanRecording(row pgx.Row) (*Recording, error) {
 	var r Recording
 	if err := row.Scan(&r.ID, &r.FileID, &r.AdvocateUserID, &r.ClientID, &r.ObjectKey, &r.Filename,
 		&r.MimeType, &r.DurationSeconds, &r.ConsentConfirmed, &r.Status, &r.TranscriptText,
 		&r.SummaryText, &r.Error, &r.CreatedAt, &r.UpdatedAt,
-		&r.NumSpeakers, &r.TranscriptSegments, &r.SpeakerNames); err != nil {
+		&r.NumSpeakers, &r.TranscriptSegments, &r.SpeakerNames, &r.TranscriptRaw); err != nil {
 		return nil, err
 	}
 	return &r, nil

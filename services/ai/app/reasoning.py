@@ -3,8 +3,9 @@ private partition, producing an explainable trace.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 import asyncpg
 
@@ -41,6 +42,29 @@ class ReasoningEngine:
         file_id: Optional[str] = None,
         include_superseded: bool = False,
     ) -> tuple[list[Step], list[RankedChunk], str]:
+        steps, evidence = await self.gather(tenant_id, query, max_hops, file_id, include_superseded)
+        system, prompt = self._synthesis_prompt(query, steps, evidence)
+        # 1024 is enough for a cited reasoning answer; larger budgets time out on
+        # CPU-only local models (see the evidence cap in gather()).
+        answer = await self.llm.complete(system=system, prompt=prompt, max_tokens=1024)
+        return steps, evidence, answer
+
+    async def synthesis_stream(self, query: str, steps: list[Step],
+                               evidence: list[RankedChunk]) -> AsyncIterator[str]:
+        """The reasoning answer as a token stream (see ``reason``)."""
+        system, prompt = self._synthesis_prompt(query, steps, evidence)
+        async for piece in self.llm.stream(system=system, prompt=prompt, max_tokens=1024):
+            yield piece
+
+    async def gather(
+        self,
+        tenant_id: str,
+        query: str,
+        max_hops: int = 3,
+        file_id: Optional[str] = None,
+        include_superseded: bool = False,
+    ) -> tuple[list[Step], list[RankedChunk]]:
+        """Retrieval + graph traversal: the reasoning trace and its evidence."""
         max_hops = max(1, min(max_hops or 3, 5))
         steps: list[Step] = []
 
@@ -92,21 +116,22 @@ class ReasoningEngine:
             next_frontier: list[str] = []
             found: list[tuple[str, str, str]] = []
             try:
-                for label in ("Statute", "CaseLaw", "Judgment"):
-                    q = (PublicGraphQuery()
-                         .match("a", label)
-                         .where_in("a", "doc_id", frontier)
-                         .expand("a", ["CITES", "INTERPRETS", "AMENDS", "OVERTURNS",
-                                       "DISTINGUISHES", "HAS_OPINION", "AUTHORED", "PART_OF"],
-                                 "b", max_hops=1)
-                         .returns("a.doc_id AS src", "b.doc_id AS dst", "b.title AS title")
-                         .limit(60).build())
-                    for r in await self.graph.read(q):
-                        dst = r.get("dst")
-                        if dst and dst not in seen:
-                            seen.add(dst)
-                            next_frontier.append(dst)
-                            found.append((r.get("src", ""), dst, r.get("title") or ""))
+                queries = [(PublicGraphQuery()
+                            .match("a", label)
+                            .where_in("a", "doc_id", frontier)
+                            .expand("a", ["CITES", "INTERPRETS", "AMENDS", "OVERTURNS",
+                                          "DISTINGUISHES", "HAS_OPINION", "AUTHORED", "PART_OF"],
+                                    "b", max_hops=1)
+                            .returns("a.doc_id AS src", "b.doc_id AS dst", "b.title AS title")
+                            .limit(60).build())
+                           for label in ("Statute", "CaseLaw", "Judgment")]
+                results = await asyncio.gather(*(self.graph.read(q) for q in queries))
+                for r in (row for rows in results for row in rows):
+                    dst = r.get("dst")
+                    if dst and dst not in seen:
+                        seen.add(dst)
+                        next_frontier.append(dst)
+                        found.append((r.get("src", ""), dst, r.get("title") or ""))
             except Exception as exc:
                 log().warning("public traversal failed: %s", exc)
                 break
@@ -129,9 +154,7 @@ class ReasoningEngine:
         # prompt + long generation blows past the gateway/proxy timeout. 8 chunks
         # keeps the doctrinal chain intact while staying inside the latency budget.
         evidence = (chunks + extra)[:8]
-
-        answer = await self._synthesize(query, steps, evidence)
-        return steps, evidence, answer
+        return steps, evidence
 
     async def _chunks_for_docs(self, doc_ids: list[str]) -> list[RankedChunk]:
         out: list[RankedChunk] = []
@@ -158,7 +181,8 @@ class ReasoningEngine:
             ))
         return out
 
-    async def _synthesize(self, query: str, steps: list[Step], evidence: list[RankedChunk]) -> str:
+    @staticmethod
+    def _synthesis_prompt(query: str, steps: list[Step], evidence: list[RankedChunk]) -> tuple[str, str]:
         trace_lines = [f"hop {s.hop}: {s.description}" for s in steps]
         ctx_lines = [
             f"[{i}] ({c.source_type}, status={c.status}) {c.citation or c.source_id}\n{c.text}"
@@ -178,6 +202,4 @@ class ReasoningEngine:
             "the doctrinal chain and about current vs superseded authority. "
             + CONFIDENTIALITY_PREAMBLE
         )
-        # 1024 is enough for a cited reasoning answer; larger budgets time out on
-        # CPU-only local models (see evidence cap above).
-        return await self.llm.complete(system=system, prompt=prompt, max_tokens=1024)
+        return system, prompt

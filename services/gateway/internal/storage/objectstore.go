@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"mime"
+	"net/url"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -12,8 +14,8 @@ import (
 	"github.com/wakiliai/gateway/internal/config"
 )
 
-// ObjectStore wraps an S3-compatible backend (Cloudflare R2 in production,
-// MinIO in dev). Isolation is prefix-per-tenant: every key is forced under
+// ObjectStore wraps an S3-compatible backend (Cloudflare R2 in production —
+// S3_ENDPOINT=<account>.r2.cloudflarestorage.com, S3_REGION=auto — MinIO in dev). Isolation is prefix-per-tenant: every key is forced under
 // tenants/<tenant_id>/ and presigned URLs are only ever issued by the gateway
 // for the authenticated tenant's prefix.
 //
@@ -98,6 +100,36 @@ func (s *ObjectStore) PresignGet(ctx context.Context, tenantID, key string) (str
 		return "", err
 	}
 	return u.String(), nil
+}
+
+// PresignDownload is PresignGet with the response served as an attachment
+// named filename, so a browser saves the file instead of navigating to it.
+func (s *ObjectStore) PresignDownload(ctx context.Context, tenantID, key, filename string) (string, error) {
+	if err := s.tenantGuard(tenantID, key); err != nil {
+		return "", err
+	}
+	params := url.Values{}
+	params.Set("response-content-disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	u, err := s.presigner.PresignedGetObject(ctx, s.bucket, key, 15*time.Minute, params)
+	if err != nil {
+		return "", err
+	}
+	return u.String(), nil
+}
+
+// Exists reports whether an object is present under the tenant's prefix.
+func (s *ObjectStore) Exists(ctx context.Context, tenantID, key string) (bool, error) {
+	if err := s.tenantGuard(tenantID, key); err != nil {
+		return false, err
+	}
+	_, err := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		if minio.ToErrorResponse(err).StatusCode == 404 {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *ObjectStore) Put(ctx context.Context, tenantID, key string, body []byte, contentType string) error {

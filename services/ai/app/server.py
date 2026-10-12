@@ -145,6 +145,39 @@ class RetrievalService(retrieval_pb2_grpc.RetrievalServiceServicer):
             await context.abort(grpc.StatusCode.INTERNAL, "retrieval failed")
 
 
+    async def RetrieveStream(self, request, context):
+        """Retrieve with the answer streamed: sources first, then text deltas."""
+        tid = await check_tenant(request.tenant, context)
+        try:
+            t0 = time.perf_counter()
+            chunks, intent = await self.orchestrator.retrieve(
+                tid, request.query,
+                top_k=request.top_k or 12,
+                include_superseded=request.include_superseded,
+                file_id=request.file_id or None,
+            )
+            t1 = time.perf_counter()
+            yield retrieval_pb2.RetrievalEvent(
+                chunks=[chunk_to_proto(c) for c in chunks],
+                classified_intent=_INTENT_TO_PROTO.get(intent, common_pb2.QUERY_INTENT_UNSPECIFIED),
+                trace_id=request.trace_id,
+            )
+            first = None
+            async for piece in self.orchestrator.answer_stream(tid, request.query, chunks, intent):
+                if first is None:
+                    first = time.perf_counter()
+                yield retrieval_pb2.RetrievalEvent(text=piece)
+            done = time.perf_counter()
+            log().info("RetrieveStream timing retrieve_ms=%.0f first_token_ms=%.0f answer_ms=%.0f chunks=%d intent=%s",
+                       (t1 - t0) * 1000, ((first or done) - t1) * 1000, (done - t1) * 1000, len(chunks), intent)
+            RPC_COUNTER.labels("RetrieveStream", "ok").inc()
+            yield retrieval_pb2.RetrievalEvent(is_final=True, trace_id=request.trace_id)
+        except Exception:
+            RPC_COUNTER.labels("RetrieveStream", "error").inc()
+            log().exception("RetrieveStream failed")
+            await context.abort(grpc.StatusCode.INTERNAL, "retrieval failed")
+
+
 class ReasoningService(reasoning_pb2_grpc.ReasoningServiceServicer):
     def __init__(self, engine: ReasoningEngine) -> None:
         self.engine = engine
@@ -171,6 +204,42 @@ class ReasoningService(reasoning_pb2_grpc.ReasoningServiceServicer):
         except Exception:
             RPC_COUNTER.labels("Reason", "error").inc()
             log().exception("Reason failed")
+            await context.abort(grpc.StatusCode.INTERNAL, "reasoning failed")
+
+
+    async def ReasonStream(self, request, context):
+        """Reason with the answer streamed: trace + evidence first, then text."""
+        tid = await check_tenant(request.tenant, context)
+        try:
+            t0 = time.perf_counter()
+            steps, evidence = await self.engine.gather(
+                tid, request.query,
+                max_hops=request.max_hops or 3,
+                file_id=request.file_id or None,
+                include_superseded=request.include_superseded,
+            )
+            t1 = time.perf_counter()
+            yield reasoning_pb2.ReasoningEvent(
+                steps=[reasoning_pb2.ReasoningStep(
+                    hop=s.hop, description=s.description,
+                    node_ids=s.node_ids, edge_types=s.edge_types,
+                ) for s in steps],
+                context=[chunk_to_proto(c) for c in evidence],
+                trace_id=request.trace_id,
+            )
+            first = None
+            async for piece in self.engine.synthesis_stream(request.query, steps, evidence):
+                if first is None:
+                    first = time.perf_counter()
+                yield reasoning_pb2.ReasoningEvent(text=piece)
+            done = time.perf_counter()
+            log().info("ReasonStream timing gather_ms=%.0f first_token_ms=%.0f answer_ms=%.0f evidence=%d",
+                       (t1 - t0) * 1000, ((first or done) - t1) * 1000, (done - t1) * 1000, len(evidence))
+            RPC_COUNTER.labels("ReasonStream", "ok").inc()
+            yield reasoning_pb2.ReasoningEvent(is_final=True, trace_id=request.trace_id)
+        except Exception:
+            RPC_COUNTER.labels("ReasonStream", "error").inc()
+            log().exception("ReasonStream failed")
             await context.abort(grpc.StatusCode.INTERNAL, "reasoning failed")
 
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 import asyncpg
 
@@ -84,10 +84,19 @@ class RetrievalOrchestrator:
         file_id: Optional[str] = None,
         as_of: Optional[str] = None,
     ) -> tuple[list[RankedChunk], str]:
-        # Intent (may be an LLM call) and the query embedding are independent.
-        intent, [qvec] = await asyncio.gather(
-            self.classify_intent(query), self.embedder.embed([query]))
+        # Intent (possibly an LLM call) only re-weights scores at the end, so it
+        # runs alongside the embedding and both searches instead of ahead of them.
+        intent_task = asyncio.ensure_future(self.classify_intent(query))
+        try:
+            return await self._retrieve(intent_task, tenant_id, query, top_k,
+                                        include_superseded, file_id, as_of)
+        finally:
+            intent_task.cancel()  # no-op once awaited; stops it on an early error
 
+    async def _retrieve(self, intent_task: asyncio.Future, tenant_id: str, query: str, top_k: int,
+                        include_superseded: bool, file_id: Optional[str],
+                        as_of: Optional[str]) -> tuple[list[RankedChunk], str]:
+        [qvec] = await self.embedder.embed([query])
         fetch_n = max(top_k, 8)
 
         async def tenant_search() -> list[dict[str, Any]]:
@@ -105,7 +114,8 @@ class RetrievalOrchestrator:
             tenant_search(),
             file_ids(),
         )
-        status_notes = await self._status_annotations([r["doc_id"] for r in public_rows])
+        status_notes, intent = await asyncio.gather(
+            self._status_annotations([r["doc_id"] for r in public_rows]), intent_task)
 
         chunks: list[RankedChunk] = []
         for r in public_rows:
@@ -161,15 +171,16 @@ class RetrievalOrchestrator:
         if not doc_ids:
             return notes
         try:
-            for label in ("Statute", "CaseLaw"):
-                q = (PublicGraphQuery()
-                     .match("old", label)
-                     .where_in("old", "doc_id", doc_ids)
-                     .match_rel("old", ["AMENDS", "OVERTURNS", "DISTINGUISHES", "SUPERSEDED_BY"],
-                                "new", label, direction="any")
-                     .returns("old.doc_id AS old_id", "new.title AS new_title", "new.doc_id AS new_id")
-                     .limit(50).build())
-                for r in await self.graph.read(q):
+            queries = [(PublicGraphQuery()
+                        .match("old", label)
+                        .where_in("old", "doc_id", doc_ids)
+                        .match_rel("old", ["AMENDS", "OVERTURNS", "DISTINGUISHES", "SUPERSEDED_BY"],
+                                   "new", label, direction="any")
+                        .returns("old.doc_id AS old_id", "new.title AS new_title", "new.doc_id AS new_id")
+                        .limit(50).build())
+                       for label in ("Statute", "CaseLaw")]
+            for rows in await asyncio.gather(*(self.graph.read(q) for q in queries)):
+                for r in rows:
                     if r.get("old_id") and r.get("new_title"):
                         notes[r["old_id"]] = f"related version/treatment: {r['new_title']} ({r.get('new_id','')})"
         except Exception as exc:
@@ -216,14 +227,28 @@ class RetrievalOrchestrator:
         )
         return system, prompt
 
+    _NO_SOURCES = ("No relevant sources found in the corpus yet. If this deployment is fresh, "
+                   "run the public-corpus ingestion (it runs automatically at startup) or "
+                   "ingest firm documents first.")
+
     async def answer(self, query: str, chunks: list[RankedChunk], intent: str,
                      judge_context: str = "") -> str:
         if not chunks and not judge_context:
-            return ("No relevant sources found in the corpus yet. If this deployment is fresh, "
-                    "run the public-corpus ingestion (it runs automatically at startup) or "
-                    "ingest firm documents first.")
+            return self._NO_SOURCES
         system, prompt = self.build_answer_prompt(query, chunks, intent, judge_context)
         return await self.llm.complete(system=system, prompt=prompt, max_tokens=2048)
+
+    async def answer_stream(self, tenant_id: str, query: str, chunks: list[RankedChunk],
+                            intent: str) -> AsyncIterator[str]:
+        """``answer_with_judge`` as a token stream, so the advocate starts reading
+        while the model is still writing."""
+        judge_context = await self._judge_context(tenant_id, query)
+        if not chunks and not judge_context:
+            yield self._NO_SOURCES
+            return
+        system, prompt = self.build_answer_prompt(query, chunks, intent, judge_context)
+        async for piece in self.llm.stream(system=system, prompt=prompt, max_tokens=2048):
+            yield piece
 
     async def _judge_context(self, tenant_id: str, query: str,
                              judge_name: Optional[str] = None) -> str:

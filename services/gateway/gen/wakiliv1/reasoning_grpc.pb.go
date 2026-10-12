@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ReasoningService_Reason_FullMethodName = "/wakili.v1.ReasoningService/Reason"
+	ReasoningService_Reason_FullMethodName       = "/wakili.v1.ReasoningService/Reason"
+	ReasoningService_ReasonStream_FullMethodName = "/wakili.v1.ReasoningService/ReasonStream"
 )
 
 // ReasoningServiceClient is the client API for ReasoningService service.
@@ -30,6 +31,8 @@ type ReasoningServiceClient interface {
 	// private graph (e.g. "cases citing this statute, decided by this court in
 	// the last 5 years, linked to files similar to the current one").
 	Reason(ctx context.Context, in *ReasoningRequest, opts ...grpc.CallOption) (*ReasoningTrace, error)
+	// Same reasoning, with the answer streamed as the model writes it.
+	ReasonStream(ctx context.Context, in *ReasoningRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReasoningEvent], error)
 }
 
 type reasoningServiceClient struct {
@@ -50,6 +53,25 @@ func (c *reasoningServiceClient) Reason(ctx context.Context, in *ReasoningReques
 	return out, nil
 }
 
+func (c *reasoningServiceClient) ReasonStream(ctx context.Context, in *ReasoningRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReasoningEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ReasoningService_ServiceDesc.Streams[0], ReasoningService_ReasonStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ReasoningRequest, ReasoningEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ReasoningService_ReasonStreamClient = grpc.ServerStreamingClient[ReasoningEvent]
+
 // ReasoningServiceServer is the server API for ReasoningService service.
 // All implementations must embed UnimplementedReasoningServiceServer
 // for forward compatibility.
@@ -58,6 +80,8 @@ type ReasoningServiceServer interface {
 	// private graph (e.g. "cases citing this statute, decided by this court in
 	// the last 5 years, linked to files similar to the current one").
 	Reason(context.Context, *ReasoningRequest) (*ReasoningTrace, error)
+	// Same reasoning, with the answer streamed as the model writes it.
+	ReasonStream(*ReasoningRequest, grpc.ServerStreamingServer[ReasoningEvent]) error
 	mustEmbedUnimplementedReasoningServiceServer()
 }
 
@@ -70,6 +94,9 @@ type UnimplementedReasoningServiceServer struct{}
 
 func (UnimplementedReasoningServiceServer) Reason(context.Context, *ReasoningRequest) (*ReasoningTrace, error) {
 	return nil, status.Error(codes.Unimplemented, "method Reason not implemented")
+}
+func (UnimplementedReasoningServiceServer) ReasonStream(*ReasoningRequest, grpc.ServerStreamingServer[ReasoningEvent]) error {
+	return status.Error(codes.Unimplemented, "method ReasonStream not implemented")
 }
 func (UnimplementedReasoningServiceServer) mustEmbedUnimplementedReasoningServiceServer() {}
 func (UnimplementedReasoningServiceServer) testEmbeddedByValue()                          {}
@@ -110,6 +137,17 @@ func _ReasoningService_Reason_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReasoningService_ReasonStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ReasoningRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ReasoningServiceServer).ReasonStream(m, &grpc.GenericServerStream[ReasoningRequest, ReasoningEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ReasoningService_ReasonStreamServer = grpc.ServerStreamingServer[ReasoningEvent]
+
 // ReasoningService_ServiceDesc is the grpc.ServiceDesc for ReasoningService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -122,6 +160,12 @@ var ReasoningService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ReasoningService_Reason_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "ReasonStream",
+			Handler:       _ReasoningService_ReasonStream_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "wakili/v1/reasoning.proto",
 }

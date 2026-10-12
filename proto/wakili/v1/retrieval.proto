@@ -23,8 +23,21 @@ message RankedContext {
   string trace_id = 4;
 }
 
+// One message of a streamed research answer. The first carries the sources
+// and intent (sent before the model starts writing), then text deltas follow,
+// and the last has is_final set.
+message RetrievalEvent {
+  repeated ContextChunk chunks = 1;
+  QueryIntent classified_intent = 2;
+  string text = 3;
+  bool is_final = 4;
+  string trace_id = 5;
+}
+
 service RetrievalService {
   // Hybrid pgvector + knowledge-graph retrieval over the shared public corpus
   // and the calling tenant's private partition only.
   rpc Retrieve(TenantScopedQuery) returns (RankedContext);
+  // Same retrieval, with the answer streamed as the model writes it.
+  rpc RetrieveStream(TenantScopedQuery) returns (stream RetrievalEvent);
 }

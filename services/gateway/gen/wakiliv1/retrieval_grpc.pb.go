@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RetrievalService_Retrieve_FullMethodName = "/wakili.v1.RetrievalService/Retrieve"
+	RetrievalService_Retrieve_FullMethodName       = "/wakili.v1.RetrievalService/Retrieve"
+	RetrievalService_RetrieveStream_FullMethodName = "/wakili.v1.RetrievalService/RetrieveStream"
 )
 
 // RetrievalServiceClient is the client API for RetrievalService service.
@@ -29,6 +30,8 @@ type RetrievalServiceClient interface {
 	// Hybrid pgvector + knowledge-graph retrieval over the shared public corpus
 	// and the calling tenant's private partition only.
 	Retrieve(ctx context.Context, in *TenantScopedQuery, opts ...grpc.CallOption) (*RankedContext, error)
+	// Same retrieval, with the answer streamed as the model writes it.
+	RetrieveStream(ctx context.Context, in *TenantScopedQuery, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RetrievalEvent], error)
 }
 
 type retrievalServiceClient struct {
@@ -49,6 +52,25 @@ func (c *retrievalServiceClient) Retrieve(ctx context.Context, in *TenantScopedQ
 	return out, nil
 }
 
+func (c *retrievalServiceClient) RetrieveStream(ctx context.Context, in *TenantScopedQuery, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RetrievalEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &RetrievalService_ServiceDesc.Streams[0], RetrievalService_RetrieveStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[TenantScopedQuery, RetrievalEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RetrievalService_RetrieveStreamClient = grpc.ServerStreamingClient[RetrievalEvent]
+
 // RetrievalServiceServer is the server API for RetrievalService service.
 // All implementations must embed UnimplementedRetrievalServiceServer
 // for forward compatibility.
@@ -56,6 +78,8 @@ type RetrievalServiceServer interface {
 	// Hybrid pgvector + knowledge-graph retrieval over the shared public corpus
 	// and the calling tenant's private partition only.
 	Retrieve(context.Context, *TenantScopedQuery) (*RankedContext, error)
+	// Same retrieval, with the answer streamed as the model writes it.
+	RetrieveStream(*TenantScopedQuery, grpc.ServerStreamingServer[RetrievalEvent]) error
 	mustEmbedUnimplementedRetrievalServiceServer()
 }
 
@@ -68,6 +92,9 @@ type UnimplementedRetrievalServiceServer struct{}
 
 func (UnimplementedRetrievalServiceServer) Retrieve(context.Context, *TenantScopedQuery) (*RankedContext, error) {
 	return nil, status.Error(codes.Unimplemented, "method Retrieve not implemented")
+}
+func (UnimplementedRetrievalServiceServer) RetrieveStream(*TenantScopedQuery, grpc.ServerStreamingServer[RetrievalEvent]) error {
+	return status.Error(codes.Unimplemented, "method RetrieveStream not implemented")
 }
 func (UnimplementedRetrievalServiceServer) mustEmbedUnimplementedRetrievalServiceServer() {}
 func (UnimplementedRetrievalServiceServer) testEmbeddedByValue()                          {}
@@ -108,6 +135,17 @@ func _RetrievalService_Retrieve_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RetrievalService_RetrieveStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(TenantScopedQuery)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(RetrievalServiceServer).RetrieveStream(m, &grpc.GenericServerStream[TenantScopedQuery, RetrievalEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RetrievalService_RetrieveStreamServer = grpc.ServerStreamingServer[RetrievalEvent]
+
 // RetrievalService_ServiceDesc is the grpc.ServiceDesc for RetrievalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -120,6 +158,12 @@ var RetrievalService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RetrievalService_Retrieve_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "RetrieveStream",
+			Handler:       _RetrievalService_RetrieveStream_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "wakili/v1/retrieval.proto",
 }

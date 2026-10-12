@@ -39,6 +39,11 @@ class ReasoningServiceStub:
                 request_serializer=wakili_dot_v1_dot_reasoning__pb2.ReasoningRequest.SerializeToString,
                 response_deserializer=wakili_dot_v1_dot_reasoning__pb2.ReasoningTrace.FromString,
                 _registered_method=True)
+        self.ReasonStream = channel.unary_stream(
+                '/wakili.v1.ReasoningService/ReasonStream',
+                request_serializer=wakili_dot_v1_dot_reasoning__pb2.ReasoningRequest.SerializeToString,
+                response_deserializer=wakili_dot_v1_dot_reasoning__pb2.ReasoningEvent.FromString,
+                _registered_method=True)
 
 
 class ReasoningServiceServicer:
@@ -53,6 +58,13 @@ class ReasoningServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ReasonStream(self, request, context):
+        """Same reasoning, with the answer streamed as the model writes it.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ReasoningServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -60,6 +72,11 @@ def add_ReasoningServiceServicer_to_server(servicer, server):
                     servicer.Reason,
                     request_deserializer=wakili_dot_v1_dot_reasoning__pb2.ReasoningRequest.FromString,
                     response_serializer=wakili_dot_v1_dot_reasoning__pb2.ReasoningTrace.SerializeToString,
+            ),
+            'ReasonStream': grpc.unary_stream_rpc_method_handler(
+                    servicer.ReasonStream,
+                    request_deserializer=wakili_dot_v1_dot_reasoning__pb2.ReasoningRequest.FromString,
+                    response_serializer=wakili_dot_v1_dot_reasoning__pb2.ReasoningEvent.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -89,6 +106,33 @@ class ReasoningService:
             '/wakili.v1.ReasoningService/Reason',
             wakili_dot_v1_dot_reasoning__pb2.ReasoningRequest.SerializeToString,
             wakili_dot_v1_dot_reasoning__pb2.ReasoningTrace.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReasonStream(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/wakili.v1.ReasoningService/ReasonStream',
+            wakili_dot_v1_dot_reasoning__pb2.ReasoningRequest.SerializeToString,
+            wakili_dot_v1_dot_reasoning__pb2.ReasoningEvent.FromString,
             options,
             channel_credentials,
             insecure,

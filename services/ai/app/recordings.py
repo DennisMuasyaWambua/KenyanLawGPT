@@ -5,7 +5,8 @@ Client-meeting audio is privileged, KDPA/POCAMLA-sensitive material:
 
   * audio never leaves the box — transcription uses ``make_transcriber``, which
     never auto-selects a cloud STT, and diarization runs locally;
-  * the notes step (summary, decisions, agreed action points) sends the
+  * the Kenyan-English proofreading pass (``transcript_cleanup``) and the
+    notes step (summary, decisions, agreed action points) send the
     TRANSCRIPT TEXT to GMI Cloud when RECORDINGS_SUMMARY_PROVIDER=gmi (the
     operator's choice; GMI's synthetic-data gate still applies outside prod),
     falling back to local Ollama. RECORDINGS_SUMMARY_PROVIDER=local keeps it
@@ -30,6 +31,7 @@ from .db import tenant_tx
 from .diarization import format_transcript
 from .llm import GMICloudProvider, OllamaProvider
 from .tenancy import validate_tenant_id
+from . import transcript_cleanup
 from .transcription import LazyTranscriber, TranscriptionProvider
 
 log = logging.getLogger("recordings")
@@ -121,7 +123,7 @@ class RecordingProcessor:
         self._gmi_llm = None
         self._minio = Minio(
             cfg.s3_endpoint, access_key=cfg.s3_access_key,
-            secret_key=cfg.s3_secret_key, secure=cfg.s3_use_ssl,
+            secret_key=cfg.s3_secret_key, secure=cfg.s3_use_ssl, region=cfg.s3_region or None,
         )
 
     async def start(self) -> None:
@@ -233,8 +235,8 @@ class RecordingProcessor:
                     "Install faster-whisper or set TRANSCRIBE_PROVIDER=openai."))
                 return
             segments = result.segments or []
-            transcript = format_transcript(segments) if segments else (result.text or "").strip()
-            if not transcript:
+            raw = format_transcript(segments) if segments else (result.text or "").strip()
+            if not raw:
                 # Nothing intelligible: usually a muted/wrong microphone. Say so
                 # rather than reporting an empty "complete" recording.
                 await self._update(tenant_id, rec_id, status="failed", error=(
@@ -242,9 +244,14 @@ class RecordingProcessor:
                     "microphone is selected and unmuted, then record again."))
                 return
 
-            await self._update(tenant_id, rec_id, status="summarizing", transcript_text=transcript,
+            # Show the transcript straight away; correction and notes follow.
+            await self._update(tenant_id, rec_id, status="summarizing", transcript_text=raw,
                                transcript_segments=json.dumps(segments, ensure_ascii=False))
-            await self._finish_summary(tenant_id, rec_id, transcript)
+            segments, transcript, note = await self._correct(segments, raw)
+            if transcript != raw:
+                await self._update(tenant_id, rec_id, transcript_text=transcript, transcript_raw=raw,
+                                   transcript_segments=json.dumps(segments, ensure_ascii=False))
+            await self._finish_summary(tenant_id, rec_id, transcript, note)
             log.info("recording %s transcribed (%d chars, lang=%s, speakers=%d)", rec_id, len(transcript),
                      result.language, len({u["speaker"] for u in segments}))
         except Exception as exc:  # noqa: BLE001
@@ -260,7 +267,7 @@ class RecordingProcessor:
                 "UPDATE meeting_recordings SET attempts = attempts + 1, updated_at = now() "
                 "WHERE id = $1 RETURNING attempts", rec_id)
 
-    async def _finish_summary(self, tenant_id: str, rec_id: str, transcript: str) -> None:
+    async def _finish_summary(self, tenant_id: str, rec_id: str, transcript: str, note: str = "") -> None:
         """Summarize a stored transcript and mark the recording complete. Never
         leaves the row in 'summarizing': any failure still yields 'complete' with
         the transcript and a note, because the transcript is the valuable part."""
@@ -269,10 +276,36 @@ class RecordingProcessor:
         except Exception as exc:  # noqa: BLE001
             log.exception("recording %s summary step crashed", rec_id)
             summary, err = "", f"summary unavailable: {exc}"[:500]
+        err = "; ".join(m for m in (note, err) if m)[:500]
         await self._update(tenant_id, rec_id, status="complete", summary_text=summary, error=err)
 
     def _use_gmi(self) -> bool:
         return (self.cfg.recordings_summary_provider or "").lower() == "gmi" and bool(self.cfg.gmi_cloud_api_key)
+
+    def _gmi(self) -> GMICloudProvider:
+        if not self._gmi_llm:
+            self._gmi_llm = GMICloudProvider(self.cfg, model=self.cfg.recordings_summary_model or None)
+        return self._gmi_llm
+
+    async def _correct(self, segments: list[dict], transcript: str) -> tuple[list[dict], str, str]:
+        """Proofread the Whisper transcript for Kenyan English (see
+        ``transcript_cleanup``). Returns (segments, transcript, note). Best-effort:
+        whatever can't be corrected keeps Whisper's text, and the recording is
+        never failed here."""
+        if not (self.cfg.recordings_transcript_cleanup and self._use_gmi()):
+            return segments, transcript, ""
+        try:
+            if segments:
+                segments, changed, failed = await transcript_cleanup.correct_segments(self._gmi(), segments)
+                transcript = format_transcript(segments)
+            else:
+                transcript, changed, failed = await transcript_cleanup.correct_plain(self._gmi(), transcript)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("transcript correction failed, keeping the Whisper transcript: %s", exc)
+            return segments, transcript, f"transcript was not AI-corrected ({exc})"[:300]
+        log.info("transcript corrected for Kenyan English: %d lines changed, %d batches failed", changed, failed)
+        note = "parts of the transcript could not be AI-corrected and are shown as recognised" if failed else ""
+        return segments, transcript, note
 
     async def _summarize(self, transcript: str) -> tuple[str, str]:
         """Extract structured meeting notes (JSON, see ``_SUMMARY_SYSTEM``) —
@@ -285,12 +318,10 @@ class RecordingProcessor:
         note = ""
         if self._use_gmi():
             try:
-                if not self._gmi_llm:
-                    self._gmi_llm = GMICloudProvider(self.cfg, model=self.cfg.recordings_summary_model or None)
                 prompt = _SUMMARY_TEMPLATE.format(
                     transcript=_clip_transcript(transcript, max(_LOCAL_TRANSCRIPT_CHARS,
                                                                 self.cfg.recordings_summary_max_chars)))
-                summary = await self._gmi_llm.complete(_SUMMARY_SYSTEM, prompt, max_tokens=4000)
+                summary = await self._gmi().complete(_SUMMARY_SYSTEM, prompt, max_tokens=4000)
                 if summary and summary.strip():
                     return _extract_json(summary), ""
                 raise RuntimeError("empty response")

@@ -241,6 +241,84 @@ func (x *ReasoningTrace) GetTraceId() string {
 	return ""
 }
 
+// One message of a streamed reasoning answer: the first carries the trace and
+// evidence, then answer text deltas, then is_final.
+type ReasoningEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Steps         []*ReasoningStep       `protobuf:"bytes,1,rep,name=steps,proto3" json:"steps,omitempty"`
+	Context       []*ContextChunk        `protobuf:"bytes,2,rep,name=context,proto3" json:"context,omitempty"`
+	Text          string                 `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	IsFinal       bool                   `protobuf:"varint,4,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`
+	TraceId       string                 `protobuf:"bytes,5,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReasoningEvent) Reset() {
+	*x = ReasoningEvent{}
+	mi := &file_wakili_v1_reasoning_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReasoningEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReasoningEvent) ProtoMessage() {}
+
+func (x *ReasoningEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_wakili_v1_reasoning_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReasoningEvent.ProtoReflect.Descriptor instead.
+func (*ReasoningEvent) Descriptor() ([]byte, []int) {
+	return file_wakili_v1_reasoning_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ReasoningEvent) GetSteps() []*ReasoningStep {
+	if x != nil {
+		return x.Steps
+	}
+	return nil
+}
+
+func (x *ReasoningEvent) GetContext() []*ContextChunk {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
+func (x *ReasoningEvent) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *ReasoningEvent) GetIsFinal() bool {
+	if x != nil {
+		return x.IsFinal
+	}
+	return false
+}
+
+func (x *ReasoningEvent) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
 var File_wakili_v1_reasoning_proto protoreflect.FileDescriptor
 
 const file_wakili_v1_reasoning_proto_rawDesc = "" +
@@ -263,9 +341,16 @@ const file_wakili_v1_reasoning_proto_rawDesc = "" +
 	"\x05steps\x18\x01 \x03(\v2\x18.wakili.v1.ReasoningStepR\x05steps\x121\n" +
 	"\acontext\x18\x02 \x03(\v2\x17.wakili.v1.ContextChunkR\acontext\x12\x16\n" +
 	"\x06answer\x18\x03 \x01(\tR\x06answer\x12\x19\n" +
-	"\btrace_id\x18\x04 \x01(\tR\atraceId2T\n" +
+	"\btrace_id\x18\x04 \x01(\tR\atraceId\"\xbd\x01\n" +
+	"\x0eReasoningEvent\x12.\n" +
+	"\x05steps\x18\x01 \x03(\v2\x18.wakili.v1.ReasoningStepR\x05steps\x121\n" +
+	"\acontext\x18\x02 \x03(\v2\x17.wakili.v1.ContextChunkR\acontext\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\x12\x19\n" +
+	"\bis_final\x18\x04 \x01(\bR\aisFinal\x12\x19\n" +
+	"\btrace_id\x18\x05 \x01(\tR\atraceId2\x9e\x01\n" +
 	"\x10ReasoningService\x12@\n" +
-	"\x06Reason\x12\x1b.wakili.v1.ReasoningRequest\x1a\x19.wakili.v1.ReasoningTraceB3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3"
+	"\x06Reason\x12\x1b.wakili.v1.ReasoningRequest\x1a\x19.wakili.v1.ReasoningTrace\x12H\n" +
+	"\fReasonStream\x12\x1b.wakili.v1.ReasoningRequest\x1a\x19.wakili.v1.ReasoningEvent0\x01B3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3"
 
 var (
 	file_wakili_v1_reasoning_proto_rawDescOnce sync.Once
@@ -279,25 +364,30 @@ func file_wakili_v1_reasoning_proto_rawDescGZIP() []byte {
 	return file_wakili_v1_reasoning_proto_rawDescData
 }
 
-var file_wakili_v1_reasoning_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_wakili_v1_reasoning_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_wakili_v1_reasoning_proto_goTypes = []any{
 	(*ReasoningRequest)(nil), // 0: wakili.v1.ReasoningRequest
 	(*ReasoningStep)(nil),    // 1: wakili.v1.ReasoningStep
 	(*ReasoningTrace)(nil),   // 2: wakili.v1.ReasoningTrace
-	(*TenantContext)(nil),    // 3: wakili.v1.TenantContext
-	(*ContextChunk)(nil),     // 4: wakili.v1.ContextChunk
+	(*ReasoningEvent)(nil),   // 3: wakili.v1.ReasoningEvent
+	(*TenantContext)(nil),    // 4: wakili.v1.TenantContext
+	(*ContextChunk)(nil),     // 5: wakili.v1.ContextChunk
 }
 var file_wakili_v1_reasoning_proto_depIdxs = []int32{
-	3, // 0: wakili.v1.ReasoningRequest.tenant:type_name -> wakili.v1.TenantContext
+	4, // 0: wakili.v1.ReasoningRequest.tenant:type_name -> wakili.v1.TenantContext
 	1, // 1: wakili.v1.ReasoningTrace.steps:type_name -> wakili.v1.ReasoningStep
-	4, // 2: wakili.v1.ReasoningTrace.context:type_name -> wakili.v1.ContextChunk
-	0, // 3: wakili.v1.ReasoningService.Reason:input_type -> wakili.v1.ReasoningRequest
-	2, // 4: wakili.v1.ReasoningService.Reason:output_type -> wakili.v1.ReasoningTrace
-	4, // [4:5] is the sub-list for method output_type
-	3, // [3:4] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	5, // 2: wakili.v1.ReasoningTrace.context:type_name -> wakili.v1.ContextChunk
+	1, // 3: wakili.v1.ReasoningEvent.steps:type_name -> wakili.v1.ReasoningStep
+	5, // 4: wakili.v1.ReasoningEvent.context:type_name -> wakili.v1.ContextChunk
+	0, // 5: wakili.v1.ReasoningService.Reason:input_type -> wakili.v1.ReasoningRequest
+	0, // 6: wakili.v1.ReasoningService.ReasonStream:input_type -> wakili.v1.ReasoningRequest
+	2, // 7: wakili.v1.ReasoningService.Reason:output_type -> wakili.v1.ReasoningTrace
+	3, // 8: wakili.v1.ReasoningService.ReasonStream:output_type -> wakili.v1.ReasoningEvent
+	7, // [7:9] is the sub-list for method output_type
+	5, // [5:7] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_wakili_v1_reasoning_proto_init() }
@@ -312,7 +402,7 @@ func file_wakili_v1_reasoning_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_wakili_v1_reasoning_proto_rawDesc), len(file_wakili_v1_reasoning_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

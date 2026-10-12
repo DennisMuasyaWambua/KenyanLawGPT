@@ -52,7 +52,7 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "login failed");
       setSession(slug, data.access_token, data.refresh_token, data.user);
-      router.push(landingPathFor(data.user));
+      router.push(landingPathFor(data.user, new URLSearchParams(window.location.search).get("next")));
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -73,7 +73,7 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Google sign-in failed");
       setSession(slug, data.access_token, data.refresh_token, data.user);
-      router.push(landingPathFor(data.user));
+      router.push(landingPathFor(data.user, new URLSearchParams(window.location.search).get("next")));
     } catch (err: any) {
       setError(err.message);
     } finally {

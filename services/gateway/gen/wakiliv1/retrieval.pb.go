@@ -181,6 +181,85 @@ func (x *RankedContext) GetTraceId() string {
 	return ""
 }
 
+// One message of a streamed research answer. The first carries the sources
+// and intent (sent before the model starts writing), then text deltas follow,
+// and the last has is_final set.
+type RetrievalEvent struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Chunks           []*ContextChunk        `protobuf:"bytes,1,rep,name=chunks,proto3" json:"chunks,omitempty"`
+	ClassifiedIntent QueryIntent            `protobuf:"varint,2,opt,name=classified_intent,json=classifiedIntent,proto3,enum=wakili.v1.QueryIntent" json:"classified_intent,omitempty"`
+	Text             string                 `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	IsFinal          bool                   `protobuf:"varint,4,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`
+	TraceId          string                 `protobuf:"bytes,5,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *RetrievalEvent) Reset() {
+	*x = RetrievalEvent{}
+	mi := &file_wakili_v1_retrieval_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetrievalEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetrievalEvent) ProtoMessage() {}
+
+func (x *RetrievalEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_wakili_v1_retrieval_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetrievalEvent.ProtoReflect.Descriptor instead.
+func (*RetrievalEvent) Descriptor() ([]byte, []int) {
+	return file_wakili_v1_retrieval_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RetrievalEvent) GetChunks() []*ContextChunk {
+	if x != nil {
+		return x.Chunks
+	}
+	return nil
+}
+
+func (x *RetrievalEvent) GetClassifiedIntent() QueryIntent {
+	if x != nil {
+		return x.ClassifiedIntent
+	}
+	return QueryIntent_QUERY_INTENT_UNSPECIFIED
+}
+
+func (x *RetrievalEvent) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *RetrievalEvent) GetIsFinal() bool {
+	if x != nil {
+		return x.IsFinal
+	}
+	return false
+}
+
+func (x *RetrievalEvent) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
 var File_wakili_v1_retrieval_proto protoreflect.FileDescriptor
 
 const file_wakili_v1_retrieval_proto_rawDesc = "" +
@@ -199,9 +278,16 @@ const file_wakili_v1_retrieval_proto_rawDesc = "" +
 	"\x06chunks\x18\x01 \x03(\v2\x17.wakili.v1.ContextChunkR\x06chunks\x12C\n" +
 	"\x11classified_intent\x18\x02 \x01(\x0e2\x16.wakili.v1.QueryIntentR\x10classifiedIntent\x12\x16\n" +
 	"\x06answer\x18\x03 \x01(\tR\x06answer\x12\x19\n" +
-	"\btrace_id\x18\x04 \x01(\tR\atraceId2V\n" +
+	"\btrace_id\x18\x04 \x01(\tR\atraceId\"\xd0\x01\n" +
+	"\x0eRetrievalEvent\x12/\n" +
+	"\x06chunks\x18\x01 \x03(\v2\x17.wakili.v1.ContextChunkR\x06chunks\x12C\n" +
+	"\x11classified_intent\x18\x02 \x01(\x0e2\x16.wakili.v1.QueryIntentR\x10classifiedIntent\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\x12\x19\n" +
+	"\bis_final\x18\x04 \x01(\bR\aisFinal\x12\x19\n" +
+	"\btrace_id\x18\x05 \x01(\tR\atraceId2\xa3\x01\n" +
 	"\x10RetrievalService\x12B\n" +
-	"\bRetrieve\x12\x1c.wakili.v1.TenantScopedQuery\x1a\x18.wakili.v1.RankedContextB3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3"
+	"\bRetrieve\x12\x1c.wakili.v1.TenantScopedQuery\x1a\x18.wakili.v1.RankedContext\x12K\n" +
+	"\x0eRetrieveStream\x12\x1c.wakili.v1.TenantScopedQuery\x1a\x19.wakili.v1.RetrievalEvent0\x01B3Z1github.com/wakiliai/gateway/gen/wakiliv1;wakiliv1b\x06proto3"
 
 var (
 	file_wakili_v1_retrieval_proto_rawDescOnce sync.Once
@@ -215,26 +301,31 @@ func file_wakili_v1_retrieval_proto_rawDescGZIP() []byte {
 	return file_wakili_v1_retrieval_proto_rawDescData
 }
 
-var file_wakili_v1_retrieval_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_wakili_v1_retrieval_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_wakili_v1_retrieval_proto_goTypes = []any{
 	(*TenantScopedQuery)(nil), // 0: wakili.v1.TenantScopedQuery
 	(*RankedContext)(nil),     // 1: wakili.v1.RankedContext
-	(*TenantContext)(nil),     // 2: wakili.v1.TenantContext
-	(QueryIntent)(0),          // 3: wakili.v1.QueryIntent
-	(*ContextChunk)(nil),      // 4: wakili.v1.ContextChunk
+	(*RetrievalEvent)(nil),    // 2: wakili.v1.RetrievalEvent
+	(*TenantContext)(nil),     // 3: wakili.v1.TenantContext
+	(QueryIntent)(0),          // 4: wakili.v1.QueryIntent
+	(*ContextChunk)(nil),      // 5: wakili.v1.ContextChunk
 }
 var file_wakili_v1_retrieval_proto_depIdxs = []int32{
-	2, // 0: wakili.v1.TenantScopedQuery.tenant:type_name -> wakili.v1.TenantContext
-	3, // 1: wakili.v1.TenantScopedQuery.intent_hint:type_name -> wakili.v1.QueryIntent
-	4, // 2: wakili.v1.RankedContext.chunks:type_name -> wakili.v1.ContextChunk
-	3, // 3: wakili.v1.RankedContext.classified_intent:type_name -> wakili.v1.QueryIntent
-	0, // 4: wakili.v1.RetrievalService.Retrieve:input_type -> wakili.v1.TenantScopedQuery
-	1, // 5: wakili.v1.RetrievalService.Retrieve:output_type -> wakili.v1.RankedContext
-	5, // [5:6] is the sub-list for method output_type
-	4, // [4:5] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	3, // 0: wakili.v1.TenantScopedQuery.tenant:type_name -> wakili.v1.TenantContext
+	4, // 1: wakili.v1.TenantScopedQuery.intent_hint:type_name -> wakili.v1.QueryIntent
+	5, // 2: wakili.v1.RankedContext.chunks:type_name -> wakili.v1.ContextChunk
+	4, // 3: wakili.v1.RankedContext.classified_intent:type_name -> wakili.v1.QueryIntent
+	5, // 4: wakili.v1.RetrievalEvent.chunks:type_name -> wakili.v1.ContextChunk
+	4, // 5: wakili.v1.RetrievalEvent.classified_intent:type_name -> wakili.v1.QueryIntent
+	0, // 6: wakili.v1.RetrievalService.Retrieve:input_type -> wakili.v1.TenantScopedQuery
+	0, // 7: wakili.v1.RetrievalService.RetrieveStream:input_type -> wakili.v1.TenantScopedQuery
+	1, // 8: wakili.v1.RetrievalService.Retrieve:output_type -> wakili.v1.RankedContext
+	2, // 9: wakili.v1.RetrievalService.RetrieveStream:output_type -> wakili.v1.RetrievalEvent
+	8, // [8:10] is the sub-list for method output_type
+	6, // [6:8] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_wakili_v1_retrieval_proto_init() }
@@ -249,7 +340,7 @@ func file_wakili_v1_retrieval_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_wakili_v1_retrieval_proto_rawDesc), len(file_wakili_v1_retrieval_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

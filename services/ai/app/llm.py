@@ -121,6 +121,7 @@ class OllamaProvider:
             "system": system,
             "prompt": prompt,
             "stream": True,
+            "keep_alive": self._keep_alive,
             "options": {"num_predict": max_tokens},
         }
         # Reasoning models stream their <think>...</think> block first; suppress

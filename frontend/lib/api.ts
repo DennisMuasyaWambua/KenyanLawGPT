@@ -1,4 +1,4 @@
-"use client";
+  "use client";
 
 // Thin API client for the Go gateway. Auth uses the bearer token (stored at
 // login) with a one-shot refresh-token retry; every request carries the

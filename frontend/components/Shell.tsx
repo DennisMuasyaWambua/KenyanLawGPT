@@ -7,6 +7,7 @@ import { api, clearSession, currentUser } from "@/lib/api";
 import { usePermissions } from "@/lib/usePermissions";
 import { PRODUCT } from "@/lib/brand";
 import FirmMark from "@/components/FirmMark";
+import { useRecorder } from "@/lib/recorder";
 
 // `perm` (optional) hides a nav item unless the caller holds that permission.
 const STAFF_NAV = [
@@ -33,6 +34,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const user = currentUser();
   const { can, permissions, me } = usePermissions();
+  const recorder = useRecorder();
   // The signed-in firm's own identity (the layout loads /auth/me before Shell renders).
   const firmName: string = me?.tenant?.name || "";
   const firmSlug: string = me?.tenant?.slug || "";
@@ -69,6 +71,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       : STAFF_NAV.filter((i) => !i.perm || permissions.length === 0 || can(i.perm));
 
   async function logout() {
+    if (recorder.recording) {
+      if (!confirm("A meeting is being recorded. Signing out stops it; the audio stays on this device and uploads the next time you sign in.")) return;
+      await recorder.abandon();
+    }
     try {
       await api("/api/v1/auth/logout", { method: "POST" });
     } catch {

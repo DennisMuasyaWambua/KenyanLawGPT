@@ -4,10 +4,11 @@
 // recordings page: navigating to another part of the app (or switching to
 // another browser tab) leaves the microphone running and the upload going.
 // Audio is still mirrored to IndexedDB chunk by chunk (lib/recordingStore), so
-// even closing the tab only interrupts the recording — it is offered for upload
-// on the next visit.
+// even closing the tab only interrupts the recording: on the next visit (any
+// page, once signed in) the audio captured until then is recovered and uploaded.
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, currentUser, getTenant, holdSignOutRedirect, SESSION_EXPIRED } from "@/lib/api";
 import {
@@ -29,6 +30,27 @@ export function extFor(mime: string): string {
 
 const TITLE_PREFIX = "● REC · ";
 const DONE = ["complete", "failed"];
+const CAPTURE_LOCK = "advocatus-capture-";
+
+// Held for as long as this tab is capturing a recording. The browser drops it
+// when the tab dies, which is how a later visit tells a recording that was cut
+// off (e.g. the tab was killed while the phone was locked) from one still
+// running in another tab.
+function holdCaptureLock(id: string): () => void {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  navigator.locks?.request?.(CAPTURE_LOCK + id, () => held).catch(() => {});
+  return release;
+}
+
+async function isOrphaned(rec: LocalRecording): Promise<boolean> {
+  // A live recording appends audio every 5 s; give a just-killed tab's last
+  // write a moment to land before deciding.
+  if (Date.now() - rec.updatedAt < 15_000) return false;
+  const locks = navigator.locks;
+  if (!locks?.request) return Date.now() - rec.updatedAt > 60_000;
+  return locks.request(CAPTURE_LOCK + rec.id, { ifAvailable: true }, (lock) => lock !== null);
+}
 
 /** An uploaded recording the server is still transcribing / writing notes for. */
 export type Processing = { id: string; filename: string; status: string; error?: string };
@@ -51,7 +73,15 @@ type Recorder = {
   /** The id of the on-device session being captured right now. */
   currentId: string | null;
   processing: Processing[];
-  start: (opts: { fileId: string; numSpeakers: number }) => Promise<void>;
+  /** The microphone was cut off mid-meeting (device locked, a phone call): the
+   *  settings to carry on recording with. */
+  interrupted: RecordOpts | null;
+  /** Whether the screen is being kept on while recording (null: not recording
+   *  yet). false means the device may lock and stop the microphone. */
+  screenAwake: boolean | null;
+  start: (opts: RecordOpts) => Promise<void>;
+  /** Start a new recording with the interrupted one's settings. */
+  resume: () => Promise<void>;
   stop: () => void;
   /** Stop without uploading (e.g. signing out): the audio stays on the device. */
   abandon: () => Promise<void>;
@@ -63,6 +93,8 @@ type Recorder = {
   clearMessages: () => void;
   dismissProcessing: (id: string) => void;
 };
+
+type RecordOpts = { fileId: string; numSpeakers: number };
 
 const Ctx = createContext<Recorder | null>(null);
 
@@ -84,6 +116,8 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
   const [localRecs, setLocalRecs] = useState<LocalRecording[]>([]);
   const [sending, setSending] = useState<string[]>([]);
   const [processing, setProcessing] = useState<Processing[]>([]);
+  const [interrupted, setInterrupted] = useState<RecordOpts | null>(null);
+  const [screenAwake, setScreenAwake] = useState<boolean | null>(null);
   const mediaRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   // Live input level: lets the user see the mic is actually picking up sound,
@@ -95,12 +129,13 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
   // The recording in progress, mirrored to IndexedDB chunk by chunk.
   const sessionRef = useRef<LocalRecording | null>(null);
   const writesRef = useRef<Promise<void>>(Promise.resolve());
-  const persistedRef = useRef(true);
   // Set by abandon(): the onstop handler keeps the audio on the device instead
   // of uploading, then calls this once it is saved.
   const abandonRef = useRef<(() => void) | null>(null);
   const wakeRef = useRef<WakeLockSentinel | null>(null);
   const releaseHoldRef = useRef<(() => void) | null>(null);
+  const releaseCaptureRef = useRef<(() => void) | null>(null);
+  const pendingRunRef = useRef(false);
 
   function stopMeter() {
     const m = meterRef.current;
@@ -138,21 +173,21 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
   // Keep the screen on while recording: an auto-locking device can suspend the
   // microphone. The browser drops the lock whenever the page is hidden, so it is
   // re-taken each time the page comes back.
+  // Unsupported or refused (e.g. battery saver): recording carries on, but the
+  // user is told to keep the screen awake themselves.
   async function keepAwake() {
+    if (!navigator.wakeLock) { setScreenAwake(false); return; }
     try {
-      wakeRef.current = (await navigator.wakeLock?.request("screen")) ?? null;
+      wakeRef.current = await navigator.wakeLock.request("screen");
+      setScreenAwake(true);
     } catch {
-      /* unsupported, or refused (e.g. battery saver) — recording carries on */
+      setScreenAwake(false);
     }
   }
   function releaseWake() {
     wakeRef.current?.release().catch(() => {});
     wakeRef.current = null;
-  }
-
-  function releaseHold() {
-    releaseHoldRef.current?.();
-    releaseHoldRef.current = null;
+    setScreenAwake(null);
   }
 
   // The tab title shows the recording is live, so it can be spotted from another tab.
@@ -256,21 +291,79 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     refreshLocal();
   }
 
+  /** Upload whatever this device still holds: recordings stopped normally but
+   *  never sent (session expired, offline), and recordings cut off mid-meeting
+   *  whose tab was killed (the phone locked) — their audio up to the cut-off. */
   async function sendPending() {
-    if (!currentUser()) return;
+    if (!currentUser() || pendingRunRef.current) return;
+    pendingRunRef.current = true;
     try {
       const recs = await listSessions(getTenant(), currentUser()?.id || "");
       setLocalRecs(recs);
-      for (const r of recs) if (r.state === "pending") await send(r);
+      let recovered = 0;
+      for (const r of recs) {
+        if (r.id === sessionRef.current?.id) continue;
+        if (r.state === "recording") {
+          if (!(await isOrphaned(r))) continue;
+          if (r.durationSeconds === 0) {
+            // Cut off before the first few seconds of audio were saved.
+            await deleteSession(r.id).catch(() => {});
+            continue;
+          }
+          r.state = "pending";
+          await updateSession(r.id, { state: "pending" });
+          if (await send(r)) recovered++;
+        } else if (r.state === "pending") {
+          await send(r);
+        }
+      }
+      if (recovered) {
+        setNotice(recovered === 1
+          ? "A recording that was cut off (the device locked or the tab was closed) was recovered from this device and uploaded."
+          : `${recovered} recordings that were cut off (the device locked or the tab was closed) were recovered from this device and uploaded.`);
+      }
     } catch {
       /* IndexedDB unavailable */
+    } finally {
+      pendingRunRef.current = false;
+      refreshLocal();
     }
   }
 
-  useEffect(() => { void sendPending(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Check for unsent recordings on arrival, after signing in (the user changes
+  // without a page load), whenever the device comes back online, and when the
+  // app is reopened — throttled, since nothing is usually waiting.
+  const pathname = usePathname();
+  const lastCheckRef = useRef({ user: "", at: 0 });
+  const sendPendingRef = useRef(sendPending);
+  sendPendingRef.current = sendPending;
+  const checkPending = useCallback((force = false) => {
+    const user = currentUser()?.id || "";
+    if (!user) return;
+    const last = lastCheckRef.current;
+    if (!force && last.user === user && Date.now() - last.at < 30_000) return;
+    lastCheckRef.current = { user, at: Date.now() };
+    void sendPendingRef.current();
+  }, []);
+  useEffect(() => { checkPending(); }, [pathname, checkPending]);
+  useEffect(() => {
+    const onOnline = () => checkPending(true);
+    const onVisible = () => { if (document.visibilityState === "visible") checkPending(); };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [checkPending]);
 
-  async function stopped(mr: MediaRecorder, stream: MediaStream, session: LocalRecording) {
+  /** `saved.ok` turns false if any of this recording's audio failed to reach
+   *  IndexedDB (per recording: the next one may already be running). */
+  async function stopped(mr: MediaRecorder, stream: MediaStream, session: LocalRecording, saved: { ok: boolean }) {
     stream.getTracks().forEach((t) => t.stop());
+    // Everything about this recording is taken now, before the first await:
+    // "Continue recording" may start the next one while this one uploads.
+    const peak = peakRef.current;
     stopMeter();
     releaseWake();
     markTitle(false);
@@ -278,14 +371,20 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     setStartedAt(null);
     mediaRef.current = null;
     sessionRef.current = null;
-    await writesRef.current; // every chunk is on the device before anything else happens
-    const audio = new Blob(chunksRef.current, { type: mr.mimeType || session.mimeType });
+    const chunks = chunksRef.current;
     chunksRef.current = [];
-    const durationSeconds = Math.round((Date.now() - session.startedAt) / 1000);
+    const writes = writesRef.current;
+    const releaseHold = releaseHoldRef.current || (() => {});
+    releaseHoldRef.current = null;
+    releaseCaptureRef.current?.();
+    releaseCaptureRef.current = null;
     const abandoned = abandonRef.current;
+    abandonRef.current = null;
+    const durationSeconds = Math.round((Date.now() - session.startedAt) / 1000);
+    await writes; // every chunk is on the device before anything else happens
+    const audio = new Blob(chunks, { type: mr.mimeType || session.mimeType });
     if (abandoned) {
-      abandonRef.current = null;
-      if (persistedRef.current) {
+      if (saved.ok) {
         await updateSession(session.id, { mimeType: audio.type, durationSeconds, state: "pending" }).catch(() => {});
       }
       releaseHold();
@@ -293,7 +392,7 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
       abandoned();
       return;
     }
-    if (peakRef.current < 0.002 || audio.size === 0) {
+    if (peak < 0.002 || audio.size === 0) {
       await deleteSession(session.id).catch(() => {});
       releaseHold();
       setError(audio.size === 0
@@ -302,7 +401,7 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const rec: LocalRecording = { ...session, mimeType: audio.type, durationSeconds, state: "pending" };
-    if (persistedRef.current) {
+    if (saved.ok) {
       await updateSession(session.id, { mimeType: rec.mimeType, durationSeconds, state: "pending" }).catch(() => {});
     } else {
       await deleteSession(session.id).catch(() => {}); // incomplete on-device copy
@@ -311,13 +410,13 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     const ok = await send(rec, audio);
     setBusy("");
     releaseHold();
-    if (!ok && !persistedRef.current) {
+    if (!ok && !saved.ok) {
       setUnsaved({ url: URL.createObjectURL(audio), name: `recording-${new Date(session.startedAt).toISOString().slice(0, 16)}.${extFor(audio.type)}` });
     }
     refreshLocal();
   }
 
-  async function start({ fileId, numSpeakers }: { fileId: string; numSpeakers: number }) {
+  async function start({ fileId, numSpeakers }: RecordOpts) {
     setError("");
     setNotice("");
     setSessionExpired(false);
@@ -338,26 +437,28 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
         fileId, numSpeakers, durationSeconds: 0, state: "recording",
       };
       sessionRef.current = session;
-      persistedRef.current = true;
+      const saved = { ok: true };
       abandonRef.current = null;
-      writesRef.current = saveSession(session).catch(() => { persistedRef.current = false; });
+      writesRef.current = saveSession(session).catch(() => { saved.ok = false; });
       chunksRef.current = [];
       mr.ondataavailable = (e) => {
         if (e.data.size === 0) return;
         chunksRef.current.push(e.data);
         const secs = Math.round((Date.now() - session.startedAt) / 1000);
         writesRef.current = writesRef.current
-          .then(() => (persistedRef.current ? appendChunk(session.id, e.data, secs) : undefined))
-          .catch(() => { persistedRef.current = false; });
+          .then(() => (saved.ok ? appendChunk(session.id, e.data, secs) : undefined))
+          .catch(() => { saved.ok = false; });
       };
       mr.onerror = () => setError("Recording failed — the microphone was interrupted.");
-      mr.onstop = () => { void stopped(mr, stream, session); };
+      mr.onstop = () => { void stopped(mr, stream, session, saved); };
       // The OS can take the microphone away (device locked, a phone call):
       // finish with what was captured instead of losing it.
       stream.getAudioTracks().forEach((t) => {
         t.onended = () => {
           if (mr.state === "inactive") return;
-          setNotice("The microphone was cut off (the device may have locked or another app took it). The audio recorded up to that point has been kept.");
+          setNotice("The microphone was cut off (the device may have locked, or a call or another app took it). " +
+            "What was recorded up to then is kept and uploaded — continue recording to capture the rest of the meeting.");
+          setInterrupted({ fileId, numSpeakers });
           mr.stop();
         };
       });
@@ -367,6 +468,8 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
       mr.start(5000);
       mediaRef.current = mr;
       releaseHoldRef.current = holdSignOutRedirect();
+      releaseCaptureRef.current = holdCaptureLock(session.id);
+      setInterrupted(null);
       keepAwake();
       markTitle(true);
       setStartedAt(now);
@@ -386,6 +489,10 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
 
   function stop() {
     mediaRef.current?.stop();
+  }
+
+  async function resume() {
+    if (interrupted) await start(interrupted);
   }
 
   async function abandon() {
@@ -466,9 +573,9 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
 
   const value: Recorder = {
     recording, startedAt, level, busy, error, notice, sessionExpired, unsaved, localRecs, sending,
-    currentId: sessionRef.current?.id ?? null, processing,
-    start, stop, abandon, send, discard, refreshLocal, sendPending,
-    clearMessages: () => { setError(""); setNotice(""); setSessionExpired(false); },
+    currentId: sessionRef.current?.id ?? null, processing, interrupted, screenAwake,
+    start, resume, stop, abandon, send, discard, refreshLocal, sendPending,
+    clearMessages: () => { setError(""); setNotice(""); setSessionExpired(false); setInterrupted(null); },
     dismissProcessing: (id) => setProcessing((p) => p.filter((x) => x.id !== id)),
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

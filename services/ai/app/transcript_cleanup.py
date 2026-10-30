@@ -55,8 +55,13 @@ SYSTEM = (
     "(\"I'm coming\", \"you've seen\", \"ati\", \"sasa\"). Do not polish style.\n"
     "- Never add, remove, merge, split or summarise content. Keep numbers, "
     "amounts, dates and case numbers as spoken.\n"
-    "- Add sensible punctuation and capitalisation.\n\n"
-    'You receive JSON {"lines": [{"i": 0, "text": "..."}, ...]}. Return ONLY JSON '
+    "- Add sensible punctuation and capitalisation.\n"
+    "- The input may include \"context\" from the firm's records: the case file, "
+    "the client, the court and the people at the firm. When a misheard word is "
+    "clearly one of those names or terms, spell it exactly as the context does. "
+    "Never insert a name or fact from the context that was not spoken.\n\n"
+    'You receive JSON {"context": "...", "lines": [{"i": 0, "text": "..."}, ...]} '
+    '("context" may be absent). Return ONLY JSON '
     '{"lines": [{"i": 0, "text": "..."}, ...]} with every input index exactly '
     "once, in order — no markdown, no commentary."
 )
@@ -113,9 +118,12 @@ def _parse(reply: str) -> dict[int, str]:
     return out
 
 
-async def correct_lines(llm, lines: list[str]) -> tuple[list[str], int, int]:
+async def correct_lines(llm, lines: list[str], context: str = "") -> tuple[list[str], int, int]:
     """Correct each line in place. Returns (lines, changed, failed_batches); a
-    line the model mishandles — or a whole failed batch — keeps its original."""
+    line the model mishandles — or a whole failed batch — keeps its original.
+    ``context`` (the case, client, court and firm people) goes with every batch:
+    names are what speech recognition gets wrong most, and the model can't
+    guess their spelling without it."""
     result = list(lines)
     changed, failed = 0, 0
     sem = asyncio.Semaphore(_CONCURRENCY)
@@ -123,8 +131,9 @@ async def correct_lines(llm, lines: list[str]) -> tuple[list[str], int, int]:
     async def run(idx: list[int]) -> None:
         nonlocal changed, failed
         # Each batch is numbered from 0, so the model never sees global positions.
-        payload = json.dumps({"lines": [{"i": n, "text": lines[k]} for n, k in enumerate(idx)]},
-                             ensure_ascii=False)
+        body = {"context": context} if context else {}
+        body["lines"] = [{"i": n, "text": lines[k]} for n, k in enumerate(idx)]
+        payload = json.dumps(body, ensure_ascii=False)
         try:
             async with sem:
                 fixed = _parse(await llm.complete(SYSTEM, payload, max_tokens=_MAX_TOKENS))
@@ -142,10 +151,10 @@ async def correct_lines(llm, lines: list[str]) -> tuple[list[str], int, int]:
     return result, changed, failed
 
 
-async def correct_segments(llm, segments: list[dict]) -> tuple[list[dict], int, int]:
+async def correct_segments(llm, segments: list[dict], context: str = "") -> tuple[list[dict], int, int]:
     """Correct diarized utterances ([{speaker, start, end, text}]); speakers and
     timings are untouched."""
-    fixed, changed, failed = await correct_lines(llm, [s.get("text", "") for s in segments])
+    fixed, changed, failed = await correct_lines(llm, [s.get("text", "") for s in segments], context)
     return [{**s, "text": t} for s, t in zip(segments, fixed)], changed, failed
 
 
@@ -165,6 +174,6 @@ def split_plain(text: str) -> list[str]:
     return out
 
 
-async def correct_plain(llm, text: str) -> tuple[str, int, int]:
-    fixed, changed, failed = await correct_lines(llm, split_plain(text))
+async def correct_plain(llm, text: str, context: str = "") -> tuple[str, int, int]:
+    fixed, changed, failed = await correct_lines(llm, split_plain(text), context)
     return " ".join(fixed), changed, failed

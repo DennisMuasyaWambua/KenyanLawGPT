@@ -93,7 +93,7 @@ def _processor(llm, cleanup=True):
     async def fake_fetch(tenant_id, key):
         return b"audio"
 
-    async def fake_summarize(transcript):
+    async def fake_summarize(transcript, context=""):
         return "{}", ""
 
     async def fake_claim(tenant_id, rec_id):
@@ -132,3 +132,56 @@ async def test_worker_skips_correction_when_disabled():
     p, updates = _processor(llm, cleanup=False)
     await p._process_one("t", "r", "tenants/t/x", "a.webm", "audio/webm")
     assert llm.calls == [] and len(updates) == 2
+
+
+@pytest.mark.asyncio
+async def test_case_context_reaches_whisper_proofreader_and_notes():
+    from app.recordings import MeetingContext
+
+    llm = _EchoLLM(lambda s: s.replace("one jiru", "Wanjiru"))
+    p, updates = _processor(llm)
+    ctx = MeetingContext(firm="Karwitha & Co. Advocates", file="ELC E045/2024 — Wanjiru v Kamau",
+                         client="Grace Wanjiru", court="Milimani ELC", people=["Otieno Ouma"],
+                         staff=["Chebet Kiprop"])
+
+    async def fake_context(tenant_id, rec_id):
+        return ctx
+
+    seen = {}
+
+    class _T:
+        async def transcribe(self, *a, **k):
+            seen["hotwords"] = k.get("hotwords")
+            return TranscriptResult("x", "en", "faster-whisper",
+                                    segments=[{"speaker": 1, "start": 0.0, "end": 1.0, "text": "for one jiru"}])
+
+    async def fake_summarize(transcript, context=""):
+        seen["notes_context"] = context
+        return "{}", ""
+
+    p._meeting_context, p._transcriber, p._summarize = fake_context, _T(), fake_summarize
+    await p._process_one("t", "r", "tenants/t/x", "a.webm", "audio/webm")
+
+    # Whisper gets only this meeting's names; colleagues not on the file stay out.
+    assert seen["hotwords"].startswith("Grace Wanjiru, ELC E045/2024 — Wanjiru v Kamau, Milimani ELC")
+    assert "Otieno Ouma" in seen["hotwords"] and "Chebet" not in seen["hotwords"]
+    # The proofreader and the notes model see the full context.
+    assert "Client: Grace Wanjiru" in llm.calls[0]["context"]
+    assert "Other people at the firm: Chebet Kiprop" in llm.calls[0]["context"]
+    assert "Client: Grace Wanjiru" in seen["notes_context"]
+    assert updates[1]["transcript_text"] == "[00:00] Speaker 1: for Wanjiru"
+
+
+@pytest.mark.asyncio
+async def test_without_case_context_the_payload_is_unchanged():
+    llm = _EchoLLM()
+    await tc.correct_lines(llm, ["hello"])
+    assert llm.calls == [{"lines": [{"i": 0, "text": "hello"}]}]
+
+
+@pytest.mark.asyncio
+async def test_unavailable_case_context_does_not_block_processing():
+    p, updates = _processor(_EchoLLM())
+    # pool=None: the context query fails, the recording still completes.
+    await p._process_one("t", "r", "tenants/t/x", "a.webm", "audio/webm")
+    assert updates[-1]["status"] == "complete"

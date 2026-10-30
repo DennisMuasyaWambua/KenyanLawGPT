@@ -27,7 +27,9 @@ export default function RecorderDock() {
   if (pathname.startsWith("/recordings")) return null;
   const uploading = !!rec.busy || rec.sending.length > 0;
   const problem = rec.sessionExpired ? "Session expired — the recording is saved on this device." : rec.error;
-  if (!rec.recording && !uploading && !problem && rec.processing.length === 0) return null;
+  // Still on this device and not uploading right now (e.g. an upload failed).
+  const waiting = rec.localRecs.filter((r) => r.id !== rec.currentId && !rec.sending.includes(r.id)).length;
+  if (!rec.recording && !uploading && !problem && !rec.notice && !waiting && rec.processing.length === 0) return null;
 
   return (
     <div className="fixed bottom-4 right-4 z-50 w-72 space-y-2 rounded-lg border border-navy/10 bg-white p-3 text-xs shadow-xl">
@@ -43,7 +45,29 @@ export default function RecorderDock() {
           </button>
         </div>
       )}
+      {rec.recording && rec.screenAwake === false && (
+        <p className="text-amber-700">
+          This browser can&apos;t keep the screen on. Don&apos;t let the phone lock — the microphone stops when it does.
+        </p>
+      )}
+      {rec.notice && (
+        <p className="text-amber-700">
+          {rec.notice}
+          <button className="ml-2 text-ink/50" aria-label="Dismiss" onClick={rec.clearMessages}>✕</button>
+        </p>
+      )}
+      {rec.interrupted && !rec.recording && (
+        <button className="w-full rounded bg-red-700 px-2 py-1.5 font-semibold text-white" onClick={() => void rec.resume()}>
+          ● Continue recording
+        </button>
+      )}
       {uploading && <p className="text-gold-dim">Uploading recording…</p>}
+      {!uploading && waiting > 0 && (
+        <p className="text-ink/70">
+          {waiting === 1 ? "A recording is" : `${waiting} recordings are`} saved on this device, not uploaded yet.{" "}
+          <Link className="font-semibold underline" href="/recordings">Upload</Link>
+        </p>
+      )}
       {problem && (
         <p className="text-red-600">
           {problem}{" "}

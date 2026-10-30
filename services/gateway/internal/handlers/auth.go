@@ -127,6 +127,12 @@ func (s *Server) setAuthCookies(c *gin.Context, access, refresh string) {
 }
 
 func (s *Server) issueTokens(c *gin.Context, tx pgx.Tx, user *repository.User) (gin.H, error) {
+	return s.issueTokensReplacing(c, tx, user, "")
+}
+
+// issueTokensReplacing issues a fresh pair; replaces (if set) is the id of the
+// refresh token being rotated, which is linked to its successor.
+func (s *Server) issueTokensReplacing(c *gin.Context, tx pgx.Tx, user *repository.User, replaces string) (gin.H, error) {
 	tenant := s.tenant(c)
 	roleID := ""
 	if user.RoleID != nil {
@@ -141,9 +147,15 @@ func (s *Server) issueTokens(c *gin.Context, tx pgx.Tx, user *repository.User) (
 	if err != nil {
 		return nil, err
 	}
-	if err := repository.StoreRefreshToken(c.Request.Context(), tx, uuid.NewString(), user.ID, hash,
+	refreshID := uuid.NewString()
+	if err := repository.StoreRefreshToken(c.Request.Context(), tx, refreshID, user.ID, hash,
 		time.Now().Add(s.Cfg.RefreshTTL)); err != nil {
 		return nil, err
+	}
+	if replaces != "" {
+		if err := repository.SetRefreshTokenSuccessor(c.Request.Context(), tx, replaces, refreshID); err != nil {
+			return nil, err
+		}
 	}
 	s.setAuthCookies(c, access, rawRefresh)
 	return gin.H{
@@ -335,7 +347,9 @@ func (s *Server) GoogleSignup(c *gin.Context) {
 }
 
 // Refresh rotates the refresh token: the presented token is atomically
-// revoked and a fresh pair is issued.
+// revoked and a fresh pair is issued. A token rotated moments before the device
+// locked, whose replacement never arrived, is renewed again (see
+// repository.ConsumeRefreshToken) rather than signing the user out.
 func (s *Server) Refresh(c *gin.Context) {
 	var in struct {
 		RefreshToken string `json:"refresh_token"`
@@ -352,7 +366,8 @@ func (s *Server) Refresh(c *gin.Context) {
 	}
 	var resp gin.H
 	ok := s.withTenant(c, func(tx pgx.Tx) error {
-		userID, err := repository.ConsumeRefreshToken(c.Request.Context(), tx, auth.HashRefreshToken(in.RefreshToken))
+		tokenID, userID, err := repository.ConsumeRefreshToken(c.Request.Context(), tx,
+			auth.HashRefreshToken(in.RefreshToken), s.Cfg.RefreshRecoveryWindow)
 		if err == pgx.ErrNoRows {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token invalid or already used"})
 			return errHandled
@@ -364,7 +379,7 @@ func (s *Server) Refresh(c *gin.Context) {
 		if err != nil {
 			return err
 		}
-		resp, err = s.issueTokens(c, tx, user)
+		resp, err = s.issueTokensReplacing(c, tx, user, tokenID)
 		return err
 	})
 	if ok && resp != nil {

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fmtDate, loginPath } from "@/lib/api";
 import { useRecorder } from "@/lib/recorder";
 import { usePermissions } from "@/lib/usePermissions";
+import NewFileDialog from "@/components/NewFileDialog";
 
 type Utterance = { speaker: number; start: number; end: number; text: string };
 type Recording = {
@@ -153,6 +154,7 @@ export default function RecordingsPage() {
   const { can } = usePermissions();
   const canCreate = can("recordings.create");
   const canAll = can("recordings.view_all");
+  const [newFile, setNewFile] = useState(false);
 
   const [consent, setConsent] = useState(false);
   const [fileId, setFileId] = useState("");
@@ -162,7 +164,7 @@ export default function RecordingsPage() {
   // the user moves to another page or tab.
   const {
     recording, level, busy, error, notice, sessionExpired, unsaved, localRecs, sending, currentId,
-    start: startRecorder, stop, send, discard, sendPending,
+    interrupted, screenAwake, start: startRecorder, resume, stop, send, discard, sendPending,
   } = useRecorder();
   const [consentError, setConsentError] = useState("");
 
@@ -210,11 +212,19 @@ export default function RecordingsPage() {
       {canCreate && (
         <div className="card mt-4 space-y-3">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <select className="input" value={fileId} onChange={(e) => setFileId(e.target.value)} disabled={recording}
-              aria-label="Link to file">
-              <option value="">No file linked</option>
-              {(filesData?.files || []).map((m: any) => <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>)}
-            </select>
+            <div className="flex gap-2">
+              <select className="input min-w-0 flex-1" value={fileId} onChange={(e) => setFileId(e.target.value)} disabled={recording}
+                aria-label="Link to file">
+                <option value="">No file linked</option>
+                {(filesData?.files || []).map((m: any) => <option key={m.id} value={m.id}>{m.reference} — {m.title}</option>)}
+              </select>
+              {can("matters.create") && (
+                <button type="button" className="btn-outline shrink-0 whitespace-nowrap" disabled={recording}
+                  title="Register a new file and link this recording to it" onClick={() => setNewFile(true)}>
+                  + New file
+                </button>
+              )}
+            </div>
             <select className="input" value={numSpeakers} onChange={(e) => setNumSpeakers(Number(e.target.value))}
               disabled={recording} aria-label="People speaking in this meeting">
               {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n} {n === 1 ? "person" : "people"} speaking</option>)}
@@ -249,7 +259,16 @@ export default function RecordingsPage() {
               tab is closed, but the microphone stops then: keep this tab open until the meeting ends.
             </p>
           )}
+          {recording && screenAwake === false && (
+            <p className="text-sm text-amber-700">
+              This browser can&apos;t keep the screen on while recording. Don&apos;t let the phone lock (tap the screen now and
+              then, or lengthen the screen timeout) — the microphone stops when it locks.
+            </p>
+          )}
           {notice && <p className="text-sm text-amber-700">{notice}</p>}
+          {interrupted && !recording && (
+            <button className="btn-primary !bg-red-700" onClick={() => void resume()}>● Continue recording</button>
+          )}
           {sessionExpired && (
             <p className="text-sm text-red-600">
               Your session expired before the recording could be uploaded. It is saved on this device —{" "}
@@ -268,6 +287,8 @@ export default function RecordingsPage() {
           )}
         </div>
       )}
+
+      {newFile && <NewFileDialog onClose={() => setNewFile(false)} onCreated={(f) => setFileId(f.id)} />}
 
       {unsent.length > 0 && (
         <div className="card mt-4 border border-amber-300 bg-amber-50">

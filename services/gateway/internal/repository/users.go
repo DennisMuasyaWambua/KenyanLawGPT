@@ -142,14 +142,39 @@ func StoreRefreshToken(ctx context.Context, tx pgx.Tx, id, userID, tokenHash str
 	return err
 }
 
-// ConsumeRefreshToken atomically revokes a live token and returns its user id.
-func ConsumeRefreshToken(ctx context.Context, tx pgx.Tx, tokenHash string) (string, error) {
-	var userID string
-	err := tx.QueryRow(ctx,
+// ConsumeRefreshToken atomically revokes a live token and returns its id and
+// user id.
+//
+// A device whose refresh response was lost (the phone locked or dropped off the
+// network mid-request) still holds the token the server just rotated away, and
+// would be signed out — losing any meeting being recorded. So a recently
+// rotated token is accepted once more when its replacement has never been used
+// (the device evidently never got it): the unused replacement is revoked and
+// the old token is rotated again. Using an old token this way revokes the live
+// one, so a stolen token still signs the rightful device out at its next
+// refresh. recovery <= 0 disables this.
+func ConsumeRefreshToken(ctx context.Context, tx pgx.Tx, tokenHash string, recovery time.Duration) (id, userID string, err error) {
+	err = tx.QueryRow(ctx,
 		`UPDATE refresh_tokens SET revoked_at = now()
 		 WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
-		 RETURNING user_id`, tokenHash).Scan(&userID)
-	return userID, err
+		 RETURNING id, user_id`, tokenHash).Scan(&id, &userID)
+	if err != pgx.ErrNoRows || recovery <= 0 {
+		return id, userID, err
+	}
+	err = tx.QueryRow(ctx,
+		`UPDATE refresh_tokens succ SET revoked_at = now()
+		 FROM refresh_tokens prev
+		 WHERE prev.token_hash = $1 AND prev.replaced_by = succ.id
+		   AND prev.revoked_at > now() - make_interval(secs => $2)
+		   AND succ.revoked_at IS NULL AND succ.expires_at > now()
+		 RETURNING prev.id, prev.user_id`, tokenHash, recovery.Seconds()).Scan(&id, &userID)
+	return id, userID, err
+}
+
+// SetRefreshTokenSuccessor records which token replaced a rotated one.
+func SetRefreshTokenSuccessor(ctx context.Context, tx pgx.Tx, id, successorID string) error {
+	_, err := tx.Exec(ctx, "UPDATE refresh_tokens SET replaced_by = $2 WHERE id = $1", id, successorID)
+	return err
 }
 
 func RevokeUserRefreshTokens(ctx context.Context, tx pgx.Tx, userID string) error {

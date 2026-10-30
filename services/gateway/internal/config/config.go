@@ -22,6 +22,10 @@ type Config struct {
 	JWTSecret  string
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
+	// How long after rotating a refresh token the device may still renew with
+	// it, provided it never received (never used) the replacement — a response
+	// lost to the phone locking mid-request. 0 disables recovery.
+	RefreshRecoveryWindow time.Duration
 
 	GoogleClientID string // Google Identity Services OAuth client id (id-token audience)
 	AppBaseURL     string // public frontend origin, used to build invite links
@@ -158,6 +162,8 @@ func Load() *Config {
 		JWTSecret:  env("JWT_SECRET", "dev-only-secret-change-me"),
 		AccessTTL:  envDur("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTTL: envDur("REFRESH_TOKEN_TTL", 168*time.Hour),
+
+		RefreshRecoveryWindow: envDur("REFRESH_RECOVERY_WINDOW", 24*time.Hour),
 
 		GoogleClientID: env("GOOGLE_CLIENT_ID", ""),
 		AppBaseURL:     env("APP_BASE_URL", "http://localhost:3000"),

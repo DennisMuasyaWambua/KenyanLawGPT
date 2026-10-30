@@ -42,9 +42,18 @@ class TranscriptResult:
     segments: list[dict] = field(default_factory=list)
 
 
+def _join_hotwords(*parts: str) -> str:
+    """Per-recording hotwords first: Whisper keeps only the first ~220 tokens
+    of the prompt, and the case's own names matter most."""
+    return ", ".join(p.strip() for p in parts if p and p.strip())
+
+
 class TranscriptionProvider(Protocol):
+    # ``hotwords``: names and terms likely to be spoken in this recording (the
+    # client, the case, the court), added to the TRANSCRIBE_HOTWORDS vocabulary.
     async def transcribe(self, audio: bytes, filename: str, mime_type: str = "", *,
-                         diarize: bool = False, num_speakers: int = 0) -> TranscriptResult: ...
+                         diarize: bool = False, num_speakers: int = 0,
+                         hotwords: str = "") -> TranscriptResult: ...
 
 
 class MockTranscriptionProvider:
@@ -52,7 +61,8 @@ class MockTranscriptionProvider:
     mock transcript is never mistaken for a real client conversation."""
 
     async def transcribe(self, audio: bytes, filename: str, mime_type: str = "", *,
-                         diarize: bool = False, num_speakers: int = 0) -> TranscriptResult:
+                         diarize: bool = False, num_speakers: int = 0,
+                         hotwords: str = "") -> TranscriptResult:
         return TranscriptResult(
             text=(f"[offline mock transcript for {filename} — configure a transcription "
                   f"provider (TRANSCRIBE_PROVIDER=whisper|openai) for real speech-to-text; "
@@ -77,8 +87,9 @@ class FasterWhisperProvider:
         self._diarizer_built = False
 
     async def transcribe(self, audio: bytes, filename: str, mime_type: str = "", *,
-                         diarize: bool = False, num_speakers: int = 0) -> TranscriptResult:
-        return await asyncio.to_thread(self._run, audio, filename, diarize, num_speakers)
+                         diarize: bool = False, num_speakers: int = 0,
+                         hotwords: str = "") -> TranscriptResult:
+        return await asyncio.to_thread(self._run, audio, filename, diarize, num_speakers, hotwords)
 
     def _get_diarizer(self):
         # Built on first use (only meeting recordings ask for speakers), once:
@@ -116,7 +127,7 @@ class FasterWhisperProvider:
             return allowed[0]
 
     def _run(self, audio: bytes, filename: str, diarize: bool = False,
-             num_speakers: int = 0) -> TranscriptResult:
+             num_speakers: int = 0, hotwords: str = "") -> TranscriptResult:
         from faster_whisper.audio import decode_audio
 
         suffix = os.path.splitext(filename)[1] or ".audio"
@@ -135,9 +146,12 @@ class FasterWhisperProvider:
             # into repetition loops; independent windows are faster and safer.
             condition_on_previous_text=False,
         )
-        if self._cfg.transcribe_hotwords:
-            # Domain vocabulary (court names, legal terms) biases every window.
-            opts["hotwords"] = self._cfg.transcribe_hotwords
+        vocabulary = _join_hotwords(hotwords, self._cfg.transcribe_hotwords)
+        if vocabulary:
+            # Domain vocabulary biases every 30 s window (unlike initial_prompt,
+            # which only primes the first): Kenyan names, courts and legal
+            # terms are spelt as the firm spells them instead of misheard.
+            opts["hotwords"] = vocabulary
         if diarize:
             # Word timings let each word be attributed to a speaker turn. They
             # also enable skipping silent stretches where Whisper hallucinates
@@ -194,12 +208,16 @@ class OpenAITranscriptionProvider:
         self._base = cfg.transcribe_base_url.rstrip("/")
 
     async def transcribe(self, audio: bytes, filename: str, mime_type: str = "", *,
-                         diarize: bool = False, num_speakers: int = 0) -> TranscriptResult:
+                         diarize: bool = False, num_speakers: int = 0,
+                         hotwords: str = "") -> TranscriptResult:
         # No speaker labels from the cloud endpoint; diarize is accepted and ignored.
         files = {"file": (filename, audio, mime_type or "application/octet-stream")}
         data = {"model": self._cfg.transcribe_openai_model, "response_format": "verbose_json"}
         if self._cfg.transcribe_language not in ("", "auto"):
             data["language"] = self._cfg.transcribe_language
+        vocabulary = _join_hotwords(hotwords, self._cfg.transcribe_hotwords)
+        if vocabulary:
+            data["prompt"] = vocabulary  # the Whisper API's vocabulary hint
         headers = {"Authorization": f"Bearer {self._cfg.transcribe_api_key}"}
         async with self._httpx.AsyncClient(timeout=600) as client:
             resp = await client.post(f"{self._base}/audio/transcriptions",
@@ -260,9 +278,10 @@ class LazyTranscriber:
         return self._inner
 
     async def transcribe(self, audio: bytes, filename: str, mime_type: str = "", *,
-                         diarize: bool = False, num_speakers: int = 0) -> TranscriptResult:
+                         diarize: bool = False, num_speakers: int = 0,
+                         hotwords: str = "") -> TranscriptResult:
         return await (await self._get()).transcribe(
-            audio, filename, mime_type, diarize=diarize, num_speakers=num_speakers)
+            audio, filename, mime_type, diarize=diarize, num_speakers=num_speakers, hotwords=hotwords)
 
     async def warm(self) -> None:
         """Load the model ahead of the first recording (a cold Whisper load takes

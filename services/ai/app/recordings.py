@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass, field
 
 from minio import Minio
 from minio.error import S3Error
@@ -68,6 +69,47 @@ _SUMMARY_SYSTEM = (
 )
 
 _SUMMARY_TEMPLATE = "Transcript:\n\n{transcript}"
+# Prepended when the recording is linked to a case file, so names come out
+# spelt as in the firm's records rather than as speech recognition heard them.
+_SUMMARY_CONTEXT = ("Context from the firm's records (use it only to spell names and "
+                    "terms correctly — never as a source of facts):\n{context}\n\n")
+
+# Firm colleagues listed for the proofreader beyond those on the file itself.
+_CONTEXT_STAFF = 20
+
+
+@dataclass
+class MeetingContext:
+    """What the firm's own records say about a meeting: the case file, client,
+    court and the people likely to speak. Speech recognition's worst Kenyan-
+    English errors are names, and these are the names that will come up."""
+    firm: str = ""
+    file: str = ""        # "ELC E045/2024 — Wanjiru v Kamau (Milimani)"
+    client: str = ""
+    court: str = ""
+    case_number: str = ""
+    people: list[str] = field(default_factory=list)  # advocate on the file first
+    staff: list[str] = field(default_factory=list)   # other colleagues
+
+    def hotwords(self) -> str:
+        """A short vocabulary for Whisper: only what is specific to this
+        meeting. Whisper keeps ~220 tokens of it, and a long list of names it
+        then hears everywhere does more harm than good."""
+        terms = [self.client, self.file, self.court, self.case_number, *self.people, self.firm]
+        return ", ".join(dict.fromkeys(t for t in terms if t))
+
+    def describe(self) -> str:
+        """The same facts as prose-ish lines for the proofreader and notes model."""
+        lines = [
+            self.firm and f"Law firm: {self.firm}",
+            self.file and f"Case file: {self.file}",
+            self.client and f"Client: {self.client}",
+            self.court and f"Court: {self.court}",
+            self.case_number and f"Court case number: {self.case_number}",
+            self.people and "Advocates on this matter: " + ", ".join(self.people),
+            self.staff and "Other people at the firm: " + ", ".join(self.staff),
+        ]
+        return "\n".join(line for line in lines if line)
 
 # How much transcript each notes model sees. The local model's context is small;
 # GMI's hosted models take a long meeting whole.
@@ -194,7 +236,8 @@ class RecordingProcessor:
         handled = 0
         for rec in resummarize:
             log.info("recovering recording %s stuck in 'summarizing'", rec["id"])
-            await self._finish_summary(tenant_id, rec["id"], rec["transcript_text"] or "")
+            ctx = await self._meeting_context(tenant_id, rec["id"])
+            await self._finish_summary(tenant_id, rec["id"], rec["transcript_text"] or "", context=ctx.describe())
             handled += 1
         for rec in pending:
             await self._process_one(tenant_id, rec["id"], rec["object_key"], rec["filename"],
@@ -225,8 +268,10 @@ class RecordingProcessor:
                     "or too large for this server) — try a shorter recording"))
                 return
             audio = await self._fetch_object(tenant_id, object_key)
+            ctx = await self._meeting_context(tenant_id, rec_id)
             result = await self._transcriber.transcribe(
-                audio, filename or "audio", mime_type or "", diarize=True, num_speakers=num_speakers or 0)
+                audio, filename or "audio", mime_type or "", diarize=True, num_speakers=num_speakers or 0,
+                hotwords=ctx.hotwords())
             if result.provider == "mock":
                 # The offline mock emits a placeholder, not speech. Summarizing it
                 # would fabricate "meeting notes" from nothing, so fail loudly.
@@ -247,11 +292,11 @@ class RecordingProcessor:
             # Show the transcript straight away; correction and notes follow.
             await self._update(tenant_id, rec_id, status="summarizing", transcript_text=raw,
                                transcript_segments=json.dumps(segments, ensure_ascii=False))
-            segments, transcript, note = await self._correct(segments, raw)
+            segments, transcript, note = await self._correct(segments, raw, ctx.describe())
             if transcript != raw:
                 await self._update(tenant_id, rec_id, transcript_text=transcript, transcript_raw=raw,
                                    transcript_segments=json.dumps(segments, ensure_ascii=False))
-            await self._finish_summary(tenant_id, rec_id, transcript, note)
+            await self._finish_summary(tenant_id, rec_id, transcript, note, context=ctx.describe())
             log.info("recording %s transcribed (%d chars, lang=%s, speakers=%d)", rec_id, len(transcript),
                      result.language, len({u["speaker"] for u in segments}))
         except Exception as exc:  # noqa: BLE001
@@ -267,12 +312,47 @@ class RecordingProcessor:
                 "UPDATE meeting_recordings SET attempts = attempts + 1, updated_at = now() "
                 "WHERE id = $1 RETURNING attempts", rec_id)
 
-    async def _finish_summary(self, tenant_id: str, rec_id: str, transcript: str, note: str = "") -> None:
+    async def _meeting_context(self, tenant_id: str, rec_id: str) -> MeetingContext:
+        """The firm's records about this meeting (see ``MeetingContext``).
+        Best-effort: without it the recording is still processed, just without
+        the names."""
+        try:
+            async with tenant_tx(self.pool, tenant_id) as conn:
+                row = await conn.fetchrow(
+                    "SELECT t.name AS firm, f.reference, f.title, f.court, f.court_case_number, "
+                    "COALESCE(fc.name, rc.name, '') AS client, "
+                    "COALESCE(adv.full_name, '') AS advocate, COALESCE(asg.full_name, '') AS assigned "
+                    "FROM meeting_recordings r "
+                    "LEFT JOIN public.tenants t ON t.id = $2::uuid "
+                    "LEFT JOIN files f ON f.id = r.file_id "
+                    "LEFT JOIN clients fc ON fc.id = f.client_id "
+                    "LEFT JOIN clients rc ON rc.id = r.client_id "
+                    "LEFT JOIN users adv ON adv.id = r.advocate_user_id "
+                    "LEFT JOIN users asg ON asg.id = f.assigned_to "
+                    "WHERE r.id = $1", rec_id, tenant_id)
+                staff = await conn.fetch(
+                    "SELECT full_name FROM users WHERE status = 'active' AND role <> 'client' "
+                    "AND full_name <> '' ORDER BY last_login_at DESC NULLS LAST LIMIT $1", _CONTEXT_STAFF)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("recording %s: case context unavailable (%s); processing without it", rec_id, exc)
+            return MeetingContext()
+        if row is None:
+            return MeetingContext()
+        file = " — ".join(p for p in (row["reference"], row["title"]) if p)
+        people = list(dict.fromkeys(n.strip() for n in (row["advocate"], row["assigned"]) if n and n.strip()))
+        return MeetingContext(
+            firm=row["firm"] or "", file=file, client=row["client"] or "", court=row["court"] or "",
+            case_number=row["court_case_number"] or "", people=people,
+            staff=[r["full_name"].strip() for r in staff if r["full_name"].strip() not in people],
+        )
+
+    async def _finish_summary(self, tenant_id: str, rec_id: str, transcript: str, note: str = "",
+                              context: str = "") -> None:
         """Summarize a stored transcript and mark the recording complete. Never
         leaves the row in 'summarizing': any failure still yields 'complete' with
         the transcript and a note, because the transcript is the valuable part."""
         try:
-            summary, err = await self._summarize(transcript)
+            summary, err = await self._summarize(transcript, context)
         except Exception as exc:  # noqa: BLE001
             log.exception("recording %s summary step crashed", rec_id)
             summary, err = "", f"summary unavailable: {exc}"[:500]
@@ -287,7 +367,8 @@ class RecordingProcessor:
             self._gmi_llm = GMICloudProvider(self.cfg, model=self.cfg.recordings_summary_model or None)
         return self._gmi_llm
 
-    async def _correct(self, segments: list[dict], transcript: str) -> tuple[list[dict], str, str]:
+    async def _correct(self, segments: list[dict], transcript: str,
+                       context: str = "") -> tuple[list[dict], str, str]:
         """Proofread the Whisper transcript for Kenyan English (see
         ``transcript_cleanup``). Returns (segments, transcript, note). Best-effort:
         whatever can't be corrected keeps Whisper's text, and the recording is
@@ -296,10 +377,10 @@ class RecordingProcessor:
             return segments, transcript, ""
         try:
             if segments:
-                segments, changed, failed = await transcript_cleanup.correct_segments(self._gmi(), segments)
+                segments, changed, failed = await transcript_cleanup.correct_segments(self._gmi(), segments, context)
                 transcript = format_transcript(segments)
             else:
-                transcript, changed, failed = await transcript_cleanup.correct_plain(self._gmi(), transcript)
+                transcript, changed, failed = await transcript_cleanup.correct_plain(self._gmi(), transcript, context)
         except Exception as exc:  # noqa: BLE001
             log.warning("transcript correction failed, keeping the Whisper transcript: %s", exc)
             return segments, transcript, f"transcript was not AI-corrected ({exc})"[:300]
@@ -307,7 +388,7 @@ class RecordingProcessor:
         note = "parts of the transcript could not be AI-corrected and are shown as recognised" if failed else ""
         return segments, transcript, note
 
-    async def _summarize(self, transcript: str) -> tuple[str, str]:
+    async def _summarize(self, transcript: str, context: str = "") -> tuple[str, str]:
         """Extract structured meeting notes (JSON, see ``_SUMMARY_SYSTEM``) —
         GMI Cloud first when configured, else/then local Ollama. Best-effort: if
         no model answers we still deliver the transcript (empty summary + note).
@@ -315,10 +396,11 @@ class RecordingProcessor:
         Returns (summary, note)."""
         if not transcript:
             return "", "empty transcript"
+        preamble = _SUMMARY_CONTEXT.format(context=context) if context else ""
         note = ""
         if self._use_gmi():
             try:
-                prompt = _SUMMARY_TEMPLATE.format(
+                prompt = preamble + _SUMMARY_TEMPLATE.format(
                     transcript=_clip_transcript(transcript, max(_LOCAL_TRANSCRIPT_CHARS,
                                                                 self.cfg.recordings_summary_max_chars)))
                 summary = await self._gmi().complete(_SUMMARY_SYSTEM, prompt, max_tokens=4000)
@@ -331,7 +413,8 @@ class RecordingProcessor:
         try:
             if not self._local_llm:
                 self._local_llm = OllamaProvider(self.cfg)
-            prompt = _SUMMARY_TEMPLATE.format(transcript=_clip_transcript(transcript, _LOCAL_TRANSCRIPT_CHARS))
+            prompt = preamble + _SUMMARY_TEMPLATE.format(
+                transcript=_clip_transcript(transcript, _LOCAL_TRANSCRIPT_CHARS))
             summary = await self._local_llm.complete(_SUMMARY_SYSTEM, prompt, max_tokens=2000)
             return _extract_json(summary or ""), note
         except Exception as exc:  # noqa: BLE001

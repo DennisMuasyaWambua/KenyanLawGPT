@@ -31,7 +31,7 @@ def _processor(transcriber):
     async def fake_fetch(tenant_id, key):
         return b"audio"
 
-    async def fake_summarize(transcript):
+    async def fake_summarize(transcript, context=""):
         return '{"executive_summary": "ok"}', ""
 
     async def fake_claim(tenant_id, rec_id):
@@ -71,7 +71,7 @@ async def test_transcriber_exception_marks_failed_with_message():
 async def test_summary_crash_still_completes_with_transcript():
     p, updates = _processor(None)
 
-    async def boom(transcript):
+    async def boom(transcript, context=""):
         raise RuntimeError("ollama down")
 
     p._summarize = boom
@@ -110,7 +110,7 @@ async def test_speaker_segments_become_labelled_transcript():
                                           "faster-whisper", segments=segs))
     p, updates = _processor(t)
     await p._process_one("t", "r", "tenants/t/x", "a.webm", "audio/webm", num_speakers=2)
-    assert t.kwargs == {"diarize": True, "num_speakers": 2}
+    assert t.kwargs == {"diarize": True, "num_speakers": 2, "hotwords": ""}
     assert updates[0]["transcript_text"] == (
         "[00:00] Speaker 1: Tutafile plaint kesho.\n[00:02] Speaker 2: Sawa, nitaleta ID.")
     assert json.loads(updates[0]["transcript_segments"]) == segs

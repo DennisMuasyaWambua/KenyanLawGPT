@@ -200,3 +200,10 @@ def test_single_speaker_skips_the_diarizer():
             W(words=[W(start=9.0, end=9.5, word=" End.")])]
     assert p._speakers([0.0], segs, 1) == [
         {"speaker": 1, "start": 0.0, "end": 9.5, "text": "Dictating notes. End."}]
+
+
+def test_recording_hotwords_come_before_the_configured_vocabulary():
+    from app.transcription import _join_hotwords
+
+    assert _join_hotwords("Grace Wanjiru, Milimani", " ELRC ") == "Grace Wanjiru, Milimani, ELRC"
+    assert _join_hotwords("", "") == ""

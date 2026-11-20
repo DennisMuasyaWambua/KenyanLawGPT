@@ -75,3 +75,30 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  deploy:
+    name: Deploy to production server
+    # Only after BOTH gates pass (incl. the cross-tenant leakage suite), only on main pushes.
+    needs: [unit, tenant-isolation-integration]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production        # add required reviewers in repo settings for a manual gate
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false    # never interrupt a deploy mid-build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH (pinned host key)
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host *\n  IdentityFile ~/.ssh/id_deploy\n  StrictHostKeyChecking yes\n' > ~/.ssh/config
+      - name: Deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SITE: ${{ vars.DEPLOY_SITE }}
+        run: infra/deploy.sh

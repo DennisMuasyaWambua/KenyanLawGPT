@@ -34,29 +34,33 @@ def to_doc_ranking(chunk_scores: np.ndarray, owners: Sequence[str], k: int) -> l
 
 
 class BM25:
+    """Okapi BM25 over an inverted index (numpy accumulation, so it stays fast on
+    large corpora: cost is proportional to the postings of the query terms)."""
     name = "bm25"
 
     def __init__(self, chunks: Sequence[str], k1: float = 1.5, b: float = 0.75) -> None:
         self.k1, self.b = k1, b
-        self.tf = [Counter(tokenize(c)) for c in chunks]
-        self.len = np.array([sum(t.values()) for t in self.tf], dtype=float)
-        self.avg = self.len.mean() if len(self.len) else 1.0
-        df: Counter = Counter()
-        for t in self.tf:
-            df.update(t.keys())
         n = len(chunks)
-        self.idf = {w: math.log(1 + (n - c + 0.5) / (c + 0.5)) for w, c in df.items()}
+        postings: dict[str, list[tuple[int, int]]] = defaultdict(list)
+        lengths = np.zeros(n)
+        for i, c in enumerate(chunks):
+            tf = Counter(tokenize(c))
+            lengths[i] = sum(tf.values())
+            for w, f in tf.items():
+                postings[w].append((i, f))
+        self.n = n
+        self.avg = float(lengths.mean()) if n else 1.0
+        self.norm = k1 * (1 - b + b * lengths / self.avg) if n else lengths
+        self.post = {w: (np.array([i for i, _ in p]), np.array([f for _, f in p], dtype=float))
+                     for w, p in postings.items()}
+        self.idf = {w: math.log(1 + (n - len(p[0]) + 0.5) / (len(p[0]) + 0.5)) for w, p in self.post.items()}
 
     def scores(self, query: str) -> np.ndarray:
-        out = np.zeros(len(self.tf))
+        out = np.zeros(self.n)
         for w in set(tokenize(query)):
-            idf = self.idf.get(w)
-            if idf is None:
-                continue
-            for i, t in enumerate(self.tf):
-                f = t.get(w)
-                if f:
-                    out[i] += idf * f * (self.k1 + 1) / (f + self.k1 * (1 - self.b + self.b * self.len[i] / self.avg))
+            if w in self.post:
+                idx, f = self.post[w]
+                out[idx] += self.idf[w] * f * (self.k1 + 1) / (f + self.norm[idx])
         return out
 
 
@@ -68,7 +72,8 @@ class HashingDense:
 
     def __init__(self, chunks: Sequence[str], dim: int = 1024) -> None:
         self.dim = dim
-        self.mat = np.vstack([self._vec(c) for c in chunks]) if chunks else np.zeros((0, dim))
+        self.mat = (np.vstack([self._vec(c) for c in chunks]).astype(np.float32)
+                    if chunks else np.zeros((0, dim), dtype=np.float32))
 
     def _vec(self, text: str) -> np.ndarray:
         toks = _TOKEN_RE.findall(text.lower())
@@ -87,25 +92,28 @@ class SentenceTransformerDense:
     """Learned dense embeddings via sentence-transformers (optional dependency),
     e.g. 'BAAI/bge-small-en-v1.5' or 'sentence-transformers/all-MiniLM-L6-v2'."""
 
-    def __init__(self, chunks: Sequence[str], model: str) -> None:
+    def __init__(self, chunks: Sequence[str], model: str, matrix=None) -> None:
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:  # pragma: no cover
             raise SystemExit("pip install sentence-transformers to use --dense st:<model>") from exc
         self.name = f"dense_{model.split('/')[-1]}"
         self.model = SentenceTransformer(model)
-        self.mat = self.model.encode(list(chunks), normalize_embeddings=True, show_progress_bar=False)
+        self.mat = matrix if matrix is not None else self.model.encode(
+            list(chunks), normalize_embeddings=True, show_progress_bar=False)
 
     def scores(self, query: str) -> np.ndarray:
         return self.mat @ self.model.encode([query], normalize_embeddings=True)[0]
 
 
-def rrf(rankings: Sequence[Sequence[str]], k: int = 60) -> dict[str, float]:
-    """Reciprocal Rank Fusion over doc rankings."""
+def rrf(rankings: Sequence[Sequence[str]], k: int = 60,
+        weights: Sequence[float] | None = None) -> dict[str, float]:
+    """(Weighted) Reciprocal Rank Fusion over doc rankings."""
     fused: dict[str, float] = defaultdict(float)
-    for r in rankings:
+    for j, r in enumerate(rankings):
+        w = 1.0 if weights is None else weights[j]
         for i, d in enumerate(r, 1):
-            fused[d] += 1.0 / (k + i)
+            fused[d] += w / (k + i)
     return dict(fused)
 
 

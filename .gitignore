@@ -4,6 +4,7 @@ node_modules/
 .next/
 __pycache__/
 *.pyc
+capstone/
 infra/certs/*.crt
 infra/certs/*.key
 infra/certs/*.srl

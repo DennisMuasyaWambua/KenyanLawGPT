@@ -24,9 +24,16 @@ git archive --format=tar HEAD | "${SSH[@]}" "$DEPLOY_HOST" "mkdir -p '$DIR' && t
 
 "${SSH[@]}" "$DEPLOY_HOST" "set -euo pipefail; cd '$DIR'
   test -f .env || { echo 'missing .env (copy it from the old server; see docs/DEPLOY_NEW_SERVER.md)' >&2; exit 1; }
-  test -d infra/certs && ls infra/certs/* >/dev/null 2>&1 || { echo '==> generating mTLS certs'; make certs; }
+  test -f infra/certs/ca.crt || { echo '==> generating mTLS certs'; make certs; }
   docker compose up -d postgres neo4j redis minio
-  for svc in ai gateway frontend; do echo \"==> building \$svc\"; docker compose build \$svc; done
+  for svc in ai gateway frontend; do
+    echo \"==> building \$svc\"
+    for n in 1 2 3; do
+      docker compose build \$svc && break
+      [ \$n = 3 ] && { echo \"build of \$svc failed after 3 attempts\" >&2; exit 1; }
+      echo \"build attempt \$n failed (network?); retrying\"; sleep 15
+    done
+  done
   echo '==> migrating'; docker compose run --rm migrate
   echo '==> restarting'; docker compose up -d ai gateway frontend
   echo '$SHA' > .deployed_sha

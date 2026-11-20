@@ -97,6 +97,13 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           printf 'Host *\n  IdentityFile ~/.ssh/id_deploy\n  StrictHostKeyChecking yes\n' > ~/.ssh/config
+      - name: Verify pinned host key is present
+        env:
+          H: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          [ -n "$H" ] || { echo "::error::secret DEPLOY_HOST is empty (check repo vs environment scope)"; exit 1; }
+          ssh-keygen -F "$H" -f ~/.ssh/known_hosts >/dev/null || {
+            echo "::error::DEPLOY_KNOWN_HOSTS has no entry for the deploy host. Expected one line: '<ip> ssh-ed25519 AAAA...' (output of: ssh-keyscan -t ed25519 <ip>)"; exit 1; }
       - name: Deploy
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}

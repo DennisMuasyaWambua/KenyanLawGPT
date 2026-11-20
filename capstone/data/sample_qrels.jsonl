@@ -1,0 +1,10 @@
+{"query_id": "q1", "query": "Land dispute with fraudulent title deed in Kiambu", "relevant": {"SYN-001": 3, "SYN-002": 2}}
+{"query_id": "q2", "query": "cancelling a forged land title", "relevant": {"SYN-001": 3, "SYN-002": 2}}
+{"query_id": "q3", "query": "dismissed without being heard by employer", "relevant": {"SYN-003": 3, "SYN-004": 2}}
+{"query_id": "q4", "query": "compensation for wrongful sacking", "relevant": {"SYN-003": 3}}
+{"query_id": "q5", "query": "can an accused person get released on bond pending trial", "relevant": {"SYN-005": 3, "SYN-006": 3}}
+{"query_id": "q6", "query": "quashing a decision made without giving notice", "relevant": {"SYN-007": 3, "SYN-008": 2}}
+{"query_id": "q7", "query": "duty of public body to give reasons", "relevant": {"SYN-008": 3, "SYN-007": 1}}
+{"query_id": "q8", "query": "marketing messages without consent penalty", "relevant": {"SYN-010": 3, "SYN-009": 2}}
+{"query_id": "q9", "query": "how is an estate shared among children when there is no will", "relevant": {"SYN-011": 3}}
+{"query_id": "q10", "query": "penalty clause in loan agreement unenforceable", "relevant": {"SYN-012": 3}}

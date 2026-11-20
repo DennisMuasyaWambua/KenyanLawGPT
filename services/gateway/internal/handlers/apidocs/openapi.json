@@ -1,0 +1,4353 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "Advocatus API",
+  "version": "1.0.0",
+  "description": "REST API for Advocatus, a multi-tenant legal practice and Kenyan case-law research platform.\n\n**Tenancy:** every `/api/v1` route (except signup and platform admin) is scoped to a firm, resolved from the `X-Tenant-Slug` header or the `<firm>.law.dennismuasya.com` subdomain.\n\n**Auth:** `POST /api/v1/auth/login` returns a JWT; send it as `Authorization: Bearer <token>`. Firm routes are additionally gated by role-based permissions. Rate limits apply (HTTP 429).\n\n_Generated from the gateway route table; request/response bodies are free-form objects._"
+ },
+ "servers": [
+  {
+   "url": "https://lawapi.dennismuasya.com"
+  }
+ ],
+ "paths": {
+  "/api/v1/admin/admins": {
+   "get": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "GET /api/v1/admin/admins",
+    "operationId": "get__api_v1_admin_admins",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "POST /api/v1/admin/admins",
+    "operationId": "post__api_v1_admin_admins",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/admins/{id}": {
+   "delete": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "DELETE /api/v1/admin/admins/{id}",
+    "operationId": "delete__api_v1_admin_admins_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/audit": {
+   "get": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "GET /api/v1/admin/audit",
+    "operationId": "get__api_v1_admin_audit",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/login": {
+   "post": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "POST /api/v1/admin/login",
+    "operationId": "post__api_v1_admin_login",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": []
+   }
+  },
+  "/api/v1/admin/logout": {
+   "post": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "POST /api/v1/admin/logout",
+    "operationId": "post__api_v1_admin_logout",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/me": {
+   "get": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "GET /api/v1/admin/me",
+    "operationId": "get__api_v1_admin_me",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/plans": {
+   "get": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "GET /api/v1/admin/plans",
+    "operationId": "get__api_v1_admin_plans",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/refresh": {
+   "post": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "POST /api/v1/admin/refresh",
+    "operationId": "post__api_v1_admin_refresh",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": []
+   }
+  },
+  "/api/v1/admin/stats": {
+   "get": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "GET /api/v1/admin/stats",
+    "operationId": "get__api_v1_admin_stats",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/tenants": {
+   "get": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "GET /api/v1/admin/tenants",
+    "operationId": "get__api_v1_admin_tenants",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "POST /api/v1/admin/tenants",
+    "operationId": "post__api_v1_admin_tenants",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/tenants/{id}": {
+   "get": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "GET /api/v1/admin/tenants/{id}",
+    "operationId": "get__api_v1_admin_tenants_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   },
+   "delete": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "DELETE /api/v1/admin/tenants/{id}",
+    "operationId": "delete__api_v1_admin_tenants_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/tenants/{id}/impersonate": {
+   "post": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "POST /api/v1/admin/tenants/{id}/impersonate",
+    "operationId": "post__api_v1_admin_tenants_id_impersonate",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/tenants/{id}/plan": {
+   "patch": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "PATCH /api/v1/admin/tenants/{id}/plan",
+    "operationId": "patch__api_v1_admin_tenants_id_plan",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/admin/tenants/{id}/status": {
+   "patch": {
+    "tags": [
+     "Platform admin"
+    ],
+    "summary": "PATCH /api/v1/admin/tenants/{id}/status",
+    "operationId": "patch__api_v1_admin_tenants_id_status",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid admin token"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "adminBearer": []
+     }
+    ]
+   }
+  },
+  "/api/v1/archives": {
+   "get": {
+    "tags": [
+     "Documents"
+    ],
+    "summary": "GET /api/v1/archives",
+    "operationId": "get__api_v1_archives",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDocumentsView`."
+   }
+  },
+  "/api/v1/archives/presign": {
+   "post": {
+    "tags": [
+     "Documents"
+    ],
+    "summary": "POST /api/v1/archives/presign",
+    "operationId": "post__api_v1_archives_presign",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDocumentsUpload`."
+   }
+  },
+  "/api/v1/archives/{id}/comments": {
+   "get": {
+    "tags": [
+     "Documents"
+    ],
+    "summary": "GET /api/v1/archives/{id}/comments",
+    "operationId": "get__api_v1_archives_id_comments",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDocumentsView`."
+   },
+   "post": {
+    "tags": [
+     "Documents"
+    ],
+    "summary": "POST /api/v1/archives/{id}/comments",
+    "operationId": "post__api_v1_archives_id_comments",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDocumentsView`."
+   }
+  },
+  "/api/v1/archives/{id}/download": {
+   "get": {
+    "tags": [
+     "Documents"
+    ],
+    "summary": "GET /api/v1/archives/{id}/download",
+    "operationId": "get__api_v1_archives_id_download",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDocumentsDownload`."
+   }
+  },
+  "/api/v1/archives/{id}/ingest": {
+   "post": {
+    "tags": [
+     "Documents"
+    ],
+    "summary": "POST /api/v1/archives/{id}/ingest",
+    "operationId": "post__api_v1_archives_id_ingest",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDocumentsUpload`."
+   }
+  },
+  "/api/v1/archives/{id}/shares": {
+   "get": {
+    "tags": [
+     "Documents"
+    ],
+    "summary": "GET /api/v1/archives/{id}/shares",
+    "operationId": "get__api_v1_archives_id_shares",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDocumentsView`."
+   },
+   "put": {
+    "tags": [
+     "Documents"
+    ],
+    "summary": "PUT /api/v1/archives/{id}/shares",
+    "operationId": "put__api_v1_archives_id_shares",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDocumentsUpload`."
+   }
+  },
+  "/api/v1/archives/{id}/versions": {
+   "get": {
+    "tags": [
+     "Documents"
+    ],
+    "summary": "GET /api/v1/archives/{id}/versions",
+    "operationId": "get__api_v1_archives_id_versions",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDocumentsView`."
+   }
+  },
+  "/api/v1/auth/change-password": {
+   "post": {
+    "tags": [
+     "Auth"
+    ],
+    "summary": "POST /api/v1/auth/change-password",
+    "operationId": "post__api_v1_auth_change_password",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/auth/google": {
+   "post": {
+    "tags": [
+     "Auth"
+    ],
+    "summary": "POST /api/v1/auth/google",
+    "operationId": "post__api_v1_auth_google",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": []
+   }
+  },
+  "/api/v1/auth/invite/{token}": {
+   "get": {
+    "tags": [
+     "Auth"
+    ],
+    "summary": "GET /api/v1/auth/invite/{token}",
+    "operationId": "get__api_v1_auth_invite_token",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "parameters": [
+     {
+      "name": "token",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": []
+   }
+  },
+  "/api/v1/auth/invite/{token}/accept": {
+   "post": {
+    "tags": [
+     "Auth"
+    ],
+    "summary": "POST /api/v1/auth/invite/{token}/accept",
+    "operationId": "post__api_v1_auth_invite_token_accept",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "parameters": [
+     {
+      "name": "token",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": []
+   }
+  },
+  "/api/v1/auth/login": {
+   "post": {
+    "tags": [
+     "Auth"
+    ],
+    "summary": "POST /api/v1/auth/login",
+    "operationId": "post__api_v1_auth_login",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": []
+   }
+  },
+  "/api/v1/auth/logout": {
+   "post": {
+    "tags": [
+     "Auth"
+    ],
+    "summary": "POST /api/v1/auth/logout",
+    "operationId": "post__api_v1_auth_logout",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/auth/me": {
+   "get": {
+    "tags": [
+     "Auth"
+    ],
+    "summary": "GET /api/v1/auth/me",
+    "operationId": "get__api_v1_auth_me",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/auth/refresh": {
+   "post": {
+    "tags": [
+     "Auth"
+    ],
+    "summary": "POST /api/v1/auth/refresh",
+    "operationId": "post__api_v1_auth_refresh",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": []
+   }
+  },
+  "/api/v1/calendar/events": {
+   "get": {
+    "tags": [
+     "Calendar"
+    ],
+    "summary": "GET /api/v1/calendar/events",
+    "operationId": "get__api_v1_calendar_events",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Calendar"
+    ],
+    "summary": "POST /api/v1/calendar/events",
+    "operationId": "post__api_v1_calendar_events",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/calendar/events/{id}": {
+   "put": {
+    "tags": [
+     "Calendar"
+    ],
+    "summary": "PUT /api/v1/calendar/events/{id}",
+    "operationId": "put__api_v1_calendar_events_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   },
+   "delete": {
+    "tags": [
+     "Calendar"
+    ],
+    "summary": "DELETE /api/v1/calendar/events/{id}",
+    "operationId": "delete__api_v1_calendar_events_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/clients": {
+   "get": {
+    "tags": [
+     "Clients"
+    ],
+    "summary": "GET /api/v1/clients",
+    "operationId": "get__api_v1_clients",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermClientsView`."
+   },
+   "post": {
+    "tags": [
+     "Clients"
+    ],
+    "summary": "POST /api/v1/clients",
+    "operationId": "post__api_v1_clients",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermClientsCreate`."
+   }
+  },
+  "/api/v1/clients/{id}": {
+   "get": {
+    "tags": [
+     "Clients"
+    ],
+    "summary": "GET /api/v1/clients/{id}",
+    "operationId": "get__api_v1_clients_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermClientsView`."
+   },
+   "patch": {
+    "tags": [
+     "Clients"
+    ],
+    "summary": "PATCH /api/v1/clients/{id}",
+    "operationId": "patch__api_v1_clients_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermClientsEdit`."
+   }
+  },
+  "/api/v1/clients/{id}/advance": {
+   "post": {
+    "tags": [
+     "Clients"
+    ],
+    "summary": "POST /api/v1/clients/{id}/advance",
+    "operationId": "post__api_v1_clients_id_advance",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermClientsAdvanceStage`."
+   }
+  },
+  "/api/v1/clients/{id}/conflict-check": {
+   "post": {
+    "tags": [
+     "Clients"
+    ],
+    "summary": "POST /api/v1/clients/{id}/conflict-check",
+    "operationId": "post__api_v1_clients_id_conflict_check",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermClientsAdvanceStage`."
+   }
+  },
+  "/api/v1/collab-documents": {
+   "get": {
+    "tags": [
+     "Collaborative docs"
+    ],
+    "summary": "GET /api/v1/collab-documents",
+    "operationId": "get__api_v1_collab_documents",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDraftingCreate`."
+   },
+   "post": {
+    "tags": [
+     "Collaborative docs"
+    ],
+    "summary": "POST /api/v1/collab-documents",
+    "operationId": "post__api_v1_collab_documents",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDraftingCreate`."
+   }
+  },
+  "/api/v1/collab-documents/{id}": {
+   "get": {
+    "tags": [
+     "Collaborative docs"
+    ],
+    "summary": "GET /api/v1/collab-documents/{id}",
+    "operationId": "get__api_v1_collab_documents_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDraftingCreate`."
+   },
+   "patch": {
+    "tags": [
+     "Collaborative docs"
+    ],
+    "summary": "PATCH /api/v1/collab-documents/{id}",
+    "operationId": "patch__api_v1_collab_documents_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDraftingCreate`."
+   }
+  },
+  "/api/v1/collab-documents/{id}/shares": {
+   "put": {
+    "tags": [
+     "Collaborative docs"
+    ],
+    "summary": "PUT /api/v1/collab-documents/{id}/shares",
+    "operationId": "put__api_v1_collab_documents_id_shares",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDraftingCreate`."
+   }
+  },
+  "/api/v1/dashboard": {
+   "get": {
+    "tags": [
+     "Dashboard"
+    ],
+    "summary": "GET /api/v1/dashboard",
+    "operationId": "get__api_v1_dashboard",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/dashboard/cases": {
+   "get": {
+    "tags": [
+     "Dashboard"
+    ],
+    "summary": "GET /api/v1/dashboard/cases",
+    "operationId": "get__api_v1_dashboard_cases",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermMattersViewAll`."
+   }
+  },
+  "/api/v1/drafting/stream": {
+   "post": {
+    "tags": [
+     "AI research"
+    ],
+    "summary": "POST /api/v1/drafting/stream",
+    "operationId": "post__api_v1_drafting_stream",
+    "responses": {
+     "200": {
+      "description": "Server-sent events stream",
+      "content": {
+       "text/event-stream": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDraftingCreate`."
+   }
+  },
+  "/api/v1/drafts": {
+   "get": {
+    "tags": [
+     "Documents"
+    ],
+    "summary": "GET /api/v1/drafts",
+    "operationId": "get__api_v1_drafts",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermDocumentsView`."
+   }
+  },
+  "/api/v1/files": {
+   "get": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "GET /api/v1/files",
+    "operationId": "get__api_v1_files",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermMattersViewOwn`."
+   },
+   "post": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "POST /api/v1/files",
+    "operationId": "post__api_v1_files",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermMattersCreate`."
+   }
+  },
+  "/api/v1/files/{id}": {
+   "get": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "GET /api/v1/files/{id}",
+    "operationId": "get__api_v1_files_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermMattersViewOwn`."
+   },
+   "put": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "PUT /api/v1/files/{id}",
+    "operationId": "put__api_v1_files_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermMattersEdit`."
+   }
+  },
+  "/api/v1/files/{id}/court-dates": {
+   "post": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "POST /api/v1/files/{id}/court-dates",
+    "operationId": "post__api_v1_files_id_court_dates",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermMattersEdit`."
+   }
+  },
+  "/api/v1/files/{id}/deadlines": {
+   "post": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "POST /api/v1/files/{id}/deadlines",
+    "operationId": "post__api_v1_files_id_deadlines",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermMattersEdit`."
+   }
+  },
+  "/api/v1/files/{id}/events": {
+   "post": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "POST /api/v1/files/{id}/events",
+    "operationId": "post__api_v1_files_id_events",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermMattersEdit`."
+   }
+  },
+  "/api/v1/files/{id}/judiciary": {
+   "get": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "GET /api/v1/files/{id}/judiciary",
+    "operationId": "get__api_v1_files_id_judiciary",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermMattersViewOwn`."
+   }
+  },
+  "/api/v1/files/{id}/notify-client": {
+   "post": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "POST /api/v1/files/{id}/notify-client",
+    "operationId": "post__api_v1_files_id_notify_client",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermCommsSend`."
+   }
+  },
+  "/api/v1/files/{id}/recordings": {
+   "get": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "GET /api/v1/files/{id}/recordings",
+    "operationId": "get__api_v1_files_id_recordings",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRecordingsViewOwn`."
+   }
+  },
+  "/api/v1/files/{id}/tasks": {
+   "get": {
+    "tags": [
+     "Matters"
+    ],
+    "summary": "GET /api/v1/files/{id}/tasks",
+    "operationId": "get__api_v1_files_id_tasks",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermTasksViewOwn`."
+   }
+  },
+  "/api/v1/firm": {
+   "patch": {
+    "tags": [
+     "Firm"
+    ],
+    "summary": "PATCH /api/v1/firm",
+    "operationId": "patch__api_v1_firm",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermFirmSettingsEdit`."
+   }
+  },
+  "/api/v1/firm/info": {
+   "get": {
+    "tags": [
+     "Firm"
+    ],
+    "summary": "GET /api/v1/firm/info",
+    "operationId": "get__api_v1_firm_info",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": []
+   }
+  },
+  "/api/v1/firm/onboarding/complete": {
+   "post": {
+    "tags": [
+     "Firm"
+    ],
+    "summary": "POST /api/v1/firm/onboarding/complete",
+    "operationId": "post__api_v1_firm_onboarding_complete",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermFirmSettingsEdit`."
+   }
+  },
+  "/api/v1/invoices": {
+   "get": {
+    "tags": [
+     "Billing"
+    ],
+    "summary": "GET /api/v1/invoices",
+    "operationId": "get__api_v1_invoices",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermBillingView`."
+   },
+   "post": {
+    "tags": [
+     "Billing"
+    ],
+    "summary": "POST /api/v1/invoices",
+    "operationId": "post__api_v1_invoices",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermBillingManage`."
+   }
+  },
+  "/api/v1/invoices/{id}": {
+   "get": {
+    "tags": [
+     "Billing"
+    ],
+    "summary": "GET /api/v1/invoices/{id}",
+    "operationId": "get__api_v1_invoices_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermBillingView`."
+   }
+  },
+  "/api/v1/invoices/{id}/stk-push": {
+   "post": {
+    "tags": [
+     "Billing"
+    ],
+    "summary": "POST /api/v1/invoices/{id}/stk-push",
+    "operationId": "post__api_v1_invoices_id_stk_push",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermBillingManage`."
+   }
+  },
+  "/api/v1/kdpa/audit": {
+   "get": {
+    "tags": [
+     "Data protection (KDPA)"
+    ],
+    "summary": "GET /api/v1/kdpa/audit",
+    "operationId": "get__api_v1_kdpa_audit",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermKDPAViewAudit`."
+   }
+  },
+  "/api/v1/kdpa/consents": {
+   "post": {
+    "tags": [
+     "Data protection (KDPA)"
+    ],
+    "summary": "POST /api/v1/kdpa/consents",
+    "operationId": "post__api_v1_kdpa_consents",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   },
+   "get": {
+    "tags": [
+     "Data protection (KDPA)"
+    ],
+    "summary": "GET /api/v1/kdpa/consents",
+    "operationId": "get__api_v1_kdpa_consents",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/kdpa/erasure": {
+   "post": {
+    "tags": [
+     "Data protection (KDPA)"
+    ],
+    "summary": "POST /api/v1/kdpa/erasure",
+    "operationId": "post__api_v1_kdpa_erasure",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermKDPAErase`."
+   }
+  },
+  "/api/v1/kdpa/export": {
+   "get": {
+    "tags": [
+     "Data protection (KDPA)"
+    ],
+    "summary": "GET /api/v1/kdpa/export",
+    "operationId": "get__api_v1_kdpa_export",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermKDPAExport`."
+   }
+  },
+  "/api/v1/messages": {
+   "get": {
+    "tags": [
+     "Communications"
+    ],
+    "summary": "GET /api/v1/messages",
+    "operationId": "get__api_v1_messages",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermCommsView`."
+   }
+  },
+  "/api/v1/messages/send": {
+   "post": {
+    "tags": [
+     "Communications"
+    ],
+    "summary": "POST /api/v1/messages/send",
+    "operationId": "post__api_v1_messages_send",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermCommsSend`."
+   }
+  },
+  "/api/v1/notifications": {
+   "get": {
+    "tags": [
+     "Notifications"
+    ],
+    "summary": "GET /api/v1/notifications",
+    "operationId": "get__api_v1_notifications",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/permissions": {
+   "get": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "GET /api/v1/permissions",
+    "operationId": "get__api_v1_permissions",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRolesManage`."
+   }
+  },
+  "/api/v1/portal/files": {
+   "get": {
+    "tags": [
+     "Client portal"
+    ],
+    "summary": "GET /api/v1/portal/files",
+    "operationId": "get__api_v1_portal_files",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/portal/invoices": {
+   "get": {
+    "tags": [
+     "Client portal"
+    ],
+    "summary": "GET /api/v1/portal/invoices",
+    "operationId": "get__api_v1_portal_invoices",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/portal/messages": {
+   "get": {
+    "tags": [
+     "Client portal"
+    ],
+    "summary": "GET /api/v1/portal/messages",
+    "operationId": "get__api_v1_portal_messages",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/recordings": {
+   "get": {
+    "tags": [
+     "Recordings"
+    ],
+    "summary": "GET /api/v1/recordings",
+    "operationId": "get__api_v1_recordings",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRecordingsViewOwn`."
+   },
+   "post": {
+    "tags": [
+     "Recordings"
+    ],
+    "summary": "POST /api/v1/recordings",
+    "operationId": "post__api_v1_recordings",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRecordingsCreate`."
+   }
+  },
+  "/api/v1/recordings/{id}": {
+   "get": {
+    "tags": [
+     "Recordings"
+    ],
+    "summary": "GET /api/v1/recordings/{id}",
+    "operationId": "get__api_v1_recordings_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRecordingsViewOwn`."
+   }
+  },
+  "/api/v1/recordings/{id}/audio": {
+   "get": {
+    "tags": [
+     "Recordings"
+    ],
+    "summary": "GET /api/v1/recordings/{id}/audio",
+    "operationId": "get__api_v1_recordings_id_audio",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRecordingsViewOwn`."
+   }
+  },
+  "/api/v1/recordings/{id}/retry": {
+   "post": {
+    "tags": [
+     "Recordings"
+    ],
+    "summary": "POST /api/v1/recordings/{id}/retry",
+    "operationId": "post__api_v1_recordings_id_retry",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRecordingsCreate`."
+   }
+  },
+  "/api/v1/recordings/{id}/share": {
+   "post": {
+    "tags": [
+     "Recordings"
+    ],
+    "summary": "POST /api/v1/recordings/{id}/share",
+    "operationId": "post__api_v1_recordings_id_share",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRecordingsViewOwn`."
+   }
+  },
+  "/api/v1/recordings/{id}/speakers": {
+   "put": {
+    "tags": [
+     "Recordings"
+    ],
+    "summary": "PUT /api/v1/recordings/{id}/speakers",
+    "operationId": "put__api_v1_recordings_id_speakers",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRecordingsViewOwn`."
+   }
+  },
+  "/api/v1/recordings/{id}/upload-url": {
+   "post": {
+    "tags": [
+     "Recordings"
+    ],
+    "summary": "POST /api/v1/recordings/{id}/upload-url",
+    "operationId": "post__api_v1_recordings_id_upload_url",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRecordingsCreate`."
+   }
+  },
+  "/api/v1/recordings/{id}/uploaded": {
+   "post": {
+    "tags": [
+     "Recordings"
+    ],
+    "summary": "POST /api/v1/recordings/{id}/uploaded",
+    "operationId": "post__api_v1_recordings_id_uploaded",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRecordingsCreate`."
+   }
+  },
+  "/api/v1/research/query": {
+   "post": {
+    "tags": [
+     "AI research"
+    ],
+    "summary": "POST /api/v1/research/query",
+    "operationId": "post__api_v1_research_query",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermResearchQuery`."
+   }
+  },
+  "/api/v1/research/query/stream": {
+   "post": {
+    "tags": [
+     "AI research"
+    ],
+    "summary": "POST /api/v1/research/query/stream",
+    "operationId": "post__api_v1_research_query_stream",
+    "responses": {
+     "200": {
+      "description": "Server-sent events stream",
+      "content": {
+       "text/event-stream": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermResearchQuery`."
+   }
+  },
+  "/api/v1/research/reason": {
+   "post": {
+    "tags": [
+     "AI research"
+    ],
+    "summary": "POST /api/v1/research/reason",
+    "operationId": "post__api_v1_research_reason",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermResearchReason`."
+   }
+  },
+  "/api/v1/research/reason/stream": {
+   "post": {
+    "tags": [
+     "AI research"
+    ],
+    "summary": "POST /api/v1/research/reason/stream",
+    "operationId": "post__api_v1_research_reason_stream",
+    "responses": {
+     "200": {
+      "description": "Server-sent events stream",
+      "content": {
+       "text/event-stream": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermResearchReason`."
+   }
+  },
+  "/api/v1/role-templates": {
+   "get": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "GET /api/v1/role-templates",
+    "operationId": "get__api_v1_role_templates",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRolesManage`."
+   }
+  },
+  "/api/v1/roles": {
+   "get": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "GET /api/v1/roles",
+    "operationId": "get__api_v1_roles",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRolesManage`."
+   },
+   "post": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "POST /api/v1/roles",
+    "operationId": "post__api_v1_roles",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRolesManage`."
+   }
+  },
+  "/api/v1/roles/{id}": {
+   "patch": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "PATCH /api/v1/roles/{id}",
+    "operationId": "patch__api_v1_roles_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRolesManage`."
+   },
+   "delete": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "DELETE /api/v1/roles/{id}",
+    "operationId": "delete__api_v1_roles_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermRolesManage`."
+   }
+  },
+  "/api/v1/signup": {
+   "post": {
+    "tags": [
+     "Signup"
+    ],
+    "summary": "POST /api/v1/signup",
+    "operationId": "post__api_v1_signup",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": []
+   }
+  },
+  "/api/v1/signup/google": {
+   "post": {
+    "tags": [
+     "Signup"
+    ],
+    "summary": "POST /api/v1/signup/google",
+    "operationId": "post__api_v1_signup_google",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": []
+   }
+  },
+  "/api/v1/tasks": {
+   "get": {
+    "tags": [
+     "Tasks"
+    ],
+    "summary": "GET /api/v1/tasks",
+    "operationId": "get__api_v1_tasks",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermTasksViewOwn`."
+   },
+   "post": {
+    "tags": [
+     "Tasks"
+    ],
+    "summary": "POST /api/v1/tasks",
+    "operationId": "post__api_v1_tasks",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermTasksCreate`."
+   }
+  },
+  "/api/v1/tasks/{id}": {
+   "patch": {
+    "tags": [
+     "Tasks"
+    ],
+    "summary": "PATCH /api/v1/tasks/{id}",
+    "operationId": "patch__api_v1_tasks_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermTasksViewOwn`."
+   },
+   "delete": {
+    "tags": [
+     "Tasks"
+    ],
+    "summary": "DELETE /api/v1/tasks/{id}",
+    "operationId": "delete__api_v1_tasks_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermTasksCreate`."
+   }
+  },
+  "/api/v1/time-entries": {
+   "get": {
+    "tags": [
+     "Billing"
+    ],
+    "summary": "GET /api/v1/time-entries",
+    "operationId": "get__api_v1_time_entries",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermBillingView`."
+   },
+   "post": {
+    "tags": [
+     "Billing"
+    ],
+    "summary": "POST /api/v1/time-entries",
+    "operationId": "post__api_v1_time_entries",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermBillingView`."
+   }
+  },
+  "/api/v1/users": {
+   "get": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "GET /api/v1/users",
+    "operationId": "get__api_v1_users",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermUsersView`."
+   },
+   "post": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "POST /api/v1/users",
+    "operationId": "post__api_v1_users",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermUsersInvite`."
+   }
+  },
+  "/api/v1/users/invite": {
+   "post": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "POST /api/v1/users/invite",
+    "operationId": "post__api_v1_users_invite",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermUsersInvite`."
+   }
+  },
+  "/api/v1/users/{id}": {
+   "patch": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "PATCH /api/v1/users/{id}",
+    "operationId": "patch__api_v1_users_id",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermUsersRemove`."
+   }
+  },
+  "/api/v1/users/{id}/resend-login": {
+   "post": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "POST /api/v1/users/{id}/resend-login",
+    "operationId": "post__api_v1_users_id_resend_login",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermUsersInvite`."
+   }
+  },
+  "/api/v1/users/{id}/role": {
+   "patch": {
+    "tags": [
+     "Users & roles"
+    ],
+    "summary": "PATCH /api/v1/users/{id}/role",
+    "operationId": "patch__api_v1_users_id_role",
+    "responses": {
+     "200": {
+      "description": "Success"
+     },
+     "401": {
+      "description": "Missing/invalid token"
+     },
+     "403": {
+      "description": "Forbidden (role/permission or tenant mismatch)"
+     }
+    },
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/TenantSlug"
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "description": "Requires RBAC permission `PermUsersManageRoles`."
+   }
+  },
+  "/healthz": {
+   "get": {
+    "tags": [
+     "Ops"
+    ],
+    "summary": "GET /healthz",
+    "operationId": "get__healthz",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "security": []
+   }
+  },
+  "/metrics": {
+   "get": {
+    "tags": [
+     "Ops"
+    ],
+    "summary": "GET /metrics",
+    "operationId": "get__metrics",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "security": []
+   }
+  },
+  "/webhooks/at/delivery": {
+   "post": {
+    "tags": [
+     "Webhooks"
+    ],
+    "summary": "POST /webhooks/at/delivery",
+    "operationId": "post__webhooks_at_delivery",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": []
+   }
+  },
+  "/webhooks/daraja/callback": {
+   "post": {
+    "tags": [
+     "Webhooks"
+    ],
+    "summary": "POST /webhooks/daraja/callback",
+    "operationId": "post__webhooks_daraja_callback",
+    "responses": {
+     "200": {
+      "description": "Success"
+     }
+    },
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "security": []
+   }
+  }
+ },
+ "components": {
+  "securitySchemes": {
+   "bearerAuth": {
+    "type": "http",
+    "scheme": "bearer",
+    "bearerFormat": "JWT"
+   },
+   "adminBearer": {
+    "type": "http",
+    "scheme": "bearer",
+    "bearerFormat": "JWT",
+    "description": "Platform super-admin token from /api/v1/admin/login"
+   }
+  },
+  "parameters": {
+   "TenantSlug": {
+    "name": "X-Tenant-Slug",
+    "in": "header",
+    "required": false,
+    "description": "Firm slug; optional when using the firm subdomain.",
+    "schema": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}

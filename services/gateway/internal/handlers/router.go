@@ -17,6 +17,7 @@ func (s *Server) Register(r *gin.Engine) {
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 	r.GET("/metrics", metrics.Handler())
+	registerDocs(r)
 
 	// Firm signup happens before a tenant exists. Each call provisions a whole
 	// schema, so it is capped per client IP.

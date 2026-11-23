@@ -5,6 +5,7 @@ provenance tagging -> cited answer synthesis.
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Optional
 
@@ -13,12 +14,21 @@ import asyncpg
 from . import db as dbx
 from .config import Config
 from .embeddings import EmbeddingProvider
+from .fusion import cap_per_source, rrf_fuse
 from .graph import Graph, PublicGraphQuery, TenantScopedGraphQuery
 from .judge import JudgeReasoner
 from .llm import CONFIDENTIALITY_PREAMBLE, LLMProvider
 from .logging_setup import log
 
 INTENTS = ("statute_lookup", "case_law_research", "file_reasoning", "drafting")
+
+MAX_CHUNKS_PER_SOURCE = 3
+
+
+def _has_word(q: str, words: tuple[str, ...]) -> bool:
+    """Whole-word / phrase match. Plain ``in`` made "act" fire on "contract" and
+    "fact", and "held" on "withheld", mislabelling intent and skewing scores."""
+    return any(re.search(r"\b" + re.escape(w) + r"s?\b", q) for w in words)
 
 
 @dataclass
@@ -50,14 +60,14 @@ class RetrievalOrchestrator:
     async def classify_intent(self, query: str) -> str:
         q = query.lower()
         # Cheap heuristic first; LLM (fast model) refines ambiguous cases.
-        if any(w in q for w in ("draft", "prepare a", "write a letter", "write an agreement")):
+        if _has_word(q, ("draft", "prepare a", "write a letter", "write an agreement")):
             return "drafting"
         heuristic = None
-        if any(w in q for w in ("our client", "this file", "our file", "my case", "our case")):
+        if _has_word(q, ("our client", "this file", "our file", "my case", "our case")):
             heuristic = "file_reasoning"
-        elif any(w in q for w in ("held", "ruling", "judgment", "precedent", "case law", "decided", "court of appeal", "supreme court")):
+        elif _has_word(q, ("held", "ruling", "judgment", "precedent", "case law", "decided", "court of appeal", "supreme court")):
             heuristic = "case_law_research"
-        elif any(w in q for w in ("act", "section", "article", "constitution", "regulation", "statute")):
+        elif _has_word(q, ("act", "section", "article", "constitution", "regulation", "statute")):
             heuristic = "statute_lookup"
         if heuristic:
             return heuristic
@@ -101,7 +111,16 @@ class RetrievalOrchestrator:
 
         async def tenant_search() -> list[dict[str, Any]]:
             async with dbx.tenant_tx(self.pool, tenant_id) as conn:
-                return await dbx.search_tenant_chunks(conn, qvec, fetch_n)
+                dense = await dbx.search_tenant_chunks(conn, qvec, fetch_n)
+                lexical = await self._lexical(dbx.search_tenant_chunks_lexical(conn, query, fetch_n))
+            return rrf_fuse(dense, lexical)
+
+        async def public_search() -> list[dict[str, Any]]:
+            dense, lexical = await asyncio.gather(
+                dbx.search_public_chunks(self.pool, qvec, fetch_n, include_superseded, as_of=as_of),
+                self._lexical(dbx.search_public_chunks_lexical(
+                    self.pool, query, fetch_n, include_superseded, as_of=as_of)))
+            return rrf_fuse(dense, lexical)
 
         async def file_ids() -> set[str]:
             return await self._file_archive_ids(tenant_id, file_id) if file_id else set()
@@ -110,7 +129,7 @@ class RetrievalOrchestrator:
         # status edges on retrieved public docs surface "overturned by X" facts.
         # as_of => period-accurate law (the version in force on that date).
         public_rows, tenant_rows, file_doc_ids = await asyncio.gather(
-            dbx.search_public_chunks(self.pool, qvec, fetch_n, include_superseded, as_of=as_of),
+            public_search(),
             tenant_search(),
             file_ids(),
         )
@@ -150,7 +169,17 @@ class RetrievalOrchestrator:
             ))
 
         chunks.sort(key=lambda c: c.score, reverse=True)
-        return chunks[:top_k], intent
+        return cap_per_source(chunks, MAX_CHUNKS_PER_SOURCE, top_k), intent
+
+    @staticmethod
+    async def _lexical(coro) -> list[dict[str, Any]]:
+        """Lexical search is an enhancement: if the FTS index is missing or the
+        query can't be parsed, fall back to dense-only rather than fail."""
+        try:
+            return await coro
+        except Exception as exc:
+            log().warning("lexical search failed, using dense only: %s", exc)
+            return []
 
     async def _file_archive_ids(self, tenant_id: str, file_id: str) -> set[str]:
         try:

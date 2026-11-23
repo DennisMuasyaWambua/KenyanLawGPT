@@ -96,6 +96,26 @@ async def search_tenant_chunks(
     return [dict(r) for r in rows]
 
 
+async def search_tenant_chunks_lexical(
+    conn: asyncpg.Connection, query: str, top_k: int
+) -> list[dict[str, Any]]:
+    """Full-text counterpart of search_tenant_chunks (same row shape)."""
+    rows = await conn.fetch(
+        """SELECT c.id::text AS chunk_id, c.archive_id::text AS archive_id, c.chunk_text,
+                  c.metadata::text AS metadata,
+                  ts_rank_cd(to_tsvector('english', c.chunk_text), q) AS score,
+                  d.filename, d.doc_kind
+           FROM archive_chunks c
+           JOIN archives d ON d.id = c.archive_id,
+                websearch_to_tsquery('english', $1) q
+           WHERE to_tsvector('english', c.chunk_text) @@ q
+           ORDER BY score DESC
+           LIMIT $2""",
+        query, top_k,
+    )
+    return [dict(r) for r in rows]
+
+
 # --- shared public corpus ---
 
 async def search_public_chunks(
@@ -132,6 +152,34 @@ async def search_public_chunks(
                    LIMIT $2""",
                 vec_literal(query_vec), top_k, include_superseded,
             )
+    return [dict(r) for r in rows]
+
+async def search_public_chunks_lexical(
+    pool: asyncpg.Pool, query: str, top_k: int, include_superseded: bool,
+    as_of: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Full-text counterpart of search_public_chunks (same row shape and the
+    same status / as_of filters)."""
+    cols = """v.id::text AS chunk_id, v.doc_id, v.chunk_text, v.metadata::text AS metadata,
+              ts_rank_cd(to_tsvector('english', v.chunk_text), q) AS score,
+              d.title, d.doc_type, d.source_url, d.court, d.citation, d.year, d.status"""
+    base = """FROM public.public_vectors v
+              JOIN public.public_documents d ON d.doc_id = v.doc_id,
+                   websearch_to_tsquery('english', $1) q
+              WHERE to_tsvector('english', v.chunk_text) @@ q"""
+    async with pool.acquire() as conn:
+        if as_of:
+            rows = await conn.fetch(
+                f"""SELECT {cols} {base}
+                      AND (d.effective_date IS NULL OR d.effective_date <= $3::date)
+                      AND (d.repealed_date IS NULL OR d.repealed_date > $3::date)
+                    ORDER BY score DESC LIMIT $2""",
+                query, top_k, _as_date(as_of))
+        else:
+            rows = await conn.fetch(
+                f"""SELECT {cols} {base} AND ($3 OR d.status = 'current')
+                    ORDER BY score DESC LIMIT $2""",
+                query, top_k, include_superseded)
     return [dict(r) for r in rows]
 
 

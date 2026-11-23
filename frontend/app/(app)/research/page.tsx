@@ -1,5 +1,6 @@
 "use client";
 
+import AnswerText from "@/components/AnswerText";
 import { useState } from "react";
 import { streamResearch } from "@/lib/api";
 import { Chunk } from "@/components/CitationCard";
@@ -115,8 +116,8 @@ export default function ResearchPage() {
               </div>
             ) : (
               (item.r.answer || item.status === "writing") && (
-                <div className="card whitespace-pre-line text-sm leading-relaxed">
-                  {item.r.answer}
+                <div className="card text-sm leading-relaxed">
+                  <AnswerText text={item.r.answer} />
                   {item.status === "writing" && (
                     <span className="ml-0.5 inline-block animate-pulse text-gold">{item.r.answer ? "▍" : "Writing the answer…"}</span>
                   )}

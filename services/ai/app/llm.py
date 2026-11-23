@@ -366,15 +366,27 @@ class MockProvider:
             if any(w in p for w in ("case law", "precedent", "decided", "ruling", "judgment")):
                 return "case_law_research"
             return "statute_lookup"
-        # Answer synthesis: echo the context section (between CONTEXT markers).
-        body = prompt
-        if "--- CONTEXT ---" in prompt:
-            body = prompt.split("--- CONTEXT ---", 1)[1]
-        lines = [ln for ln in body.splitlines() if ln.strip()][:12]
-        return (
-            "[offline mock answer — set ANTHROPIC_API_KEY for grounded LLM output]\n"
-            + "\n".join(lines[:8])
-        )
+        # Answer synthesis: no model is available, so present the top passages
+        # as a short, readable list instead of dumping raw context.
+        body = prompt.split("--- CONTEXT ---", 1)[1] if "--- CONTEXT ---" in prompt else prompt
+        body = body.split("--- END CONTEXT ---", 1)[0]
+        blocks = re.split(r"(?m)^(?=\[\d+\] \()", body.strip())
+        out = ["_Offline mode: no AI model is configured, so these are the most relevant passages "
+               "found, not a written answer. Set ANTHROPIC_API_KEY for a full cited answer._", ""]
+        shown = 0
+        for blk in blocks:
+            m = re.match(r"\[(\d+)\] \(([^)]*)\) ([^\n]*)\n?(.*)", blk.strip(), re.S)
+            if not m or shown == 3:
+                continue
+            n, label, cite, text = m.groups()
+            text = re.sub(r"\[NOTE:[^\]]*\]", "", text)
+            text = re.sub(r"\s+", " ", text).strip()
+            if len(text) > 300:
+                text = text[:300].rsplit(" ", 1)[0] + "…"
+            kind = "Firm document" if label.startswith("TENANT") else "Public law"
+            out += [f"**{cite}** ({kind}) [{n}]", text, ""]
+            shown += 1
+        return "\n".join(out).strip()
 
     async def stream(self, system: str, prompt: str, max_tokens: int = 8192) -> AsyncIterator[str]:
         text = await self.complete(system, prompt, max_tokens)

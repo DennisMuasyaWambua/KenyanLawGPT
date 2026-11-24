@@ -12,3 +12,4 @@ services/gateway/gateway
 services/gateway/migrate
 services/gateway/seed
 .pytest_cache/
+models/

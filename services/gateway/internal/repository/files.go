@@ -364,11 +364,16 @@ func InsertClient(ctx context.Context, tx pgx.Tx, c *Client) error {
 
 // UpdateClientDetails edits non-pipeline fields (not status — that goes through
 // AdvanceClientStage so every transition is audited).
+// An omitted client_type keeps the stored one (the column only accepts
+// individual|company, so writing "" would fail the CHECK constraint).
 func UpdateClientDetails(ctx context.Context, tx pgx.Tx, c *Client) error {
-	_, err := tx.Exec(ctx,
+	tag, err := tx.Exec(ctx,
 		`UPDATE clients SET name=$2, email=$3, phone=$4, id_number=$5, kdpa_consent=$6,
-		   client_type=$7, company_reg_number=$8 WHERE id=$1`,
+		   client_type=COALESCE(NULLIF($7, ''), client_type), company_reg_number=$8 WHERE id=$1`,
 		c.ID, c.Name, c.Email, c.Phone, c.IDNumber, c.KDPAConsent, c.ClientType, c.CompanyRegNumber)
+	if err == nil && tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
 	return err
 }
 

@@ -164,3 +164,27 @@ def test_clipping_keeps_the_end_of_the_meeting():
     assert len(out) < 12100
     assert out.startswith("start ") and out.endswith("title deed by Friday")
     assert _clip_transcript("short", 12000) == "short"
+
+
+@pytest.mark.asyncio
+async def test_notes_say_plainly_when_no_model_is_available(monkeypatch):
+    """No GMI key and no reachable Ollama: the transcript is still delivered and
+    the note is readable, not a raw socket error."""
+    monkeypatch.setattr("app.recordings._ollama_reachable", lambda cfg: False)
+    p = _summarizer("local", "")
+    summary, note = await p._summarize("Speaker 1: habari")
+    assert summary == ""
+    assert "no AI model is available" in note and "Errno" not in note
+
+
+def test_storage_errors_are_reported_in_plain_language():
+    from minio.error import S3Error
+
+    from app.recordings import _user_error
+
+    missing = S3Error(response=None, code="NoSuchKey", message="The specified key does not exist.",
+                      resource="/wakili-archives/tenants/x/a.wav", request_id="req-1", host_id="host-1",
+                      bucket_name="wakili-archives", object_name="tenants/x/a.wav")
+    msg = _user_error(missing)
+    assert "not found in storage" in msg and "wakili-archives" not in msg and "req-1" not in msg
+    assert _user_error(RuntimeError("boom")) == "boom"

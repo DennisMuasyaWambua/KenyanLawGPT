@@ -128,6 +128,19 @@ class Config:
     # English/Swahili being misdetected as an unrelated language.
     transcribe_languages: list[str] = field(default_factory=lambda: [
         c.strip().lower() for c in _env("TRANSCRIBE_LANGUAGES", "en,sw").split(",") if c.strip()])
+    # Code-switching (English <-> Swahili in one meeting). With one language
+    # fixed from the first 30 s, Whisper translates or drops the other
+    # language's passages. Measured with large-v3-turbo on FLEURS sw_ke/en_us
+    # mixes through this code path with meeting settings, 4 CPU cores (WER for a
+    # meeting moving from English into Swahili / alternating turns; time as a
+    # multiple of the audio length):
+    #   off    — one language for the whole recording:                45% / 47%, ~1.9x
+    #   window — re-detect per fixed 30 s window (en/sw only):        39% / 41%
+    #   turns  — per speech clip ending at a pause, plus a second
+    #            pass over speech that came back with no words:       29% / 23%, ~1.4-1.6x
+    # English-only and Swahili-only audio score the same in every mode.
+    # Ignored when TRANSCRIBE_LANGUAGE pins a language. true=turns, false=off.
+    transcribe_code_switch: str = field(default_factory=lambda: _env("TRANSCRIBE_CODE_SWITCH", "turns"))
     # Optional domain vocabulary to bias recognition (e.g. "Milimani, ELRC, plaint").
     transcribe_hotwords: str = field(default_factory=lambda: _env("TRANSCRIBE_HOTWORDS", ""))
     transcribe_base_url: str = field(default_factory=lambda: _env("TRANSCRIBE_BASE_URL", "https://api.openai.com/v1"))

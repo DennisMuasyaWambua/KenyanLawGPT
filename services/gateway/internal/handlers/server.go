@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/wakiliai/gateway/internal/config"
@@ -54,6 +55,19 @@ func (s *Server) withTenant(c *gin.Context, fn func(tx pgx.Tx) error) bool {
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return false
+	}
+	// A malformed id in the path (not a UUID) can never match a row: that is a
+	// 404, not a server fault. A CHECK violation means the input was invalid.
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "22P02": // invalid_text_representation
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return false
+		case "23514": // check_violation
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid value for " + pgErr.ConstraintName})
+			return false
+		}
 	}
 	logging.L(c.Request.Context()).Error("tenant tx failed", "err", err, "path", c.FullPath())
 	c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})

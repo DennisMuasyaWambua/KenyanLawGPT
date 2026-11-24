@@ -109,6 +109,30 @@ func (s *Server) MarkRecordingUploaded(c *gin.Context) {
 		DurationSeconds int `json:"duration_seconds"`
 	}
 	_ = c.ShouldBindJSON(&in)
+	// Only queue audio that is actually in storage: otherwise the worker fails
+	// the recording with a storage error and the advocate is told to record
+	// again, although the audio is still on their device and can be re-sent.
+	var rec *repository.Recording
+	if !s.withTenant(c, func(tx pgx.Tx) error {
+		r, err := repository.GetRecording(c.Request.Context(), tx, c.Param("id"))
+		if err == pgx.ErrNoRows || (err == nil && r.AdvocateUserID != s.claims(c).UserID()) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "recording not found or not yours"})
+			return errHandled
+		}
+		rec = r
+		return err
+	}) {
+		return
+	}
+	exists, err := s.Store.Exists(c.Request.Context(), s.tenant(c).ID, rec.ObjectKey)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "could not reach file storage"})
+		return
+	}
+	if !exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "the audio has not reached storage yet — upload it again"})
+		return
+	}
 	ok := s.withTenant(c, func(tx pgx.Tx) error {
 		err := repository.MarkUploaded(c.Request.Context(), tx, c.Param("id"), s.claims(c).UserID(), in.DurationSeconds)
 		if err == pgx.ErrNoRows {

@@ -39,6 +39,10 @@ src = snapshot_download(repo, local_dir="/work/hf",
 files = [f for f in ("tokenizer_config.json", "preprocessor_config.json", "vocab.json", "merges.txt",
                      "added_tokens.json", "special_tokens_map.json", "normalizer.json")]
 FP16Converter(src, copy_files=files, low_cpu_mem_usage=True).convert(out, quantization="float16", force=True)
+# faster-whisper needs the fast tokenizer (tokenizer.json); without it it tries to
+# download openai/whisper-tiny's at load time. Many fine-tunes don't ship one.
+from transformers import WhisperTokenizerFast
+WhisperTokenizerFast.from_pretrained(src).backend_tokenizer.save(f"{out}/tokenizer.json")
 print("converted", repo, "->", out)
 PY
 

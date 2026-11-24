@@ -273,8 +273,11 @@ def test_code_switching_redetects_language_per_window(monkeypatch):
     _fake_whisper(monkeypatch, calls, windows=("sw", "en", "sw"))
     from app.transcription import FasterWhisperProvider
 
-    result = FasterWhisperProvider(Config())._run(b"\x00" * 10, "meeting.webm")
+    cfg = Config()
+    cfg.transcribe_code_switch = "window"
+    result = FasterWhisperProvider(cfg)._run(b"\x00" * 10, "meeting.webm")
     assert calls[0]["multilingual"] is True
+    assert calls[0]["vad_filter"] is True and "clip_timestamps" not in calls[0]
     assert calls[0]["language"] == "sw"  # first window's language
     assert result.language == "sw+en"   # the meeting switched languages
 
@@ -285,10 +288,112 @@ def test_code_switching_off_when_pinned_or_disabled(monkeypatch):
     from app.transcription import FasterWhisperProvider
 
     cfg = Config()
-    cfg.transcribe_code_switch = False
+    cfg.transcribe_code_switch = "off"
     FasterWhisperProvider(cfg)._run(b"\x00" * 10, "a.webm")
     cfg = Config()
     cfg.transcribe_language = "en"
     FasterWhisperProvider(cfg)._run(b"\x00" * 10, "b.webm")
     assert [c["multilingual"] for c in calls] == [False, False]
     assert calls[1]["language"] == "en"
+
+
+def test_turns_mode_decodes_speech_clips_that_end_at_pauses(monkeypatch):
+    """Default mode: VAD speech becomes clips ending at pauses, each with its own
+    en/sw decision. Silence is still never decoded (only VAD clips are)."""
+    calls = []
+    _fake_whisper(monkeypatch, calls, windows=("en", "sw"))
+    monkeypatch.setattr("app.transcription._speech_clips", lambda samples: [[0.5, 12.0], [13.4, 30.1]])
+    from app.transcription import FasterWhisperProvider
+
+    result = FasterWhisperProvider(Config())._run(b"\x00" * 10, "meeting.webm")
+    assert calls[0]["multilingual"] is True
+    assert calls[0]["vad_filter"] is False
+    assert calls[0]["clip_timestamps"] == [0.5, 12.0, 13.4, 30.1]
+    assert result.language == "sw+en"
+
+
+def test_turns_mode_falls_back_to_vad_windows_without_clips(monkeypatch):
+    calls = []
+    _fake_whisper(monkeypatch, calls)
+    monkeypatch.setattr("app.transcription._speech_clips", lambda samples: [])
+    from app.transcription import FasterWhisperProvider
+
+    FasterWhisperProvider(Config())._run(b"\x00" * 10, "meeting.webm")
+    assert calls[0]["vad_filter"] is True and "clip_timestamps" not in calls[0]
+
+
+def test_speech_clips_break_at_pauses_and_cap_at_30s(monkeypatch):
+    import sys
+    import types
+
+    from app.transcription import _speech_clips
+
+    sr = 16000
+    stamps = [(0.0, 4.0), (4.3, 9.0),      # short gap: same clip
+              (10.5, 14.0),                # 1.5 s pause: new clip
+              (14.2, 45.0)]                # would exceed 30 s: new clip
+    vad = types.SimpleNamespace(
+        VadOptions=lambda **kw: kw,
+        get_speech_timestamps=lambda samples, opts: [{"start": int(a * sr), "end": int(b * sr)} for a, b in stamps])
+    monkeypatch.setitem(sys.modules, "faster_whisper.vad", vad)
+    assert _speech_clips([0.0]) == [[0.0, 9.0], [10.5, 14.0], [14.2, 45.0]]
+
+
+def test_code_switch_mode_aliases():
+    from app.transcription import FasterWhisperProvider
+
+    p = FasterWhisperProvider.__new__(FasterWhisperProvider)
+    p._langs, p._cfg = object(), Config()
+    for value, mode in (("true", "turns"), ("false", "off"), ("window", "window"), ("", "turns"), ("TURNS", "turns")):
+        p._cfg.transcribe_code_switch = value
+        assert p._code_switch_mode() == mode
+    p._cfg.transcribe_language = "sw"
+    assert p._code_switch_mode() == "off"
+
+
+def _fake_vad(monkeypatch, stamps):
+    import sys
+    import types
+
+    sr = 16000
+    monkeypatch.setitem(sys.modules, "faster_whisper.vad", types.SimpleNamespace(
+        VadOptions=lambda **kw: kw,
+        get_speech_timestamps=lambda samples, opts: [{"start": int(a * sr), "end": int(b * sr)} for a, b in stamps]))
+
+
+def test_uncovered_speech_finds_speech_with_no_words(monkeypatch):
+    import types
+
+    from app.transcription import _uncovered_speech
+
+    # English 0-5 s (decoded), Swahili 5.6-10 s (no words came back), English 10.5-15 s (decoded),
+    # and a 1 s blip that is too short to bother with.
+    _fake_vad(monkeypatch, [(0.0, 5.0), (5.6, 10.0), (10.5, 15.0), (16.0, 17.0)])
+    w = lambda a, b: types.SimpleNamespace(start=a, end=b)
+    segs = [types.SimpleNamespace(start=0.0, end=5.0, words=[w(0.1, 2.0), w(2.1, 4.9)]),
+            types.SimpleNamespace(start=10.5, end=15.0, words=[w(10.6, 12.0), w(12.1, 14.8)])]
+    assert _uncovered_speech([0.0], segs) == [[5.6, 10.0]]
+
+
+def test_recovered_speech_is_merged_in_time_order_and_low_confidence_dropped(monkeypatch):
+    import types
+
+    from app.transcription import FasterWhisperProvider
+
+    seg = lambda a, b, text, lp=-0.3: types.SimpleNamespace(start=a, end=b, text=text, words=None, avg_logprob=lp,
+                                                            no_speech_prob=0.1, compression_ratio=1.2)
+    monkeypatch.setattr("app.transcription._uncovered_speech", lambda samples, segments: [[5.6, 10.0], [20.0, 22.0]])
+    calls = []
+
+    class Model:
+        def transcribe(self, samples, **kw):
+            calls.append(kw)
+            return iter([seg(5.6, 10.0, " Mteja anasema shamba liliuzwa."), seg(20.0, 22.0, " Asante.", lp=-1.6)]), None
+
+    p = FasterWhisperProvider.__new__(FasterWhisperProvider)
+    p._model = Model()
+    first = [seg(0.0, 5.0, " Good morning."), seg(10.5, 15.0, " We will file the plaint.")]
+    out = p._recover_dropped_speech([0.0], first, {"language": "en", "vad_filter": True})
+    assert [s.text.strip() for s in out] == ["Good morning.", "Mteja anasema shamba liliuzwa.", "We will file the plaint."]
+    assert calls[0]["clip_timestamps"] == [5.6, 10.0, 20.0, 22.0]
+    assert calls[0]["multilingual"] is True and calls[0]["vad_filter"] is False

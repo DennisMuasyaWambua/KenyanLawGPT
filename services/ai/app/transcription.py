@@ -72,6 +72,91 @@ class MockTranscriptionProvider:
         )
 
 
+# Clip building for code-switched audio (measured on FLEURS sw_ke/en_us mixes,
+# large-v3-turbo on 4 CPU cores: WER 48% -> 29% when a meeting moves from
+# English into Swahili; 41% -> 23% on alternating turns).
+_CLIP_PAUSE_S = 1.0   # a pause at least this long starts a new clip
+_CLIP_MAX_S = 30.0    # Whisper's window; longer speech is split by faster-whisper
+
+
+def _speech_clips(samples) -> list[list[float]]:
+    """VAD speech regions grouped into clips of at most 30 s that break at
+    pauses, as [[start_s, end_s], ...]. [] if VAD finds nothing or fails."""
+    try:
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+
+        stamps = get_speech_timestamps(samples, VadOptions(min_silence_duration_ms=500, speech_pad_ms=200))
+    except Exception as exc:  # noqa: BLE001 — fall back to fixed windows
+        log().warning("speech clipping failed (%s); using fixed 30 s windows", exc)
+        return []
+    clips: list[list[float]] = []
+    for t in stamps:
+        start, end = t["start"] / 16000, t["end"] / 16000
+        if clips and start - clips[-1][1] < _CLIP_PAUSE_S and end - clips[-1][0] <= _CLIP_MAX_S:
+            clips[-1][1] = end
+        else:
+            clips.append([start, end])
+    return [[round(a, 2), round(b, 2)] for a, b in clips]
+
+
+_GAP_MIN_S = 1.5        # uncovered speech shorter than this is left alone
+_GAP_MAX_COVERED = 0.3  # "uncovered": decoded words span under 30% of it
+_WORD_MAX_S = 1.0
+
+
+def _uncovered_speech(samples, segments) -> list[list[float]]:
+    """Speech (fine-grained VAD) that the decoded words do not cover, as
+    [[start_s, end_s], ...] clips of at most 30 s.
+
+    When one language dominates a window, Whisper decodes in that language and
+    the other language's speech in it often comes out as no words at all (a
+    Swahili remark inside English discussion, or the reverse). That speech is
+    still in the audio, so it shows up here."""
+    import bisect
+
+    try:
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+
+        stamps = get_speech_timestamps(samples, VadOptions(min_silence_duration_ms=300, speech_pad_ms=100))
+    except Exception as exc:  # noqa: BLE001 — recovery is best-effort
+        log().warning("gap check skipped (%s)", exc)
+        return []
+    spans = []
+    for seg in segments:
+        words = getattr(seg, "words", None)
+        # Whisper's alignment can stretch a word over seconds of speech it never
+        # decoded (the dropped stretch is often right there); no real word is
+        # that long, so a word counts for at most _WORD_MAX_S of coverage.
+        spans += ([(w.start, min(w.end, w.start + _WORD_MAX_S)) for w in words] if words
+                  else [(seg.start, seg.end)])
+    spans.sort()
+    ends = [b for _, b in spans]
+    gaps: list[list[float]] = []
+    for t in stamps:
+        start, end = t["start"] / 16000, t["end"] / 16000
+        if end - start < _GAP_MIN_S:
+            continue
+        covered = 0.0
+        for a, b in spans[bisect.bisect_right(ends, start):]:
+            if a >= end:
+                break
+            covered += max(0.0, min(end, b) - max(start, a))
+        if covered / (end - start) >= _GAP_MAX_COVERED:
+            continue
+        if gaps and start - gaps[-1][1] < 0.5 and end - gaps[-1][0] <= _CLIP_MAX_S:
+            gaps[-1][1] = end
+        else:
+            gaps.append([start, end])
+    return [[round(a, 2), round(b, 2)] for a, b in gaps]
+
+
+def _confident(seg) -> bool:
+    """Keep a recovered segment only if Whisper was reasonably sure of it, so the
+    second pass can't add hallucinated text over noise the VAD let through."""
+    return (bool(seg.text.strip()) and getattr(seg, "avg_logprob", 0.0) > -1.0
+            and getattr(seg, "no_speech_prob", 0.0) < 0.6 and getattr(seg, "compression_ratio", 1.0) < 2.4)
+
+
 class _AllowedLanguages:
     """Wraps the CTranslate2 Whisper model so every language detection —
     whole-file and per-window (faster-whisper's ``multilingual`` mode) — only
@@ -177,8 +262,8 @@ class FasterWhisperProvider:
         if len(samples) == 0:
             return TranscriptResult(text="", language="", provider="faster-whisper")
         language = self._pick_language(samples)
-        code_switch = (self._langs is not None and self._cfg.transcribe_code_switch
-                       and self._cfg.transcribe_language in ("", "auto"))
+        mode = self._code_switch_mode()
+        code_switch = mode != "off"
         opts = dict(
             language=language,
             # Code-switched meetings (English <-> Swahili): each window gets its
@@ -202,8 +287,16 @@ class FasterWhisperProvider:
             # (phantom "Thank you." etc. during pauses in a meeting).
             opts["word_timestamps"] = True
             opts["hallucination_silence_threshold"] = 2.0
+        first = dict(opts)
+        clips = _speech_clips(samples) if mode == "turns" else []
+        if clips:
+            # Decode only VAD speech, as clips that end at pauses (where the
+            # speaker, and so often the language, changes): a fixed 30 s grid
+            # puts both languages in one window and drops the minority one.
+            # VAD still decides what is decoded, so silence never is.
+            first.update(vad_filter=False, clip_timestamps=[t for c in clips for t in c])
         seen = self._langs.track() if code_switch else set()
-        segments, info = self._model.transcribe(samples, **opts)
+        segments, info = self._model.transcribe(samples, **first)
         segments = list(segments)
         text = " ".join(seg.text.strip() for seg in segments).strip()
         if not text:
@@ -215,12 +308,41 @@ class FasterWhisperProvider:
                 samples, **opts, vad_parameters={"threshold": 0.25})
             segments = list(segments)
             text = " ".join(seg.text.strip() for seg in segments).strip()
+        if code_switch and text:
+            segments = self._recover_dropped_speech(samples, segments, opts)
+            text = " ".join(seg.text.strip() for seg in segments).strip()
         utterances = self._speakers(samples, segments, num_speakers) if diarize and text else []
         if len(seen) > 1:
             # e.g. "en+sw": the meeting switched languages.
             language = "+".join(sorted(seen, key=lambda c: c != language))
         return TranscriptResult(text=text, language=language or getattr(info, "language", "") or "",
                                 provider="faster-whisper", segments=utterances)
+
+    def _recover_dropped_speech(self, samples, segments: list, opts: dict) -> list:
+        """Second pass over speech the first pass returned no words for (see
+        _uncovered_speech): each stretch is decoded on its own, where language
+        detection sees only it. Costs nothing when nothing was dropped."""
+        gaps = _uncovered_speech(samples, segments)
+        if not gaps:
+            return segments
+        retry = dict(opts, vad_filter=False, multilingual=True, clip_timestamps=[t for g in gaps for t in g])
+        try:
+            found, _ = self._model.transcribe(samples, **retry)
+            found = [seg for seg in found if _confident(seg)]
+        except Exception as exc:  # noqa: BLE001 — keep the first pass
+            log().warning("dropped-speech recovery failed (%s)", exc)
+            return segments
+        log().info("recovered %d segment(s) from %d stretch(es) of untranscribed speech (%.0fs)",
+                   len(found), len(gaps), sum(b - a for a, b in gaps))
+        return sorted(segments + found, key=lambda seg: seg.start)
+
+    def _code_switch_mode(self) -> str:
+        """"turns" | "window" | "off" (see Config.transcribe_code_switch)."""
+        if self._langs is None or self._cfg.transcribe_language not in ("", "auto"):
+            return "off"  # one language configured or pinned
+        mode = (self._cfg.transcribe_code_switch or "").strip().lower()
+        return {"true": "turns", "1": "turns", "on": "turns", "false": "off", "0": "off",
+                "turns": "turns", "window": "window", "off": "off"}.get(mode, "turns")
 
     def _speakers(self, samples, segments, num_speakers: int) -> list[dict]:
         """Who said what. Best-effort: on any failure the transcript is kept

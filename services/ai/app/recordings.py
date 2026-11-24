@@ -429,7 +429,7 @@ class RecordingProcessor:
                         "Ollama at %s not answering)", self.cfg.ollama_base_url)
             return "", (note + "; " if note else "") + (
                 "meeting notes could not be written because no AI model is available on this "
-                "server — the transcript is complete; use Retry once the AI model is configured")
+                "server — the transcript above is complete")
         try:
             if not self._local_llm:
                 self._local_llm = OllamaProvider(self.cfg)

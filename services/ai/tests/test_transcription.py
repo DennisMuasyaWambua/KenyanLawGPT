@@ -207,3 +207,88 @@ def test_recording_hotwords_come_before_the_configured_vocabulary():
 
     assert _join_hotwords("Grace Wanjiru, Milimani", " ELRC ") == "Grace Wanjiru, Milimani, ELRC"
     assert _join_hotwords("", "") == ""
+
+
+def test_allowed_languages_restricts_every_detection():
+    """Per-window detection (faster-whisper's multilingual mode) takes the top
+    language from the CTranslate2 model; the wrapper must never let an
+    unrelated language win, and must keep Whisper's ranking among the rest."""
+    import types
+
+    from app.transcription import _AllowedLanguages
+
+    inner = types.SimpleNamespace(
+        detect_language=lambda enc: [[("<|yo|>", 0.5), ("<|sw|>", 0.3), ("<|en|>", 0.2)],
+                                     [("<|en|>", 0.7), ("<|sw|>", 0.1), ("<|so|>", 0.05)]],
+        is_multilingual=True)
+    wrapped = _AllowedLanguages(inner, ["en", "sw"])
+    seen = wrapped.track()
+    out = wrapped.detect_language("encoder-output")
+    assert [r[0][0] for r in out] == ["<|sw|>", "<|en|>"]
+    assert abs(out[0][0][1] - 0.6) < 1e-9 and abs(sum(p for _, p in out[0]) - 1) < 1e-9
+    assert all(tok in ("<|en|>", "<|sw|>") for r in out for tok, _ in r)
+    assert seen == {"sw", "en"}
+    assert wrapped.is_multilingual is True  # everything else passes through
+
+
+def _fake_whisper(monkeypatch, calls, windows=()):
+    """A fake faster-whisper whose transcribe() runs one per-window language
+    detection per entry in ``windows`` (each the top language that window's
+    encoder output would score), like multilingual mode does."""
+    import sys
+    import types
+
+    class Inner:
+        is_multilingual = True
+
+        def __init__(self):
+            self.queue = list(windows)
+
+        def detect_language(self, enc):
+            top = self.queue.pop(0)
+            return [[(f"<|{top}|>", 0.6), ("<|yo|>", 0.3), ("<|en|>" if top != "en" else "<|sw|>", 0.1)]]
+
+    class FakeModel:
+        def __init__(self, *a, **kw):
+            self.model = Inner()
+
+        def transcribe(self, samples, **kw):
+            calls.append(kw)
+            if kw.get("multilingual"):
+                for _ in windows:
+                    self.model.detect_language("encoder-output")
+            seg = types.SimpleNamespace(text=" Habari, good morning.", words=None)
+            return iter([seg]), types.SimpleNamespace(language="sw")
+
+        def detect_language(self, samples, **kw):
+            return "sw", 0.8, [("sw", 0.8), ("en", 0.2)]
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel))
+    monkeypatch.setitem(sys.modules, "faster_whisper.audio",
+                        types.SimpleNamespace(decode_audio=lambda *a, **k: [0.1] * 16000))
+
+
+def test_code_switching_redetects_language_per_window(monkeypatch):
+    calls = []
+    _fake_whisper(monkeypatch, calls, windows=("sw", "en", "sw"))
+    from app.transcription import FasterWhisperProvider
+
+    result = FasterWhisperProvider(Config())._run(b"\x00" * 10, "meeting.webm")
+    assert calls[0]["multilingual"] is True
+    assert calls[0]["language"] == "sw"  # first window's language
+    assert result.language == "sw+en"   # the meeting switched languages
+
+
+def test_code_switching_off_when_pinned_or_disabled(monkeypatch):
+    calls = []
+    _fake_whisper(monkeypatch, calls)
+    from app.transcription import FasterWhisperProvider
+
+    cfg = Config()
+    cfg.transcribe_code_switch = False
+    FasterWhisperProvider(cfg)._run(b"\x00" * 10, "a.webm")
+    cfg = Config()
+    cfg.transcribe_language = "en"
+    FasterWhisperProvider(cfg)._run(b"\x00" * 10, "b.webm")
+    assert [c["multilingual"] for c in calls] == [False, False]
+    assert calls[1]["language"] == "en"

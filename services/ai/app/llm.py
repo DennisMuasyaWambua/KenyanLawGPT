@@ -371,8 +371,9 @@ class MockProvider:
         body = prompt.split("--- CONTEXT ---", 1)[1] if "--- CONTEXT ---" in prompt else prompt
         body = body.split("--- END CONTEXT ---", 1)[0]
         blocks = re.split(r"(?m)^(?=\[\d+\] \()", body.strip())
-        out = ["_Offline mode: no AI model is configured, so these are the most relevant passages "
-               "found, not a written answer. Set ANTHROPIC_API_KEY for a full cited answer._", ""]
+        out = ["_Offline mode: the AI model is not available right now, so these are the most "
+               "relevant passages found, not a written answer. Ask your administrator to "
+               "configure the AI model for full cited answers._", ""]
         shown = 0
         for blk in blocks:
             m = re.match(r"\[(\d+)\] \(([^)]*)\) ([^\n]*)\n?(.*)", blk.strip(), re.S)
@@ -464,6 +465,14 @@ def _ollama_reachable(cfg: Config) -> bool:
         return False
 
 
+def _gmi_usable(cfg: Config) -> bool:
+    """GMI is auto-selected only when it can actually be called: a key is set
+    and the synthetic-data gate (see GMICloudProvider._guard_synthetic) is open."""
+    if not cfg.gmi_cloud_api_key:
+        return False
+    return cfg.env == "prod" or not cfg.gmi_synthetic_only or cfg.gmi_synthetic_data_ok
+
+
 def _build_named(cfg: Config, name: str) -> LLMProvider:
     """Construct a provider by explicit name (no 'auto' resolution)."""
     if name == "anthropic":
@@ -481,9 +490,13 @@ def _make_primary(cfg: Config) -> LLMProvider:
     # Explicit selection wins.
     if cfg.llm_provider in ("anthropic", "ollama", "gmi", "mock"):
         return _build_named(cfg, cfg.llm_provider)
-    # auto: Claude if a key is present, else a reachable local Ollama, else mock.
+    # auto: Claude if a key is present, else GMI Cloud if a key is present and
+    # its data gate allows real calls, else a reachable local Ollama, else mock.
     if cfg.anthropic_api_key:
         return AnthropicProvider(cfg)
+    if _gmi_usable(cfg):
+        log().info("auto LLM: using GMI Cloud (model %s)", cfg.gmi_cloud_model)
+        return GMICloudProvider(cfg)
     if _ollama_reachable(cfg):
         log().info("auto LLM: using local Ollama at %s (model %s)", cfg.ollama_base_url, cfg.ollama_model)
         return OllamaProvider(cfg)

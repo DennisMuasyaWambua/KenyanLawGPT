@@ -30,7 +30,7 @@ from minio.error import S3Error
 from .config import Config
 from .db import tenant_tx
 from .diarization import format_transcript
-from .llm import GMICloudProvider, OllamaProvider
+from .llm import GMICloudProvider, OllamaProvider, _ollama_reachable
 from .tenancy import validate_tenant_id
 from . import transcript_cleanup
 from .transcription import LazyTranscriber, TranscriptionProvider
@@ -151,6 +151,18 @@ def _extract_json(text: str) -> str:
         except Exception:
             return candidate
     return t
+
+
+def _user_error(exc: Exception) -> str:
+    """What the advocate sees on a failed recording. Storage errors carry
+    bucket names, object keys and request ids, which mean nothing to them (the
+    full error is in the log)."""
+    if isinstance(exc, S3Error):
+        if exc.code in ("NoSuchKey", "NoSuchObject"):
+            return ("the audio file was not found in storage — if this recording is still saved on "
+                    "the device that made it, open Recordings there to upload it again")
+        return "file storage could not be reached — use Retry in a few minutes"
+    return (str(exc) or exc.__class__.__name__)[:500]
 
 
 class RecordingProcessor:
@@ -301,8 +313,7 @@ class RecordingProcessor:
                      result.language, len({u["speaker"] for u in segments}))
         except Exception as exc:  # noqa: BLE001
             log.exception("recording %s failed", rec_id)
-            await self._update(tenant_id, rec_id, status="failed",
-                               error=(str(exc) or exc.__class__.__name__)[:500])
+            await self._update(tenant_id, rec_id, status="failed", error=_user_error(exc))
 
     async def _claim_attempt(self, tenant_id: str, rec_id: str) -> int:
         """Record that processing is starting and return the attempt number. It is
@@ -410,6 +421,15 @@ class RecordingProcessor:
             except Exception as exc:  # noqa: BLE001
                 log.warning("recording notes via GMI Cloud failed, using local model: %s", exc)
                 note = f"notes were written by the on-box model because GMI Cloud failed ({exc})"[:500]
+        real_ollama = self._local_llm is None or isinstance(self._local_llm, OllamaProvider)
+        if real_ollama and not await asyncio.to_thread(_ollama_reachable, self.cfg):
+            # No on-box model to fall back to: say so plainly instead of
+            # surfacing a socket error ("Temporary failure in name resolution").
+            log.warning("recording notes skipped: no AI model is reachable (GMI not configured, "
+                        "Ollama at %s not answering)", self.cfg.ollama_base_url)
+            return "", (note + "; " if note else "") + (
+                "meeting notes could not be written because no AI model is available on this "
+                "server — the transcript is complete; use Retry once the AI model is configured")
         try:
             if not self._local_llm:
                 self._local_llm = OllamaProvider(self.cfg)

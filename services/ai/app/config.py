@@ -128,6 +128,12 @@ class Config:
     # English/Swahili being misdetected as an unrelated language.
     transcribe_languages: list[str] = field(default_factory=lambda: [
         c.strip().lower() for c in _env("TRANSCRIBE_LANGUAGES", "en,sw").split(",") if c.strip()])
+    # Code-switching: re-detect the language for every ~30 s window (limited to
+    # TRANSCRIBE_LANGUAGES) instead of fixing one language for the whole
+    # recording from its first 30 s. With one fixed language Whisper translates
+    # the other language's passages instead of transcribing them. Costs no extra
+    # encoder pass. Ignored when TRANSCRIBE_LANGUAGE pins a language.
+    transcribe_code_switch: bool = field(default_factory=lambda: _env_bool("TRANSCRIBE_CODE_SWITCH", True))
     # Optional domain vocabulary to bias recognition (e.g. "Milimani, ELRC, plaint").
     transcribe_hotwords: str = field(default_factory=lambda: _env("TRANSCRIBE_HOTWORDS", ""))
     transcribe_base_url: str = field(default_factory=lambda: _env("TRANSCRIBE_BASE_URL", "https://api.openai.com/v1"))

@@ -78,6 +78,12 @@ func main() {
 	}
 	r := gin.New()
 	r.Use(gin.Recovery())
+	// Only the host nginx (reached through the docker bridge) may set the
+	// client address. Trusting every proxy let any caller spoof
+	// X-Forwarded-For and dodge the per-IP limits (e.g. on firm signup).
+	if err := r.SetTrustedProxies([]string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128"}); err != nil {
+		log.Warn("set trusted proxies failed", "err", err)
+	}
 
 	srv := &handlers.Server{
 		DB: database, Cfg: cfg, RDB: rdb, AI: ai, Store: store,

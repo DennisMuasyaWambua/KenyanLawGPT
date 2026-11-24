@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -71,6 +72,39 @@ class MockTranscriptionProvider:
         )
 
 
+class _AllowedLanguages:
+    """Wraps the CTranslate2 Whisper model so every language detection —
+    whole-file and per-window (faster-whisper's ``multilingual`` mode) — only
+    chooses among the firm's languages. faster-whisper's per-window detection
+    takes the top language out of ~100; on Kenyan accents that is regularly an
+    unrelated one, after which the window is transcribed in that language.
+    Whisper's own ranking is kept, renormalised over the allowed languages."""
+
+    def __init__(self, model, allowed: list[str]) -> None:
+        self._model = model
+        self._allowed = {f"<|{c}|>" for c in allowed}
+        self._seen = threading.local()
+
+    def detect_language(self, *args, **kwargs):
+        out = []
+        for langs in self._model.detect_language(*args, **kwargs):
+            kept = [(tok, p) for tok, p in langs if tok in self._allowed] or langs
+            total = sum(p for _, p in kept) or 1.0
+            out.append([(tok, p / total) for tok, p in kept])
+            seen = getattr(self._seen, "langs", None)
+            if seen is not None:
+                seen.add(out[-1][0][0][2:-2])
+        return out
+
+    def track(self) -> set[str]:
+        """Start recording the languages chosen on this thread; returns the set."""
+        self._seen.langs = set()
+        return self._seen.langs
+
+    def __getattr__(self, name):
+        return getattr(self._model, name)
+
+
 class FasterWhisperProvider:
     """Local Whisper via faster-whisper (CTranslate2). Audio never leaves the
     host — the right default for privileged client recordings. Language is
@@ -83,6 +117,11 @@ class FasterWhisperProvider:
         # Use every core explicitly (CTranslate2's default can under-subscribe).
         self._model = WhisperModel(cfg.whisper_model, device="cpu", compute_type="int8",
                                    cpu_threads=os.cpu_count() or 4)
+        self._langs: _AllowedLanguages | None = None
+        inner = getattr(self._model, "model", None)  # the CTranslate2 Whisper model
+        if inner is not None and len(cfg.transcribe_languages) > 1:
+            self._langs = _AllowedLanguages(inner, cfg.transcribe_languages)
+            self._model.model = self._langs
         self._diarizer = None
         self._diarizer_built = False
 
@@ -138,8 +177,13 @@ class FasterWhisperProvider:
         if len(samples) == 0:
             return TranscriptResult(text="", language="", provider="faster-whisper")
         language = self._pick_language(samples)
+        code_switch = (self._langs is not None and self._cfg.transcribe_code_switch
+                       and self._cfg.transcribe_language in ("", "auto"))
         opts = dict(
             language=language,
+            # Code-switched meetings (English <-> Swahili): each window gets its
+            # own language, chosen among TRANSCRIBE_LANGUAGES (see _AllowedLanguages).
+            multilingual=code_switch,
             vad_filter=True,  # never off: see below
             beam_size=max(1, self._cfg.whisper_beam_size),
             # Conditioning on the previous window is what lets Whisper fall
@@ -158,6 +202,7 @@ class FasterWhisperProvider:
             # (phantom "Thank you." etc. during pauses in a meeting).
             opts["word_timestamps"] = True
             opts["hallucination_silence_threshold"] = 2.0
+        seen = self._langs.track() if code_switch else set()
         segments, info = self._model.transcribe(samples, **opts)
         segments = list(segments)
         text = " ".join(seg.text.strip() for seg in segments).strip()
@@ -171,6 +216,9 @@ class FasterWhisperProvider:
             segments = list(segments)
             text = " ".join(seg.text.strip() for seg in segments).strip()
         utterances = self._speakers(samples, segments, num_speakers) if diarize and text else []
+        if len(seen) > 1:
+            # e.g. "en+sw": the meeting switched languages.
+            language = "+".join(sorted(seen, key=lambda c: c != language))
         return TranscriptResult(text=text, language=language or getattr(info, "language", "") or "",
                                 provider="faster-whisper", segments=utterances)
 
